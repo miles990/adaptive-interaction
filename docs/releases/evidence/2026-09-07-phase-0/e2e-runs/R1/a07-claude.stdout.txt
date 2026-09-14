@@ -1,0 +1,32 @@
+{"t": "2026-09-07T09:11:50.696Z", "mono": 0.003, "k": "daemon-spawned", "tag": "d1", "pid": 41215}
+{"t": "2026-09-07T09:11:50.958Z", "mono": 0.266, "k": "daemon-ready", "tag": "d1"}
+{"t": "2026-09-07T09:11:51.371Z", "mono": 0.678, "k": "status-before", "status": 200, "emergencyStop": false}
+{"t": "2026-09-07T09:11:51.635Z", "mono": 0.942, "k": "create", "status": 200, "state": "created", "id": "asession-0be8d3e6-580c-415c-829f-94de61acea85"}
+{"t": "2026-09-07T09:11:51.637Z", "mono": 0.944, "k": "task-sent", "status": 200}
+{"t": "2026-09-07T09:11:51.638Z", "mono": 0.946, "k": "state", "state": "created"}
+{"t": "2026-09-07T09:12:53.913Z", "mono": 63.22, "k": "state", "state": "active"}
+{"t": "2026-09-07T09:12:53.962Z", "mono": 63.269, "k": "pre-estop", "state": "active", "children": ["41483 41215       01:02 S    claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {"]}
+{"t": "2026-09-07T09:12:56.971Z", "mono": 66.278, "k": "emergency-stop", "status": 200, "resp": {"actor": "api", "characterEmergency": [], "reason": null, "sensors": {"devices": [], "local": {"microphone": "idle"}, "stopped": true, "uncertain": false}, "stoppedActions": 0, "stoppedActuators": 14, "totalActuators": 14, "unconfirmedActuators": []}}
+{"t": "2026-09-07T09:12:57.978Z", "mono": 67.285, "k": "session-after-estop", "status": 200, "state": "cancelled", "detail": "cancelled (was Active)"}
+{"t": "2026-09-07T09:12:57.979Z", "mono": 67.286, "k": "status-after-estop", "emergencyStop": true}
+{"t": "2026-09-07T09:12:58.024Z", "mono": 67.331, "k": "children-after-estop", "children": []}
+{"t": "2026-09-07T09:13:00.075Z", "mono": 69.382, "k": "children-after-estop-3s", "children": []}
+{"t": "2026-09-07T09:13:00.076Z", "mono": 69.383, "k": "from-session-after-estop", "count": 1}
+{"t": "2026-09-07T09:13:00.077Z", "mono": 69.384, "k": "create-while-estopped", "status": 403, "resp": {"error": {"code": "policy_blocked", "message": "policy blocked: emergency stop engaged; no new agent sessions"}}}
+{"t": "2026-09-07T09:13:00.078Z", "mono": 69.385, "k": "agent-clear-attempt", "status": 403, "resp": {"error": {"code": "token_scope_forbidden", "message": "agent token cannot perform this human/control-center operation"}}}
+{"t": "2026-09-07T09:13:00.079Z", "mono": 69.386, "k": "status-via-agent-token", "status": 200, "emergencyStop": true}
+{"t": "2026-09-07T09:13:00.079Z", "mono": 69.386, "k": "sigterm-daemon", "pid": 41215}
+{"t": "2026-09-07T09:13:00.083Z", "mono": 69.39, "k": "daemon-exited", "code": -15}
+{"t": "2026-09-07T09:13:01.588Z", "mono": 70.896, "k": "ready-after-stop", "ready": false}
+{"t": "2026-09-07T09:13:01.590Z", "mono": 70.897, "k": "daemon-spawned", "tag": "d2", "pid": 51232}
+{"t": "2026-09-07T09:13:01.847Z", "mono": 71.154, "k": "daemon-ready", "tag": "d2"}
+{"t": "2026-09-07T09:13:02.254Z", "mono": 71.561, "k": "status-after-restart", "status": 200, "emergencyStop": true}
+{"t": "2026-09-07T09:13:02.255Z", "mono": 71.562, "k": "session-after-restart", "status": 200, "state": "cancelled", "detail": "cancelled (was Active)"}
+{"t": "2026-09-07T09:13:02.256Z", "mono": 71.563, "k": "create-after-restart", "status": 403, "resp": {"error": {"code": "policy_blocked", "message": "policy blocked: emergency stop engaged; no new agent sessions"}}}
+{"t": "2026-09-07T09:13:02.258Z", "mono": 71.565, "k": "human-clear", "status": 200, "resp": {"cleared": true}}
+{"t": "2026-09-07T09:13:02.259Z", "mono": 71.566, "k": "status-after-clear", "emergencyStop": false}
+{"t": "2026-09-07T09:13:02.513Z", "mono": 71.82, "k": "create-after-clear", "status": 200, "state": "created", "id": "asession-a4f7245f-c6f4-4a61-b4c9-be9e2f2c9fb0"}
+{"t": "2026-09-07T09:13:02.516Z", "mono": 71.823, "k": "close-probe-session", "status": 200, "state": "closed"}
+{"t": "2026-09-07T09:13:02.564Z", "mono": 71.871, "k": "children-final", "children": []}
+{"t": "2026-09-07T09:13:02.568Z", "mono": 71.875, "k": "daemon-stopped", "tag": "d2"}
+RESULT {"estopStatus": true, "afterRestart": true, "sessionAfterEstop": "cancelled"}

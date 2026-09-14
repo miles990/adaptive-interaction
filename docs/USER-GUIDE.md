@@ -113,7 +113,50 @@ interact-ai stop --all            # 軟停：取消所有未完成動作
 2. `requestedParameters` vs `effectiveBoundedParameters`——AI 要的 vs 管家放行的
 3. `verification.verdict`——`observed`（環境確認）＞`acknowledged-only`（僅驅動回報）＞`uncertain`（不知道，老實說）
 
-## 4. 配方：教系統自己看時機做事
+## 4. 委派給 Agent：Codex／Claude Code
+
+Agent Session 是**有租約、有預算、有範圍**的委派工作——不是身分，結束時同意、憑證與能力一起失效。
+子指令是 `interact-ai agents …`（複數）：
+
+```bash
+interact-ai agents providers                                  # 這台機器裝了哪些本機 Agent（codex／claude-code）：版本、登入狀態
+interact-ai agents route --kind code                           # 這種任務建議交給誰（決定性路由，不是 AI 自己選）
+
+interact-ai agents create --agent claude-code --workdir ~/proj --ttl 120 --max-cost 0.5
+                                                                # --agent 只認 codex／claude-code 兩個字面值才會接上真子程序；
+                                                                # 預設唯讀，--allow-write 才允許改檔（只限這個 workdir，需要你明確同意）
+interact-ai agents sessions                                   # 列出所有 session（狀態／租約／預算）
+interact-ai agents show <id>                                  # 看單一 session
+
+interact-ai agents send <id> --kind task --body '{"text":"讀 NOTES.md，回答第一個標題"}'
+interact-ai agents messages <id> --direction from-session      # 收信箱（agent 說了什麼）
+interact-ai agents approve <id> <requestId> --yes               # 核可 agent 卡住等你點頭的請求（預設拒絕）
+interact-ai agents interrupt <id>                              # 中止目前這一輪，session 保持開著
+interact-ai agents renew <id> --extra-minutes 30                # 租約快到期前續租
+interact-ai agents resume <id>                                 # 用同一個 provider session/thread 開一個新的租約 session；
+                                                                 # 續開絕不會放寬範圍：寫入旗標要重新給，不會沿用舊的
+interact-ai agents close <id> --reason done                    # 關閉 session（可附 handoff JSON）
+interact-ai agents verify <id> --note "看過輸出，確認正確"       # 人類驗證 claimed-completed（綠勾只在這裡出現）
+```
+
+**狀態誠實階梯**（`AgentSessionState`）：`created → active →`（可能）`waiting-for-input` / `waiting-for-consent →`
+`claimed-completed`（agent 自己說完成了，**不是**驗證）`→` 你 `verify` 之後才是驗證過；也可能落在
+`failed`／`timed-out`／`cancelled`／`expired`／`unknown`（程序結束但沒有任何聲稱也沒有可觀察的錯誤——誠實地不冒充成功或失敗）。
+`interact-ai events` 的 SSE 流另外會看到 `fetched`／`working` 這類更細的傳遞階段字樣，那是 gateway 的過場提示，
+不是 `agents show` 會回的正式狀態值。
+**已知落差**：`waiting-for-input`（agent 卡住等你補充説明）目前沒有任何連接器會自動送出這個狀態——
+Claude Code 的 stream-json 與目前鎖定的 Codex app-server schema 都沒有對應訊號；API／CLI 可以回報它，
+但不會自動偵測到，這是程式碼裡標記過的已知誠實落差（`crates/interaction-core/src/agent.rs`
+`AgentSessionState::WaitingForInput` 的文件註解）。
+
+> 以上這一整組 `agents` 指令要用**人類 token**（`state/api-token`）。限權 agent token
+> （`--agent-scope`）連讀取 `/v1/agent-sessions` 都被擋（`crates/interaction-api/src/lib.rs`
+> `agent_request_allowed`），只能用來讀其他狀態、呼叫唯讀 canonical tools、和往安全方向停止
+> （`emergency-stop`／`stop-all`／`sensors/stop`）；建立、核可、續租、關閉、verify 一律不行。
+> 一個 session 內部真正委派出去的子任務用的是另一種 session-scoped capability token
+> （`INTERACT_AI_SESSION_TOKEN`），範圍鎖在那一個 session，本手冊不展開。
+
+## 5. 配方：教系統自己看時機做事
 
 配方＝「條件到了就自動做」的宣告式 YAML。範本：
 
@@ -159,7 +202,7 @@ interact-ai recipes disable my-recipe
 配方防呆機制（都是內建，不用設）：同一事件觸發過就被**消耗**，不會重複觸發；
 冷卻與次數預算**跨重啟**保留；受器彼此矛盾時不自主行動。
 
-## 5. 調整政策：系統的憲法
+## 6. 調整政策：系統的憲法
 
 ```bash
 interact-ai policy show
@@ -178,7 +221,7 @@ interact-ai policy set '{"channelLimits": {"haptic": {"maxMagnitude": 0.5, "sess
 
 政策存在 `~/.adaptive-interaction/config/policies/policy.yaml`——直接改檔案也行（File=Truth）。
 
-## 6. 看發生了什麼
+## 7. 看發生了什麼
 
 ```bash
 interact-ai outbox              # AI 說過的話（conversation / web-ui）
@@ -188,7 +231,7 @@ interact-ai audit               # 稽核軌跡（誰做了什麼敏感操作）
 interact-ai status              # Runtime 總覽
 ```
 
-## 7. 🔴 緊急停止
+## 8. 🔴 緊急停止
 
 ```bash
 interact-ai emergency-stop --reason "不對勁"
@@ -203,7 +246,7 @@ interact-ai emergency-stop --clear
 
 三個入口效果完全相同：CLI（上面）、API（`POST /v1/emergency-stop`）、桌面 app 右上角紅鈕。
 
-## 8. 疑難排解速查
+## 9. 疑難排解速查
 
 | 訊息／現象 | 意思 | 你要做的 |
 |---|---|---|

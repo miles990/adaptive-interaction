@@ -1,0 +1,194 @@
+[
+ {
+  "step": "original-record",
+  "method": "GET",
+  "path": "/v1/agent-sessions/asession-8a415a51-9e1b-4fd5-a08c-4dc73cb99f83",
+  "body": null,
+  "status": 200,
+  "resp": {
+   "agentId": "claude-code",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.19381275,
+    "spentMessages": 2
+   },
+   "claimId": "claim-07fb2fe9-d8da-4135-95df-bd6e756b9bfc",
+   "closedAt": "2026-09-07T09:08:55.449881Z",
+   "consentScope": [],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:04:03.786038Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請在目前工作目錄建立檔案 hello.txt，內容為 hi。",
+      "truncated": false
+     },
+     "bundleId": "bundle-7fa67784-3aaa-4b30-ab43-3113bdfa8244",
+     "contentHash": "630a20e750c9f946e93922dfb9eea7c7e73eb51b489ddeaaeb1ecc7246815801",
+     "generatedAt": "2026-09-07T09:04:03.786226Z",
+     "messageId": "msg-asession-8a415a51-9e1b-4fd5-a08c-4dc73cb99f83-1"
+    }
+   ],
+   "createdAt": "2026-09-07T09:04:03.434816Z",
+   "dataScope": [],
+   "detail": "runtime restarted",
+   "label": "E0-10-readonly-write-claude",
+   "lease": {
+    "expiresAt": "2026-09-07T09:24:03.434816Z",
+    "issuedAt": "2026-09-07T09:04:03.434816Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "providerSessionId": "d9fbce1a-7840-4846-820e-f834795c18c2",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/b-claude/workdir",
+   "sessionId": "asession-8a415a51-9e1b-4fd5-a08c-4dc73cb99f83",
+   "state": "expired",
+   "toolScope": []
+  },
+  "t": "2026-09-07T09:09:12Z"
+ },
+ {
+  "step": "resume-allowwrite-true",
+  "method": "POST",
+  "path": "/v1/agent-sessions",
+  "body": {
+   "agentId": "claude-code",
+   "label": "E0-10-resume-allowwrite",
+   "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/b-claude/workdir",
+   "ttlMinutes": 20,
+   "maxMessages": 40,
+   "allowWrite": true,
+   "toolScope": [],
+   "consentScope": [],
+   "resumeProviderSessionId": "d9fbce1a-7840-4846-820e-f834795c18c2"
+  },
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "consent_required",
+    "message": "consent required: write-enabled session 缺少 toolScope workspace.write"
+   }
+  },
+  "t": "2026-09-07T09:09:12Z"
+ },
+ {
+  "step": "resume-wider-scopes",
+  "method": "POST",
+  "path": "/v1/agent-sessions",
+  "body": {
+   "agentId": "claude-code",
+   "label": "E0-10-resume-widerscope",
+   "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/b-claude/workdir",
+   "ttlMinutes": 20,
+   "maxMessages": 40,
+   "allowWrite": true,
+   "toolScope": [
+    "workspace.write"
+   ],
+   "consentScope": [
+    "agent-session:workspace-write"
+   ],
+   "resumeProviderSessionId": "d9fbce1a-7840-4846-820e-f834795c18c2"
+  },
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "policy_blocked",
+    "message": "policy blocked: 接續上次的工作不得放寬可用工具：workspace.write 不在上次的授權範圍裡"
+   }
+  },
+  "t": "2026-09-07T09:09:12Z"
+ },
+ {
+  "step": "resume-wider-ttl-only",
+  "method": "POST",
+  "path": "/v1/agent-sessions",
+  "body": {
+   "agentId": "claude-code",
+   "label": "E0-10-resume-widerttl",
+   "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/b-claude/workdir",
+   "ttlMinutes": 120,
+   "maxMessages": 40,
+   "allowWrite": false,
+   "toolScope": [],
+   "consentScope": [],
+   "resumeProviderSessionId": "d9fbce1a-7840-4846-820e-f834795c18c2"
+  },
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "policy_blocked",
+    "message": "policy blocked: 接續上次的工作不得放寬時間上限（上次 20 分鐘，這次要求 120 分鐘）"
+   }
+  },
+  "t": "2026-09-07T09:09:12Z"
+ },
+ {
+  "step": "resume-wider-msgs-only",
+  "method": "POST",
+  "path": "/v1/agent-sessions",
+  "body": {
+   "agentId": "claude-code",
+   "label": "E0-10-resume-widermsgs",
+   "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/b-claude/workdir",
+   "ttlMinutes": 20,
+   "maxMessages": 500,
+   "allowWrite": false,
+   "toolScope": [],
+   "consentScope": [],
+   "resumeProviderSessionId": "d9fbce1a-7840-4846-820e-f834795c18c2"
+  },
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "policy_blocked",
+    "message": "policy blocked: 接續上次的工作不得放寬訊息上限（上次 40，這次 200）"
+   }
+  },
+  "t": "2026-09-07T09:09:12Z"
+ },
+ {
+  "step": "resume-omit-ttl",
+  "method": "POST",
+  "path": "/v1/agent-sessions",
+  "body": {
+   "agentId": "claude-code",
+   "label": "E0-10-resume-omitttl",
+   "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/b-claude/workdir",
+   "maxMessages": 40,
+   "allowWrite": false,
+   "toolScope": [],
+   "consentScope": [],
+   "resumeProviderSessionId": "d9fbce1a-7840-4846-820e-f834795c18c2"
+  },
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "policy_blocked",
+    "message": "policy blocked: 接續上次的工作不得放寬時間上限（上次 20 分鐘，這次要求 120 分鐘）"
+   }
+  },
+  "t": "2026-09-07T09:09:12Z"
+ }
+]

@@ -184,6 +184,18 @@ Utility = 預期效益 − 干擾成本 − 風險 − 金錢/資源成本 − �
 - 測試：以 `docs/acceptance-evidence.md` v0.5 最新章節（Phase 9）與 `docs/releases/v0.5.0-test-matrix.md`
   的實跑數字為準；詳見 `docs/acceptance-evidence.md` v0.5 章節與 `docs/v05-recovery-matrix.md`。
 
+## v0.8.0（已於 2026-09-06 發布，tag `v0.8.0` → `1fa69b8`）
+
+SemanticState 由 `interaction-session` 匯出獨立 schema＋TS／Swift codegen，production consumer 在原子套用前驗證完整
+state（raw JSON 與 renderer projection 分離）。可協商 `aip.applied/1`：Serial／Mobile production binding 用有界回執
+tracker，綁定當前連線／成員／session-epoch-revision-hash-message／一次性 challenge，同步卡分別呈現能力、傳送與對端
+套用自報（**回執不代表畫面或物理效果已驗證**，legacy peer 保持未確認相容模式）。Runtime 新增跨程序 SQLite sensor
+journal，跨程序保留未知停止摘要、來源世代與連線 scope，bounded overflow 可見。陪伴預設恢復改由 Tauri application
+service 擁有（UUID、兩側獨立 revision、條件重送與持久化 marker）。新增五種 production 擴充演練、native Swift
+runner、真 Tauri 設定／手機模擬器／工作取消走查。MQTT 有既有 broker 模擬器 rebind（`mqtt_rebind_loop.rs`），
+MQTT／BLE 專屬 `aip.applied` 閉環尚未驗；真 iPhone、ESP32 真板本輪仍未取得驗收。逐條見 `CHANGELOG.md` `[0.8.0]`；
+證據等級見 `docs/releases/v0.8.0-final-report.md`、已知限制見 `docs/releases/v0.8.0-known-limitations.md`。
+
 ## v0.7.0（已於 2026-09-06 發布，tag `v0.7.0` → `630b429`）
 
 跨平台接收決策表（三端同一份 `receiveDecisions`／`canonicalVectors` fixtures）、裝置線 v1.2 分片與成員 `syncProfile`、宣告式裝置免重啟 rebind 與未解決停止三層、陪伴預設交易化恢復、一般模式任務分類與真 Tauri 走查、AI 可維護性入口（`AGENTS.md`／`docs/MAINTAINERS-MAP.md`／`docs/aip/deprecation-ledger.md`／`scripts/tests/architecture-checks.sh`）。逐條見 `CHANGELOG.md` `[0.7.0]`；證據等級見 `docs/releases/v0.7.0-final-report.md` §8。

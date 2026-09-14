@@ -1,0 +1,536 @@
+{
+ "key": "F",
+ "found": {
+  "dimension": "F",
+  "rows": [
+   {
+    "id": "F-01",
+    "need": "配對與可信身分：pairing code、HMAC challenge、TLS 指紋釘選、每機 token（只存 sha256）、撤銷、identityStrength=paired-token 在 Character Session 的呈現",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "simulator",
+     "integration",
+     "fixture",
+     "browser",
+     "real-iphone"
+    ],
+    "owner": "Runtime crates/interaction-runtime/src/mobile.rs（wss server、配對、token、撤銷）；crates/interaction-runtime/src/character_session.rs（identity strength 常數與成員身分投影）；iOS ConnectionManager.swift / PairingStore.swift / PairingView.swift",
+    "entryPath": "CLI: crates/interaction-cli/src/main.rs:210-213,478 (Mobile{Status|Pair|Revoke|StopSensors|Test|BleScan}) → commands.rs:1066-1092 → HTTP. HTTP: crates/interaction-api/src/lib.rs:243-254 (/v1/mobile/status, POST /v1/mobile/pairing-session, DELETE /v1/mobile/devices/{id}, …) → routes.rs:2440-2453 → Runtime::mobile_pairing_begin (mobile.rs:2633-2670) / mobile_status (2672-2728) / mobile_revoke (2730-2795). Tauri IPC: apps/interaction-desktop/src-tauri/src/lib.rs:1635-1650 (mobile_status/pairing_begin/revoke via rt(), embedded only; external-daemon mode the WebView switches to HTTP transport.ts:33-37,310-316). UI: apps/interaction-desktop/src/pages/CapabilitiesHub.tsx:672-800 (配對面板, api.mobilePairingBegin 789, pairingBurnedAt 645-700), pages/connect/PhoneDeviceCard.tsx:380-405 (測試連接／停止感測／移除). iOS: PairingView.swift:132-198 (QR VisionKit 或手動貼上) → ConnectionManager.startPairing:408-419 → handleSocketOpen:636-644 pair-request → handleIncoming pairChallenge:702-708 (hmacHex 967-971) → paired:710-727 → PairingStore.save:59-78 (Keychain). 重連 auth: handleSocketOpen:642-644 auth{deviceId,token}. Rust wire handler: mobile.rs:3769-3960.",
+    "contract": "QR payload {v:1,host,port,fp,code} (mobile.rs:2652; Protocol.swift:179-239 PairingPayload.parse v1 only). Wire: pair-request{deviceName,model} → pair-challenge{nonce} → pair-response{hmac=HMAC-SHA256(key=code,msg=nonce)} → paired{deviceId=\"iphone-\"+8hex, deviceToken=64hex} (mobile.rs:3769-3912; Protocol.swift:301-307,479-482); wrong hmac burns the pairing window (mobile.rs:3814-3840). auth{deviceId,token} compared to sha256(token) (mobile.rs:3915-3960; PairedDevice.token_hash 705-715); public fingerprint ≠ verifier (mobile_identity_fingerprint 2022-2033). TLS: self-signed rcgen cert, key 0600 (mobile.rs:2270-2294); iOS pins SHA-256(cert DER) TOFU (PinnedWebSocketDelegate ConnectionManager.swift:212-244). identityStrength: IDENTITY_STRENGTH_PAIRED_TOKEN (character_session.rs:116) reported by MobileOutbound::identity_strength (mobile.rs:138-140) and mapped in member_identity_strength (character_session.rs:1018-1029); DeviceOrigin passed on every aip frame (mobile.rs:4004-4007). /v1/mobile is human-token only (lib.rs:500-501; providers fingerprint redacted for non-human routes.rs:1277-1283). Docs: docs/aip/pairing-security.md §1-§7, docs/aip/transport-bindings.md §0.",
+    "stateOwner": "Runtime MobileBridge.devices (in-memory) + $INTERACT_AI_HOME/state/mobile-devices.json written atomically (mobile.rs:2173-2201), load/quarantine on corruption (2207-2263, status.devicesUnknown 2711-2713); cert/key at state/mobile-cert.der, mobile-key.der (2270-2294); pairing session in-memory, 300 s TTL, single slot (mobile.rs:58, 2636-2640); iOS: Keychain kSecClassGenericPassword/AfterFirstUnlockThisDeviceOnly (PairingStore.swift:46-78), pairing code never persisted (Protocol.swift:187; ConnectionManager.swift:718); auth-fail does not clear Keychain (ConnectionManager.swift:740-749, PairingStore.swift:8).",
+    "existingTests": [
+     "crates/interaction-runtime/tests/mobile_loop.rs::pair helper 168-194 (in-process TLS ws client, fingerprint pin + HMAC)",
+     "mobile_loop.rs::pairing_observation_act_and_estop_loop 626",
+     "mobile_loop.rs::wrong_pairing_code_is_refused_and_session_burned 700",
+     "mobile_loop.rs::token_reconnect_works_until_revoked 734-767",
+     "mobile_loop.rs::revoke_disconnects_live_connection_immediately 773",
+     "mobile_loop.rs::a_peer_that_burns_the_pairing_window_is_visible_to_the_user 1720",
+     "mobile_loop.rs::a_revoke_that_cannot_be_persisted_fails_honestly 1668",
+     "mobile_loop.rs::the_tls_private_key_is_owner_only_and_loose_permissions_are_repaired 2884",
+     "mobile_loop.rs::the_public_device_fingerprint_is_not_the_token_verifier 2914",
+     "mobile_loop.rs::a_failed_auth_is_audited_and_counted 3527",
+     "mobile_loop.rs::a_corrupt_paired_device_list_is_reported_as_unknown_not_as_none 3708",
+     "apps/interaction-desktop/e2e/iphone.spec.ts:78 (fake_iphone 用畫面配對碼配對), :188 (移除＝立刻斷線且再也認證不過)",
+     "scripts/v03-cli-e2e.sh:567-580 (interact-ai mobile pair --json + fake_iphone)",
+     "iOS ProtocolTests.swift (21 XCTest, PairingPayload/handshake 編解碼)",
+     "iOS ConnectionManagerGateTests.swift::testTheInjectedSocketCarriesTheRealHandshake:220, ::testEachSocketGetsItsOwnGenerationAndLateFramesAreDropped:232",
+     "iOS ReconnectHintTests.swift::testTlsMismatchIsNeverReportedAsAddressChange:67, ::testCancelledWithPinningRejectedIsTlsMismatchNotConnectivity:132",
+     "docs/releases/v0.5.0-iphone-device-evidence.md 列「配對（QR／JSON payload、TLS 指紋釘選、HMAC challenge、每機 token）」＝已驗證（真機 iPhone 11 / iOS 26.3.1, 2026-09-03）、「撤銷離線裝置」「撤銷配對（已連線裝置）」＝已驗證（真機）"
+    ],
+    "evidence": [
+     "mobile.rs:1-23 模組不變量（配對碼一次一段 5 分鐘、token 只存 sha256、撤銷即斷線）與程式碼一致：pairing_begin 2633-2670 產生 6 位碼＋QR；handle_conn 3769-3912 HMAC 驗證＋PairedDevice 落地；auth 3915-3960 sha256 比對＋audit mobile.auth-failed",
+     "撤銷路徑 mobile_revoke 2730-2795：先落地（失敗則放回並回 Err）→ mobile_close_connection 2803-2850 取消 token → handler 送 auth-fail{revoked} 3660-3675 → provider Revoked → character_session_leave → 高風險受器強制 disabled",
+     "身分強度：MobileOutbound.identity_strength → \"paired-token\" (mobile.rs:138-140)；device frame 帶 DeviceOrigin{transport:\"iphone\", identity_strength:paired-token} (4004-4007)；character_session.rs:1018-1029 只認三種常數，其他一律 unknown",
+     "iOS：pairing payload 只在記憶體（ConnectionManager.swift:328,718）；TLS 指紋不符→ onFingerprintMismatch → 分類 tlsMismatch，不與位址變更混淆（602-611, 96-99）；auth-fail → .revoked 且 storedAutoConnectIntent=false（740-749）",
+     "iOS 沒有 Bonjour 探索：Info.plist:41-43 宣告 NSBonjourServices 但程式碼無 NWBrowser/NetServiceBrowser（grep 只命中註解 ConnectionManager.swift:153）；host 釘在配對當下",
+     "Tauri：mobile_status/pairing_begin/revoke 只走 rt()（lib.rs:1635-1650，embedded）；sensors_stop/test 有 Backend::External 分支（200-240）；WebView 在 external 模式改走 HTTP（transport.ts:33-37,310-316），所以配對面板在兩種模式都可達",
+     "真機證據僅 docs/releases/v0.5.0-iphone-device-evidence.md（2026-09-03 的 v0.5.0 世代建置）；v0.5.1-iphone-device-evidence.md 記錄 2026-09-04 真機嘗試 blocked（codesign 鑰匙圈授權，0 次執行）；之後 v0.6.0→v0.8.0 無真機執行（v0.8.0-known-limitations.md:8）"
+    ],
+    "limitation": "TOFU 指紋釘選、無 CA；host/port 釘在配對當下、iOS 無 Bonjour 探索 → 桌面換 IP 必須重新配對（真機已確認為限制）；配對碼 6 位、單次錯誤即燒掉整段配對期（防暴力）、同時只有一段配對期；真機證據來自 v0.5.0 建置，之後配對相關程式（原子落地、pairingBurnedAt、failedAuths、mobile_close_connection 收斂）只有 integration／fixture／模擬器證據；Tauri IPC 的 mobile_status/pairing_begin/revoke 在 external-daemon 模式不可用（但 WebView 走 HTTP，實際不受影響——tray／原生路徑若要用需另查）。",
+    "nextAction": "在現行建置（v0.8.0）重跑真機配對／撤銷列（apps/interaction-ios/scripts/device-build.sh + device-acceptance.sh，需人工完成鑰匙圈授權）；評估 iOS 端加 Bonjour 重探索或多 host 候選以承受桌面 IP 變更；確認 tray／原生（非 WebView）是否有呼叫 rt()-only 的 mobile IPC。",
+    "confidence": "high"
+   },
+   {
+    "id": "F-02",
+    "need": "雙向互動及套用回執：AIP frame 雙向（capability／state／event／command／result／query／response）、aip.applied/1 回執、StateAppliedTracker、桌面顯示 stateAppliedCurrent",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "contract",
+     "simulator",
+     "integration",
+     "fixture",
+     "browser"
+    ],
+    "owner": "Runtime mobile.rs（wire 分派、per-connection StateAppliedTracker）＋ character_session.rs（Session Host 接線、DeviceOutbound 登記）＋ crates/interaction-session（安全管線、決策表）＋ crates/interaction-adapter-declarative/src/state_applied.rs（tracker）；iOS SessionClient.swift / SessionReceive.swift / CharacterSemantic.swift / ConnectionManager.swift(SessionTransport)",
+    "entryPath": "手機→桌面：iOS SessionClient.connectionDidConnect:644-670（auth-ok 後送 capability，features.stateApplied=\"aip.applied/1\" SessionClient.swift:199-215）→ ConnectionManager.sendAip:1010-1031（背景閘門＋有界佇列）→ ClientMessage.aip 編碼 Protocol.swift:424-430 → Rust handle_conn \"aip\" mobile.rs:3988-4080 → character_session_device_frame character_session.rs:1566-1729（parse/validate/version/identity → capability join 或 submit 安全管線）→ replies 經 mobile_aip_reply_frame 2035-2045 再送回；capability 成功時 tracker.negotiate (mobile.rs:4008-4029)。桌面→手機：mobile_attach_conn 登記 register_device_outbound (mobile.rs:3483-3487; character_session.rs:971-991) → 廣播經 MobileOutbound::send_aip (mobile.rs:118-124) → send_aip_on_connection 1395-1452（tracker.prepare 加 stateApplied 回執、note_sent \"queued\"）。回執：iOS handleState:895-908 / handleResponse:910 → confirmApplied:976-983（receiptMatchesValidatedState 217-232 逐欄核對 hash/epoch/revision/token）→ sendStateApplied（ConnectionManager.swift:1033-1044）→ {\"type\":\"aip-applied\",\"receipt\"}（Protocol.swift:328-334）→ Rust 3973-3999 acknowledge（要求成員、同一 conn_id、未取消）→ state_applied.rs:195-223；投影 MobileOutbound::state_delivery (mobile.rs:126-132) → session diagnostics stateAppliedCurrent → 桌面 CharacterSyncCard / statusProjection/characterSync.ts。觸摸：SessionClient.touch:833-850 → event character.interaction.touch → applied 時 host 另落一筆 iphone.touch 觀察 (mobile.rs:4069-4080)。Behavior Intent：host command character.behavior.request → iOS handleCommand:1080-1117 → CharacterView 播完才 result{observed}（CharacterView.swift:189-221; SessionClient.intentDidFinishPlaying:865-871）。",
+    "contract": "docs/aip/transport-bindings.md §1（§1.1 手機→host 表、§1.2 host→手機表、§1.3 resume response 形狀）；docs/aip/iphone-companion.md §1-§9；docs/aip/character-session.md §7.2 十六列決策表（Rust receive.rs 權威，iOS SessionReceive.swift 對 manifest.json 45 案例）；state_applied.rs: APPLIED_PROFILE=\"aip.applied/1\", MAX_PENDING_APPLIED=32, APPLIED_TIMEOUT_MS=5000（20-22）、receipt 欄位 26-35、acknowledge 規則 193-223；session gate 步 9 成員只能送 Event/Cancel/Query/Result/Heartbeat/Capability（session.rs:1034-1045）；身分綁定 bind_identity（character_session.rs:1665-1685）；每則 ≤64 KiB、frame ≤128 KiB、30 msg/s（mobile.rs:97-99）。",
+    "stateOwner": "權威語意狀態：Session Host（interaction-session CharacterSession；持久化 JSON 快照 character_session.rs:274-300）。回執追蹤：每條連線的 StateAppliedTracker 在 ConnState (mobile.rs:721-722, 3479-3504)，斷線／被取代即 invalidate（3505-3514；MobileOutbound::state_delivery 126-132 以 close token 判斷）。iOS：SessionSyncLocal（revision/epoch/hash/sessionId）只在記憶體（SessionClient.swift:610-619），換配對即歸零（676-686），App 重啟後 presentation=nil。",
+    "existingTests": [
+     "crates/interaction-runtime/tests/character_session_loop.rs::negotiated_mobile_state_applied_requires_valid_current_connection_and_exact_sent_state 2417-2500+（真 TLS＋程序內模擬手機；錯 hash 拒、對的收、patch 後回執、取代連線即失效）",
+     "character_session_loop.rs::fixture_iphone_touch_updates_state_and_reaches_both_renderers 454; ::duplicate_touch_is_accepted_once_and_never_reapplied 750; ::expired_touch_is_never_applied 781; ::reconnecting_fixture_iphone_resumes_with_patches 1001; ::stale_epoch_resume_gets_a_session_reset_snapshot 1071; ::unauthenticated_and_revoked_devices_never_reach_the_session 1100",
+     "mobile_loop.rs::a_legacy_phone_that_never_negotiates_receives_no_aip_frames 3759",
+     "state_applied.rs #[cfg(test)] 254+（tracker 純函式）",
+     "iOS SessionClientTests.swift (36)、AIPConformanceTests.swift (17, 跨語言 fixtures)、ReceiveDecisionConformanceTests.swift (15, manifest.json 45 案例)、StateHashConformanceTests.swift (3)、CanonicalVectorsTests.swift (5)、SemanticStateConformanceTests.swift (3) — iPhone 17 模擬器 XCTest（README 期望 163）",
+     "apps/interaction-desktop/e2e/character-session.spec.ts:263（配對→套用未確認→摸一下→離線→重連→撤銷）, :275（390px）, :289（緊急停止中觸摸被拒）— fake_iphone fixture",
+     "scripts/v03-cli-e2e.sh:525-600+ Character Session 段（capability negotiated／snapshot／touch applied…，fake_iphone）",
+     "scripts/tests/tauri-mobile-sensor-walkthrough.py（原生 AX＋fake_iphone；主要是感測，不是 applied）"
+    ],
+    "evidence": [
+     "iOS 能力宣告確實帶 stateApplied=aip.applied/1（SessionClient.swift:205），Rust 以 features.stateApplied==APPLIED_PROFILE 協商（mobile.rs:4023-4027）——雙方一致，回執路徑可達",
+     "Rust aip-applied 只在 authed、成員、conn_id 相同且未取消時 acknowledge，並留 audit aip.state-applied{evidence:\"peer-report\"}（mobile.rs:3973-3999）",
+     "出站最後一關 mobile_aip_reply_frame 再 validate/encode/限長（2035-2045）；送不出去 audit aip.outbound-undelivered／refused（4039-4068）",
+     "iOS approval-request/approval-result/event/query/cancel 一律忽略並計數（SessionClient.swift:803-824）；verified 永不由手機產生（session.rs:1017-1022 gate 8）",
+     "docs/releases/v0.8.0-known-limitations.md:8「真 iPhone AIP／applied：needs-environment；本輪無真機執行」；docs/aip/iphone-companion.md §10 真機列＝implemented-unverified"
+    ],
+    "limitation": "applied 是 peer 自報，不是畫面／實體驗證（state_applied.rs:1-2；general-mode-ux `synced` 文案）；只有雙方協商後才有回執，舊 App／未協商成員永遠 unconfirmed；iOS 不送 AIP heartbeat，presence 靠 v1 status（AppLifecycle.swift:43-47；transport-bindings §1.4）；touch 5 秒過期、重連不重播；待播 intent 上限 8；**真 iPhone 上的 AIP／applied 零執行**；本地權威狀態不跨 App 重啟。",
+    "nextAction": "真機執行一次 capability→snapshot→aip-applied→patch→applied 閉環並記錄 diagnostics.stateAppliedCurrent；評估 iOS 補送 AIP heartbeat（契約內存活證明）；文件維持「peer-report」措辭。",
+    "confidence": "high"
+   },
+   {
+    "id": "F-03",
+    "need": "工作與對話訊息：iPhone 能否看到 agent session／工作狀態／串流？iOS app 有哪些畫面；mobile wire 有無 work/task 訊息",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "simulator",
+     "integration",
+     "fixture",
+     "browser",
+     "real-iphone"
+    ],
+    "owner": "工作真相投影：crates/interaction-runtime/src/character.rs（session_projection、character_project_session）＋ character_session.rs（character_session_note_agent_state → RuntimeFact）＋ agents.rs（verify → mobile_present_verified）；wire／動器：mobile.rs；iOS：CharacterView.swift、CharacterSemantic.swift、ActuatorCenter.swift（legacy character.present）",
+    "entryPath": "iOS 畫面只有三個分頁：ContentView.swift:29-47（連線 PairingView、感測 SensorsView、角色 CharacterView）；沒有工作／agent session／訊息頁。wire 型別：ServerMessage（Protocol.swift:479-505）= pair-challenge/paired/pair-fail/auth-ok/auth-fail/act/stop-all/ble.scan/ble.connect/ble.gatt/aip；ClientMessage（301-329）= pair-request/pair-response/auth/status/observation/ack/ackStopAll/err/ble.result/ble.value/aip/aip-applied；Rust 接受的 inbound（mobile.rs:3769-4240）同上——**沒有任何 work/task/message 型別**。工作狀態到手機的兩條路：(a) legacy 動器 iphone.character（character.present state∈idle/working/waiting/failed/unknown，CHARACTER_STATES mobile.rs:280-288；plan 經 map_wire_params 415-557；verified-success 只從 verify_agent_session agents.rs:1155-1170 → mobile_present_verified mobile.rs:3239-3289；emergency 只從 mobile_project_estop 3188-3208）→ iOS ActuatorCenter.swift:422-443 → CharacterState → CharacterView 標題；(b) AIP 語意狀態：agent.session.state → character_project_session（character.rs:1878-1886）→ character_session_note_agent_state（character_session.rs:1394-1413；session_projection character.rs:467-486 把 created/queued/fetched/working/waiting-input/waiting-consent/claimed-completed/verified/failed/timed-out/unknown/cancelled/closed/expired 映成 TruthState）→ RuntimeFact::TaskState/TaskVerified → state patch 廣播到已協商裝置 → iOS presentation.detail=truth.text（CharacterSemantic.swift:487-498：「已排隊」「工作中」「等待你的輸入」「宣稱完成（尚未驗證）」「已驗證成功」…；resolve 654-675）→ CharacterView.swift:70-78。",
+    "contract": "docs/aip/iphone-companion.md §1：手機是 remote-renderer，只送語意事件、只收語意狀態與 Behavior Intent；docs/aip/semantic-state.md truth（15 truthState，只由 Runtime 設定）；docs/FEATURES.md:220-233（iPhone 語意事件閉環；task.verified → celebrate）；mobile.rs:276-295 Runtime 專屬狀態（verified-success／emergency 不可由 AI 冒充）。",
+    "stateOwner": "Agent session 記錄：Runtime agents.rs（SQLite 持久化）；Session 語意狀態 truth/activity：Session Host（只轉錄不推論 character_session.rs:1393）；手機端只有投影（CharacterState in-memory ActuatorCenter.swift:29-31；SessionClient.presentation 596）。",
+    "existingTests": [
+     "mobile_loop.rs::character_present_never_infers_verified_success 458; ::map_wire_params_refuses_what_the_app_would_refuse 516; ::verified_success_is_reachable_only_through_human_verification 1517; ::mobile_present_verified_fails_when_the_phone_refuses 2287; ::estop_projects_emergency_to_connected_phone 2379; ::iphone_character_uncertain_is_still_a_pending_decision 1774",
+     "character_session_loop.rs（RuntimeFact／state 廣播到 fixture iPhone，例如 2452-2474 ReducedMotion patch）",
+     "iOS SessionClientTests.swift（呈現投影／truth 文案／claimed≠verified），CharacterSemantic 純函式",
+     "e2e/character-session.spec.ts:263-289（fake_iphone 收 state／intent）",
+     "docs/releases/v0.5.0-iphone-device-evidence.md 真機列：「角色呈現 idle／working／waiting／failed／unknown 五態皆 acknowledged」「plan 送 emergency／verified-success 被 runtime 擋下」——僅 legacy character.present 路徑（v0.5.0 建置）"
+    ],
+    "evidence": [
+     "grep -nEi 'agent|task|work|approv|mailbox|answer|gateway' mobile.rs 只命中註解與 mobile_present_verified（279, 282, 3170, 3239-3270）——wire 沒有 work/task 訊息",
+     "runtime 沒有任何模組主動對手機送 iphone.notify／tts 通知工作事件（grep \"iphone.notify\" 於 proactive/orchestrator/agents/executor/activity/gateway 為零；只有 plan 路徑可用該動器）",
+     "iOS 沒有 HTTP client／API token（grep URLRequest/Bearer/8787 於 InteractionCompanion 為零）；/v1/agent-sessions* 只有 human token 可讀（lib.rs:494, 751-763）——手機無從讀 session 清單或訊息",
+     "手機看得到的工作資訊 = 一個 truthState 字串＋activity（CharacterSemantic.swift:487-498, 672-675）；correlationId 存在於 TruthView 但 CharacterView 不顯示",
+     "文件與程式一致：iphone-companion.md §1 明寫 remote-renderer；general-mode-ux.md 五入口未把手機列為工作／對話入口"
+    ],
+    "limitation": "手機只能看到粗粒度真相（排隊／工作中／等待輸入／宣稱完成／已驗證／失敗）與角色動作，沒有 session 身分、沒有訊息文字、沒有串流、沒有等待輸入的問題內容、沒有通知推播；對話訊息面：absent。真機證據只涵蓋 legacy character.present 五態（v0.5.0），AIP truth 投影到真機零執行。",
+    "nextAction": "產品決策：手機是否要成為工作面（需要新的 AIP name／wire 型別、以 wss 身分讀 session 的授權模型、iOS 新頁面）；若否，維持文件「remote-renderer」定位並在 USER-GUIDE 明說手機看不到工作內容。",
+    "confidence": "high"
+   },
+   {
+    "id": "F-04",
+    "need": "回答、核准的可信通道：iPhone 能否 approve／回答 agent？走什麼 API／token？",
+    "status": "absent",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "simulator"
+    ],
+    "owner": "核准／回答目前只在桌面可信介面：crates/interaction-api（/v1/agent-sessions/{id}/approve、/messages，human token）、apps/interaction-desktop（Tauri IPC）、runtime gateway.rs（gateway_resolve_approval）／agents.rs（mailbox_send）；AIP approval-* 型別定義在 crates/interaction-aip；iOS 端刻意忽略",
+    "entryPath": "不存在。手機入口只有 wss（mobile.rs:3769-4240 的 inbound match：pair-request/pair-response/auth/aip-applied/aip/observation/ack/err/ble.result/ble.value/status），無 approve／answer／mailbox 型別；aip frame 進 character_session_device_frame（character_session.rs:1566-1729）後成員只能送 Event/Cancel/Query/Result/Heartbeat/Capability（session.rs:1034-1045 gate 9），Result{verified} 被拒（1017-1022），任何 consentGrantId 被拒（1027-1033），task.*／runtime.* name 被拒（1002-1005）。核准的正式入口：HTTP POST /v1/agent-sessions/{id}/approve（lib.rs:209）、/messages（224-228）— human token；agent token 不可（lib.rs:751-763 測試）；Tauri 對應 IPC。iOS：SessionClient.swift:815-821 收到 approval-request／approval-result 只計數並記「手機不是人類決定的介面，不代為回答」；iOS 無 HTTP client／API token。",
+    "contract": "AIP MessageType::ApprovalRequest／ApprovalResult 與 Party kind human 存在（crates/interaction-aip/src/message.rs:17-18,54-55,82；envelope.rs:234-242 需 causationId；offline.rs:16-31 approval name 需 fresh human decision）；crates/interaction-session/src/ports.rs:70-78 明說 approval-* 是「1.1 以後」、1.0 未接進 gate；CLAUDE.md 不變量：AI 不可授予 consent；每機 token 是裝置身分（paired-token），不是人類身分。",
+    "stateOwner": "核准狀態：gateway approvals map（gateway.rs:439-442）＋ agent session mailbox（agents.rs mailbox_*，SQLite）——手機無讀寫路徑。",
+    "existingTests": [
+     "iOS LifecycleTests.swift::testEveryOtherIgnoredMessageTypeLeavesItsOwnNote:458（其他 message type 含 approval 被忽略並留 note；名稱推斷，未逐行讀）",
+     "crates/interaction-session gate 測試（session.rs:1034-1045 對非白名單型別回 scope-denied；具體測試檔未逐一定位）",
+     "crates/interaction-api/src/lib.rs:751-763 單元測試：agent token 不能打 /approve、/messages"
+    ],
+    "evidence": [
+     "gateway.rs:446-454 的 \"approval-request\" 是 agent mailbox 的 kind（mailbox_send FromSession），不是 AIP envelope；runtime 內沒有任何 MessageType::ApprovalRequest 產生者（grep crates/interaction-runtime/src 為零）",
+     "iOS Protocol.swift ClientMessage 沒有 approve／answer 訊息；SessionClient.swift:815-821 明確不代答",
+     "mobile.rs:3915-3960 auth 只授權 wss 連線，token 不能用於 HTTP（HTTP Bearer 是 ~/.adaptive-interaction/state/api-token 的人類／agent token 體系）",
+     "session.rs:1027-1033 成員帶 consentGrantId 一律 scope-denied（fail-closed）"
+    ],
+    "limitation": "iPhone 完全不是核准／回答面；AIP approval-* 只是型別定義（defined-only），沒有 host 產生者、沒有 session gate 支援、沒有 iOS UI。要做需先決定「已配對手機是否算可信人類介面」（每機 token 是裝置身分），並在 AIP 1.1 定義 approval profile、host 端把 gateway approvals 橋接進 session、iOS 加 UI，且不得違反「AI 不可授予 consent」。",
+    "nextAction": "列為產品／安全決策題：若要支援，先寫 docs/aip 的 approval-* 1.1 契約與威脅模型（裝置身分 vs 人類身分、離線重確認），再實作 host 橋接與 iOS UI；否則在 USER-GUIDE 明說手機不能核准。",
+    "confidence": "high"
+   },
+   {
+    "id": "F-05",
+    "need": "前背景、系統終止、安全重連：ConnectionManager 生命週期、heartbeat、重連策略、撤銷即斷線、被取代連線、冷啟動",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "simulator",
+     "integration",
+     "fixture",
+     "browser",
+     "native-desktop",
+     "real-iphone"
+    ],
+    "owner": "iOS ConnectionManager.swift（狀態機、重連、閘門）、AppLifecycle.swift（純決策）、SocketTransport.swift（URLSessionSocket／RunLoopScheduler）、InteractionCompanionApp.swift（scenePhase 接線、冷啟動）；Rust mobile.rs（heartbeat／idle／auth deadline／撤銷／取代／斷線收尾）＋ character_session.rs（presence）＋ interaction-session（presence timeout tick）",
+    "entryPath": "iOS：InteractionCompanionApp.swift:183-192 scenePhase→sensors.setForeground＋connection.lifecyclePhaseChanged；.task→AppModel.startupReconnectIfDesired:103-111→ConnectionManager.connectOnLaunchIfDesired:386-391（ColdStartConnectDecision 194-206：有配對且上次意圖想連線或無紀錄）。lifecyclePhaseChanged:510-580：background→停 status timer、localPresence=background、取消等待中的重試（519-531）；active→立即 status＋重啟 timer（541-549）、未協商補送 capability（550-559）、socket 活著且背景≥1 s → foregroundDidResume（560-563）、socket 死且仍想連線→跳過退避立即重連（564-574）。心跳：startStatusTimer 822-841 每 15 s status＋ws ping（AppLifecycle.swift:56 statusIntervalSeconds=15 < 45/2）。斷線：handleConnectionLost 851-878→scheduleRetry 883-908 退避 1→15 s（323-324），背景不排重連（885-892, 898-904）；auth-fail→.revoked、userWantsConnection=false、intent=false、不重連（740-749）；disconnectByUser 422-431／unpairByUser 434-446；world generation 丟舊連線遲到訊息（315, 597, 687-692）；斷線→onDisconnected→高風險感測停用（AppModel 88-91）。Rust：Ping 15 s／idle 45 s（mobile.rs:62-63, 3689-3712）；未認證死線 10 s（94, 3674-3688）；30 msg/s 速率窗（99, 3713-3737）；撤銷→close token→auth-fail{revoked}（2730-2850, 3660-3675）；同機新連線取代→靜默關閉（3676-3686）＋強制關高風險受器（attach_conn 3488-3544）；斷線收尾：移表、unregister outbound、pending act 以 disconnected 收場、sensor.stopped、presence Reconnecting、provider Disconnected、高風險受器 disabled（4243-4352）；estop 中重連→先 stop-all{sensors}再投影 emergency（3960-3972）；session tick presence_timeout_ms=45000 → Offline（types.rs:85; session.rs:887-904）。測試連線：mobile_test 3367-3421（HTTP /test、Tauri、PhoneDeviceCard:380）。",
+    "contract": "docs/aip/iphone-companion.md §2 生命週期表；docs/aip/transport-bindings.md §1.4（status 即存活證明、AIP heartbeat 尚未實作）；docs/aip/pairing-security.md §5 Revoke 即斷線、§6 conn_id／superseded、§7 endpoint migration；PresenceHeartbeatPolicy（AppLifecycle.swift:48-81：15 s 間隔、45 s 逾時＝跨端契約）；Info.plist:47 UIBackgroundModes 刻意註解掉（無 Background Mode）。",
+    "stateOwner": "iOS：UserDefaults ai.adaptive-interaction.companion.autoConnectIntent（ConnectionManager.swift:353,366-375）、Keychain 配對、記憶體 failureHistory（329-331）、connectionGeneration（315）；Rust：ConnState per connection（721-745）、providers registry 狀態、session 成員 presence（Session Host）、audit（mobile.unauthenticated-timeout／rate-limited／auth-failed／device-revoked）。",
+    "existingTests": [
+     "iOS LifecycleTests.swift (22)：testLifecycleDecisionTable:37、testBackgroundNeverSendsReconnectsOrResumes:113、testForegroundReconnectOnlyHappensWhenTheUserStillWantsTheConnection:127、testStatusIntervalLeavesRoomForAMissedBeat:161、testPresenceTimeoutMatchesTheHostConstant:173、testUnknownScenePhaseFallsBackToBackground:365、testAipHeartbeatIsNotedAndAnsweredWithALegacyStatus:390",
+     "iOS ConnectionManagerGateTests.swift (12)：testBackgroundNeitherSendsNorSchedulesThePresenceHeartbeat:36、testALostConnectionInTheBackgroundDoesNotScheduleAReconnect:51、testAReconnectThatFiresAfterEnteringTheBackgroundDoesNotOpenASocket:67、testForegroundSendsStatusImmediatelyAndRealignsTheSession:82、testBackgroundDoesNotLetAnAipFrameProveTheDeviceIsAlive:131、testAnAuthOkThatLandedInTheBackgroundIsRenegotiatedOnForeground:165、testTheReconnectGateIsAskedExactlyOncePerDisconnect:205（替身 socket／排程，走正式握手）",
+     "iOS ReconnectHintTests.swift (21)：testColdStartConnectsWhenPairedAndUserLastWantedConnection:170、testColdStartRespectsExplicitUserDisconnect:183、testColdStartAutoConnectNeverResumesAnySensor:200、testAuthFailAfterManyTimeoutsIsAuthoritative:59",
+     "mobile_loop.rs::idle_connection_times_out_and_capabilities_go_offline 882-925; ::token_reconnect_works_until_revoked 734; ::revoke_disconnects_live_connection_immediately 773; ::high_risk_receptor_forced_off_on_disconnect_and_stays_off 930; ::pending_acts_end_when_the_phone_disconnects 2217; ::phone_connecting_during_estop_receives_emergency 2468; ::an_unauthenticated_peer_is_closed_when_its_deadline_passes 2583; ::a_flooding_connection_is_rate_limited_and_audited 2645; ::one_phone_disconnecting_never_silently_hides_another_streaming_phone 3346; ::revoking_a_streaming_phone_ends_its_sensing_and_inflight_acts_at_once 3418; ::mobile_test_pings_the_phone_and_never_claims_more_than_a_pong 2173",
+     "character_session_loop.rs::reconnecting_fixture_iphone_resumes_with_patches 1001; ::a_disconnected_member_is_reconnecting_before_it_is_offline 1952",
+     "e2e/iphone.spec.ts:163（斷線＝能力不可用，重新連上才恢復）, :188（移除＝立刻斷線且再也認證不過）；e2e/character-session.spec.ts:263（離線→重連→撤銷）",
+     "scripts/tests/tauri-mobile-sensor-walkthrough.py（原生 Tauri＋fake_iphone；連線／斷線／感測，非硬體）",
+     "docs/releases/v0.5.0-iphone-device-evidence.md 真機列：「背景／鎖定行為」（切背景後 daemon 偵測斷線、mic-level 強制停用、connected:false）、「撤銷配對（已連線裝置）」（auth-fail 後 App 不再重連，refusedConnections 0）、「桌面 IP 變更後的重連」（必須重新配對）、未涵蓋段「系統終止 App 後的恢復（實測：冷啟動須按連線或 --auto-connect）」——皆為 v0.5.0 建置；v0.5.1-iphone-device-evidence.md：冷啟動自動重連真機 0 次執行（blocked）"
+    ],
+    "evidence": [
+     "AppLifecycle.swift:9-13 明說無 Background Mode，背景一律停心跳、不重連；Info.plist:47 UIBackgroundModes 註解掉；ConnectionManager.swift:1011-1016 背景也不送 AIP（避免桌面誤判 online）",
+     "Rust 收到 status 才 touch_presence（mobile.rs:4200-4212），所以背景停心跳 ≤45 s 後桌面 presence→offline（session.rs:887-904）——雙端文件與程式一致",
+     "撤銷：mobile_close_connection 2803-2850 在 handler 外自己做完 unregister／fail pending／sensor.stopped；handler 端 still_paired 判斷區分 revoked（送 auth-fail）vs superseded（靜默）3660-3686",
+     "被取代連線：attach_conn 3505-3514 invalidate 舊 tracker＋cancel；3521-3544 強制高風險受器 disabled 並補 sensor.stopped（reconnect 退避 15 s < idle 45 s 是常態）",
+     "iOS 冷啟動：AppModel.startupReconnectIfDesired 103-111 只重建 socket、不碰感測（SensorCenter 啟動全關）；DEBUG --auto-connect 走同一條 connectIfPaired（ContentView.swift:52-59）",
+     "docs/releases/v0.7.0-known-limitations.md §1.4：URLSessionSocket 本身未被測到（替身 socket／排程）；§5.3 onMain 同步執行未在真裝置量測；§5.4 iOS 未送 AIP heartbeat；v0.8.0-known-limitations.md:14 iOS socket／heartbeat accepted limitation"
+    ],
+    "limitation": "無 Background Mode → 進背景後桌面最遲 45 s 標 offline（設計如此）；真 URLSession 回呼執行緒／Timer 排程未在真裝置驗證；AIP heartbeat 未實作，presence 只靠 v1 status；無 Bonjour 重探索；真機證據來自 v0.5.0 建置，v0.6.x／v0.7.0 加入的生命週期閘門、世代丟棄、冷啟動意圖、AIP 背景閘門只有 iPhone 17 模擬器 XCTest 與 fixture 證據；系統終止後的冷啟動自動重連真機 0 次。",
+    "nextAction": "真機重跑：切背景／鎖定→前景 resume、系統終止→冷啟動自動重連（兩次 attempt 記秒數）、撤銷即斷線、桌面 daemon 重啟後重連；考慮補 AIP heartbeat；記錄 URLSession 真回呼行為。",
+    "confidence": "high"
+   },
+   {
+    "id": "F-06",
+    "need": "核心離線行為：daemon 不在／連不到時 iPhone 顯示什麼？有無佇列？桌面端如何呈現手機離線？daemon 重啟後如何恢復？",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "simulator",
+     "integration",
+     "fixture",
+     "browser"
+    ],
+    "owner": "iOS ConnectionManager.swift（phase 文案、退避、ReconnectDiagnosis）、PairingView.swift（狀態區與重新配對捷徑）、CharacterView.swift／CharacterSemantic.swift（offline 同步文案、legacy 回退）、SessionClient.swift（未連線丟棄）；Rust mobile.rs（斷線收尾、autostart）、character.rs（device-offline notice）、interaction-session（presence）；桌面 statusProjection/characterSync.ts、PhoneDeviceCard.tsx",
+    "entryPath": "手機側：連不上→handleConnectionLost 851-878→scheduleRetry 883-908（phase .waitingRetry(n 秒後重試)→.connecting…；文案 ConnectionPhase.displayText 45-56）；連線層失敗（ECONNREFUSED／EHOSTUNREACH／timeout 分類 connectivity 96-135）連續 4 次或持續 60 s → ReconnectDiagnosis.suggestRepair(hostAddressLikelyChanged) 146-190 → PairingView.swift:94-105 顯示固定文案「連不上桌面：可能是桌面的網路位址已變更。請在桌面重新產生配對碼並重新配對。」＋「重新配對」按鈕；角色頁 syncLine .offline「未連線，角色狀態可能不是最新的」（CharacterSemantic.swift:721-744; CharacterView.swift:155-178）；presentation 回退 legacy CharacterState（resolve 654-665；CharacterState 不在斷線時重置：AppModel.onDisconnected 88-91 只停感測／BLE；ActuatorCenter.swift:29-31）；無佇列：send() 未連線即丟棄計數 droppedFrames（ConnectionManager.swift:449-462）、sendAip 同（1018-1021）、觸控回「未連線，觸控事件未送出（已丟棄）」（SessionClient.swift:835-837）、感測觀察 onObservation→send 丟棄（InteractionCompanionApp.swift:46-48）；高風險感測斷線即停用（AppModel 88-91）；背景不重連（scheduleRetry 885-892）。桌面側：斷線收尾 mobile.rs:4243-4352（provider Disconnected 4306-4321、character_project_provider→notice device-offline character.rs:512、unregister outbound 4256、pending act 以 disconnected 收場 4262-4271、sensor.stopped 4276-4286、presence Reconnecting 4290-4300、高風險受器 disabled 4335-4349）；session tick 45 s→Offline（session.rs:887-904）；桌面同步卡 reconnecting→offline（characterSync.ts:106-113, 743-744）；PhoneDeviceCard connected:false；mobile_test 回 not-connected（3376-3390）；mobile_sensors_stop 回 unreachable（3293-3300）；動器 health Offline（測試 915-924）。daemon 重啟：mobile_autostart_if_paired（mobile.rs:2302-2332；runtime.rs:531）有配對裝置就自動起 wss server；清單讀不到→不起且 status.devicesUnknown（2325-2330, 2243-2263）；iOS 前景退避重連或冷啟動意圖自動連（F-05）。",
+    "contract": "docs/aip/iphone-companion.md §2（斷線協商清空、不重播；§7 offline 文案）；docs/aip/character-session.md §11 人話（offline／reconnecting）；docs/aip/general-mode-ux.md:31-42 同步狀態表；docs/DESKTOP-GUIDE.md:236-246；AIP §8 離線政策（touch expire-by-deadline、intent drop-if-offline；crates/interaction-aip/src/offline.rs）。",
+    "stateOwner": "iOS：ConnectionManager phase／failureHistory／reconnectDiagnosis（記憶體）；CharacterState（記憶體，斷線不清）；SessionSyncLocal（記憶體，App 重啟即失）；UserDefaults autoConnectIntent。Rust：MobileBridge.conns／devices、mobile-devices.json、providers registry、session 成員 presence、audit／events（sensor.stopped）。",
+    "existingTests": [
+     "iOS ReconnectHintTests.swift：testFourConsecutiveConnectivityFailuresSuggestRepair:33、testThreeConnectivityFailuresKeepRetrying:39、testSustainedConnectivityFailuresOverSixtySecondsSuggestRepair:75、testPosixConnectionRefusedAndHostUnreachableAreConnectivity:120、testRepairMessageIsTheFixedHonestCopy:101",
+     "iOS ConnectionManagerGateTests.swift::testALostConnectionInTheBackgroundDoesNotScheduleAReconnect:51; LifecycleTests.swift::testForegroundResumeSendsNothingWhenOffline:248、::testADeadSocketNeverSendsStatusOrResumes:102",
+     "iOS SessionClientTests.swift（未連線觸控丟棄／syncStatus offline 文案；36 個）",
+     "mobile_loop.rs::idle_connection_times_out_and_capabilities_go_offline 882; ::high_risk_receptor_forced_off_on_disconnect_and_stays_off 930; ::pending_acts_end_when_the_phone_disconnects 2217; ::autostart_is_skipped_after_the_last_device_is_revoked 1175; ::a_corrupt_paired_device_list_is_reported_as_unknown_not_as_none 3708; ::mobile_sensors_stop_targets_one_phone_and_is_honest_when_unreachable 2122",
+     "character_session_loop.rs::a_disconnected_member_is_reconnecting_before_it_is_offline 1952",
+     "e2e/iphone.spec.ts:163（斷線＝能力不可用，重新連上才恢復）；e2e/character-session.spec.ts:263（離線→重連）",
+     "docs/releases/v0.5.0-iphone-device-evidence.md「未涵蓋」：Wi-Fi 切換／暫時離線後的自動恢復未在真機跑；「桌面 IP 變更」真機觀察到 App 停在重連中（v0.5.0 建置，當時尚無 ReconnectDiagnosis）"
+    ],
+    "evidence": [
+     "ConnectionFailureKind.classify（ConnectionManager.swift:126-129）把 ECONNREFUSED 也歸 connectivity，ReconnectDiagnosis.evaluate（173-190）只看連續 connectivity 失敗——daemon 單純未啟動（連線被拒）與桌面換 IP 在手機端不可區分，退避 1+2+4+8 s 後（第 4 次失敗）就會顯示「位址可能已變更…請重新配對」；文案用「可能」但下一步是重新配對，對 daemon 只是暫停的情境是多餘動作（靜態閱讀，未實跑）",
+     "斷線後 CharacterState 未重置（AppModel.onDisconnected 88-91；SessionClient.connectionDidDisconnect 733-739 不清 presentation），角色頁顯示上一個 legacy／語意狀態＋一行 offline 提示（CharacterView.swift:163-167）",
+     "無任何離線佇列：outbox 只在連線中使用且 teardownSocket 清空（ConnectionManager.swift:619-625）；droppedFrames 在連線頁診斷區可見（PairingView.swift:287）",
+     "桌面端 fixture 證據：e2e/iphone.spec.ts:163 以 fake_iphone {\"op\":\"disconnect\"}／{\"op\":\"reconnect\"} 驗證卡片與能力可用性；mobile_loop 882-925 驗證 idle 斷線後 provider Disconnected、動器 Offline",
+     "daemon 重啟自動起 wss：runtime.rs:531 → mobile_autostart_if_paired；E2E／CI 用 INTERACT_AI_MOBILE_ADVERTISE=0 只綁 loopback（mobile.rs:79, 2361-2368）"
+    ],
+    "limitation": "無離線佇列（設計：queued≠completed，丟棄並計數）；手機離線時角色頁顯示的是舊狀態（有 offline 提示但未標示「舊」）；「桌面位址可能已變更」提示無法區分 daemon 停止與 IP 變更，可能引導使用者做不必要的重新配對；語意狀態不跨 App 重啟；真機上 Wi-Fi 切換／暫時離線／daemon 停止再啟動的恢復零執行；Runtime 端若 mobile-devices.json 壞掉，daemon 重啟後不會開 wss server（誠實標 devicesUnknown，但手機端只會看到連線被拒）。",
+    "nextAction": "決定 daemon-down 的手機文案（例如「桌面未啟動或位址已變更」＋「先確認桌面已開啟」），斷線時把角色狀態標為過時或清空；真機演練 daemon stop/start 與 Wi-Fi 切換並記錄秒數；考慮在 devicesUnknown 情況下仍以既有記憶體清單起 server 或在桌面 UI 醒目提示。",
+    "confidence": "medium"
+   }
+  ],
+  "openQuestions": [
+   "已配對 iPhone 是否應被視為可信人類介面（可核准／回答 agent）？目前每機 token 只是裝置身分（paired-token），AIP approval-* 只有型別（1.1 保留），session gate fail-closed——這是產品與安全決策，不是缺陷。",
+   "手機是否要成為工作面（看 session 清單／訊息／串流／等待輸入內容）？現況只投影一個 truthState＋activity；若要做需要新的 wire／AIP name 與授權模型。",
+   "現行 v0.8.0 建置的真機證據為零（v0.5.0 的真機列來自舊建置；v0.5.1 嘗試因 codesign 鑰匙圈授權 blocked）：配對、背景／前景、冷啟動、AIP applied、daemon 重啟恢復都需要人工完成鑰匙圈／信任步驟後重跑 device-build.sh／device-acceptance.sh。",
+   "ReconnectDiagnosis 在 daemon 單純未啟動時（ECONNREFUSED 連續 4 次 ≈15 s）就建議重新配對——是否接受為設計？未實跑，僅靜態閱讀。",
+   "v0.6.0 已知限制提到 mobile_loop.rs::a_superseded_connection_still_forces_the_high_risk_receptor_off，但本輪在 mobile_loop.rs 的測試清單中未定位到同名函式（可能改名或搬到 character_session_loop.rs）——需確認 superseded 路徑的回歸測試仍存在。",
+   "Tauri 原生／tray 路徑若有呼叫 rt()-only 的 mobile_status／pairing_begin／revoke，在 external-daemon 模式會失敗；WebView 走 HTTP 不受影響，原生側未逐一追。"
+  ],
+  "notes": "方法：只讀程式碼與測試（未建置、未執行）。Rust 側以 crates/interaction-runtime/src/mobile.rs（4410 行）為主，追到 HTTP lib.rs/routes.rs、CLI main.rs/commands.rs、Tauri lib.rs、桌面 api.ts/transport.ts/CapabilitiesHub/PhoneDeviceCard，以及 character_session.rs（DeviceOutbound、device_frame、presence）、interaction-session session.rs gate、adapter-declarative state_applied.rs。iOS 側讀完 ConnectionManager.swift、AppLifecycle.swift、SocketTransport.swift、PairingStore.swift、Protocol.swift、ContentView/PairingView/CharacterView、SessionClient.swift 關鍵段、CharacterSemantic 投影、InteractionCompanionApp.swift、Info.plist。wire 型別清單（雙端一致）：Server→App pair-challenge/paired/pair-fail/auth-ok/auth-fail/act/stop-all/ble.scan/ble.connect/ble.gatt/aip；App→Server pair-request/pair-response/auth/status/observation/ack/ack{stopAll}/err/ble.result/ble.value/aip/aip-applied——沒有 work/task/message/approve 型別。測試規模（grep 計數，未執行）：mobile_loop.rs 81 個 #[test]/#[tokio::test]、character_session_loop.rs 36 個；iOS XCTest 檔案計數 ConnectionManagerGateTests 12、LifecycleTests 22、ReconnectHintTests 21、SessionClientTests 36、ProtocolTests 21、ReceiveDecisionConformanceTests 15、AIPConformanceTests 17、StateHashConformanceTests 3、CanonicalVectorsTests 5、MotionClassifierTests 8、SemanticStateConformanceTests 3（README 期望總數 163；v0.8.0 test-matrix 記 163/0 於 iPhone 17 模擬器）。證據層級對應：mobile_loop／character_session_loop＝integration（程序內 TLS ws 模擬手機）；fake_iphone＋Playwright＝fixture＋browser；scripts/v03-cli-e2e.sh＝fixture＋integration；tauri-mobile-sensor-walkthrough.py＝fixture＋native-desktop；iOS XCTest＝unit＋simulator；real-iphone 只引用 docs/releases/v0.5.0-iphone-device-evidence.md 逐列（v0.5.1 為 blocked、0 次），且該證據早於 v0.6.0 AIP／v0.7.0 生命週期閘門。文件與程式對帳：iphone-companion.md、transport-bindings.md §1、pairing-security.md、general-mode-ux.md、DESKTOP-GUIDE.md 對 iPhone 的描述與程式一致（remote-renderer、無工作面、無核准面、無 AIP heartbeat、無 Background Mode）；未發現文件宣稱程式沒有的功能。Raw JSON 同步寫於 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/matrix/find-F.json。"
+ },
+ "verdicts": [
+  {
+   "id": "F-01",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "unit",
+    "simulator",
+    "integration",
+    "fixture",
+    "browser",
+    "real-iphone"
+   ],
+   "reason": "Every cited entry-path line checked out exactly against HEAD 78dcda1: CLI Mobile subcommand -> commands.rs dispatch -> HTTP routes -> runtime.mobile_pairing_begin/mobile_status/mobile_revoke all match verbatim, including the honest-failure revoke path and mobile_close_connection collapsing token+session+high-risk-receptor. IDENTITY_STRENGTH_PAIRED_TOKEN wiring confirmed. The subtle Tauri IPC claim is correct: mobile_status/pairing_begin/revoke are separate #[tauri::command] fns using rt() only (no Backend::External arm), while mobile_sensors_stop/mobile_test DO have a Backend::External arm -- verified by reading both code sites; transport.ts confirms the WebView always reaches mobile_* over HTTP regardless, so the gap doesn't actually affect the WebView. iOS Bonjour claim verified: Info.plist declares NSBonjourServices but grep for NWBrowser/NetServiceBrowser in the app source is zero -- no discovery implemented. Real-iphone evidence level is legitimately sourced from docs/releases/v0.5.0-iphone-device-evidence.md validated rows for pairing and both revoke paths, and the finding correctly scopes that evidence to the v0.5.0 build while flagging later hardening as fixture/integration-only -- accurate, not overclaiming.",
+   "evidence": [
+    "crates/interaction-cli/src/main.rs:210-213,477-485",
+    "crates/interaction-cli/src/commands.rs:1066-1092",
+    "crates/interaction-api/src/lib.rs:243-254",
+    "crates/interaction-api/src/routes.rs:2440-2453",
+    "crates/interaction-runtime/src/mobile.rs:2633-2670,2672-2728,2730-2795",
+    "crates/interaction-runtime/src/character_session.rs:116,1018-1029",
+    "crates/interaction-runtime/src/mobile.rs:138-140",
+    "apps/interaction-desktop/src-tauri/src/lib.rs:1633-1650 (rt()-only) vs :209-240 (Backend::External arms for sensors_stop/test)",
+    "apps/interaction-desktop/src/transport.ts:14-41,310-316,333",
+    "apps/interaction-ios/Info.plist:41-43; grep NWBrowser/NetServiceBrowser in InteractionCompanion/ = 0 hits",
+    "docs/releases/v0.5.0-iphone-device-evidence.md:25,42,55"
+   ]
+  },
+  {
+   "id": "F-02",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "unit",
+    "contract",
+    "simulator",
+    "integration",
+    "fixture",
+    "browser"
+   ],
+   "reason": "state_applied.rs constants and receipt shape match exactly (APPLIED_PROFILE/MAX_PENDING_APPLIED/APPLIED_TIMEOUT_MS at lines 20-22, receipt fields 26-35). Read mobile.rs's inbound wire dispatch directly: the 'aip-applied' branch requires authed+member+matching conn_id+non-cancelled, parses StateAppliedReceipt, calls tracker.acknowledge, and always audits with evidence:'peer-report' -- matching the finding's 'peer-report, not verification' framing precisely. The 'aip' branch's capability negotiation for stateApplied is also confirmed. The finding correctly withholds real-iphone evidence for F-02 (unlike F-01), consistent with v0.8.0-known-limitations.md recording zero real-device AIP/applied runs -- appropriately conservative, not an overclaim.",
+   "evidence": [
+    "crates/interaction-adapter-declarative/src/state_applied.rs:1-4,20-22,26-35",
+    "crates/interaction-runtime/src/mobile.rs:3982-4029 (aip-applied and aip inbound branches)",
+    "docs/releases/v0.8.0-known-limitations.md:8"
+   ]
+  },
+  {
+   "id": "F-03",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "unit",
+    "simulator",
+    "integration",
+    "fixture",
+    "browser",
+    "real-iphone"
+   ],
+   "reason": "Independently reran every negative grep claim rather than trusting the summary. grep -nEi 'agent|task|work|approv|mailbox|answer|gateway' on mobile.rs reproduces the exact same hit set cited -- all comments or the legitimate mobile_present_verified function, no work/task wire type exists. grep for 'iphone.notify' across proactive/orchestrator/agents/executor/activity/gateway.rs is zero; only mobile.rs itself has it (generic actuator, not a proactive work-event pusher). grep for URLRequest/Bearer/8787 restricted to the actual iOS app source (InteractionCompanion/, not scripts/README) is zero; the only URLSession usage is for the WebSocket transport, confirming the app has no HTTP client to read agent-session state. lib.rs confirms /v1/agent-sessions* GET is excluded from agent-token-allowed paths and unit-tested. Evidence-level correctly includes real-iphone only for the legacy character.present five-state path (explicitly scoped to v0.5.0 in the limitation text) while marking the AIP truth-projection path as zero real-device execution -- accurately hedged.",
+   "evidence": [
+    "grep -nEi 'agent|task|work|approv|mailbox|answer|gateway' crates/interaction-runtime/src/mobile.rs reproduces the cited 14 hits exactly",
+    "grep -rn 'iphone.notify' crates/interaction-runtime/src/{proactive,orchestrator,agents,executor,activity,gateway}.rs -> 0 hits",
+    "grep -rn 'URLRequest|Bearer|8787|URLSession' apps/interaction-ios/InteractionCompanion/ -> URLSession only for WebSocket transport, 0 hits for URLRequest/Bearer/8787",
+    "crates/interaction-api/src/lib.rs:494,751-756"
+   ]
+  },
+  {
+   "id": "F-04",
+   "refuted": false,
+   "correctedStatus": "absent",
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "unit",
+    "simulator"
+   ],
+   "reason": "Read session.rs gate steps 6-10 directly: runtime-only name reject, verified-Result reject, unconditional consentGrantId reject (matching ports.rs's own doc comment that ConsentVerifier is 'not wired into CharacterSession::gate, and deliberately so' and is reserved for 1.1+ approval-* flows), and the member message-type whitelist (Event/Cancel/Query/Result/Heartbeat/Capability only) that excludes Command/State/ApprovalRequest/ApprovalResult by construction -- all match the finding's citations exactly. message.rs confirms MessageType::ApprovalRequest/ApprovalResult exist as enum variants, but grep -rln across all of crates/ for those variant references returns only the aip crate's own definition files (message.rs, envelope.rs) -- zero producers anywhere in interaction-runtime, confirming defined-only with no host-side generator. Also verified the finding's non-trivial distinction that gateway.rs's 'approval-request' string is an unrelated agent-mailbox kind (mailbox_send FromSession direction), not an AIP envelope -- correct and non-obvious, increasing confidence in the finding's overall precision. 'absent' is the right top-level status since no part of the iPhone-approval capability (gate support, host producer, iOS UI) is reachable from any real entry path.",
+   "evidence": [
+    "crates/interaction-session/src/session.rs:1000-1046 (gate steps 6,8,8.1,9)",
+    "crates/interaction-session/src/ports.rs:70-78 (ConsentVerifier doc comment)",
+    "crates/interaction-aip/src/message.rs:17-18,54-55",
+    "grep -rln 'MessageType::ApprovalRequest|MessageType::ApprovalResult' crates/ -> only interaction-aip/src/message.rs, envelope.rs (definition site, zero producers in interaction-runtime)",
+    "crates/interaction-runtime/src/gateway.rs:435-454 (unrelated mailbox 'approval-request' kind string)"
+   ]
+  },
+  {
+   "id": "F-05",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "Independently re-opened every cited file:line across iOS and Rust and every one checked out exactly, including: AppLifecycle.swift:56 statusIntervalSeconds=15 / :64 presenceTimeoutSeconds=45; ConnectionManager.swift:379-391 connectOnLaunchIfDesired guarded by ColdStartConnectDecision.shouldAutoConnect (194-206); InteractionCompanionApp.swift:88-91 connection.onDisconnected closure disables only sensors/BLE (also confirms F-06's 'CharacterState not reset' claim); lifecyclePhaseChanged body at ConnectionManager.swift:510-577 matches the described background/foreground branching; Info.plist:47 UIBackgroundModes is indeed commented out. Rust mobile.rs:62-63 (ping 15s/idle 45s), :94 (10s auth deadline), :99 (30 msg/s), the auth-fail(revoked) vs superseded branch at 3673-3686, the forced-disable-on-supersede block at 3505-3544, and the full disconnect teardown at ~4240-4345 all match verbatim. session.rs:85/887-904 presence_timeout_ms=45000->Offline on tick matches exactly. Every cited Swift test name (LifecycleTests, ConnectionManagerGateTests, ReconnectHintTests) and every cited Rust test fn name (mobile_loop.rs, character_session_loop.rs) exists verbatim at the cited line -- 20+ test names checked, zero mismatches. docs/releases/v0.5.0-iphone-device-evidence.md confirms real-iPhone rows for background/lock disconnect detection, revoke-disconnects-live-connection, and IP-change-requires-repair; v0.5.1-iphone-device-evidence.md confirms cold-start-after-termination reconnect was never executed on real hardware (0 attempts, blocked) -- which the finding's own 'limitation' field already discloses honestly, alongside the fact that v0.6.x/v0.7.0 additions (world generation drop, formalized ColdStartConnectDecision, ReconnectDiagnosis) only have simulator XCTest + fixture coverage. Since evidenceLevel is an array covering different sub-behaviors of a broad 'need', and the real-iphone-covered sub-behaviors are correctly grounded in the v0.5.0 evidence doc while the gap is explicitly disclosed in the limitation text, this is not an evidence-level overclaim under the task's rule (real-* only for docs/releases-documented rows) -- it documents exactly those rows and no more. Status implemented-and-connected is correct: entry paths (scenePhase change, launch .task, mobile.rs WS handler loop) are real production wiring, not test-only stubs.",
+   "evidence": [
+    "apps/interaction-ios/InteractionCompanion/Services/AppLifecycle.swift:56,64 (statusIntervalSeconds=15, presenceTimeoutSeconds=45)",
+    "apps/interaction-ios/InteractionCompanion/Services/ConnectionManager.swift:379-391 (ColdStartConnectDecision.shouldAutoConnect / connectOnLaunchIfDesired), :510-577 (lifecyclePhaseChanged), :82-190 (ConnectionFailureKind.classify / ReconnectDiagnosis.evaluate)",
+    "apps/interaction-ios/InteractionCompanionApp.swift:88-91 (connection.onDisconnected: sensors/BLE only, no CharacterState reset), :183-192 (scenePhase wiring + .task startupReconnectIfDesired)",
+    "apps/interaction-ios/Info.plist:47 (UIBackgroundModes commented out)",
+    "crates/interaction-runtime/src/mobile.rs:62-63,94,99 (ping/idle/auth-deadline/rate constants exact), :3673-3686 (revoked vs superseded branch), :3488-3544 (attach_conn forced high-risk disable on supersede), :4240-4345 (disconnect teardown), :2302-2332 & runtime.rs:531 (mobile_autostart_if_paired wiring)",
+    "crates/interaction-session/src/types.rs:85 and session.rs:887-904 (presence_timeout_ms=45000 -> Offline on tick)",
+    "crates/interaction-runtime/tests/mobile_loop.rs and character_session_loop.rs: all 11 cited test fn names verified present at cited lines via grep",
+    "apps/interaction-ios/InteractionCompanionTests/{LifecycleTests,ConnectionManagerGateTests,ReconnectHintTests}.swift: all cited test fn names verified present at cited lines",
+    "docs/releases/v0.5.0-iphone-device-evidence.md (background/lock, revoke, IP-change rows marked 已驗證（真機）) and v0.5.1-iphone-device-evidence.md:3,28-30 (cold-start reconnect blocked, 0 real executions) confirm the finding's own limitation claims are accurate, not overstated"
+   ]
+  },
+  {
+   "id": "F-06",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "reason": "Re-verified the core evidentiary claim -- that ConnectionFailureKind.classify() folds ECONNREFUSED/EHOSTUNREACH/etc into the same .connectivity bucket used by ReconnectDiagnosis.evaluate() to trigger the 'address probably changed, re-pair' suggestion, meaning a simply-stopped daemon and an IP change are indistinguishable to the phone -- and it is exactly correct: ConnectionManager.swift:96-135 classify() maps ECONNREFUSED/EHOSTUNREACH/ENETUNREACH/ETIMEDOUT/ENETDOWN/EHOSTDOWN (POSIX) and NSURLErrorCannotConnectToHost/NotConnectedToInternet/etc (NSURLError) all to .connectivity; evaluate() at :173-190 only looks at the trailing run of .connectivity failures (threshold 4 or 60s sustained) with no daemon-vs-IP-change distinction. droppedFrames counters and unconditional drop-on-not-connected in send()/sendAip()/sendStateApplied() (ConnectionManager.swift:449-462,1010-1046) confirm the 'no offline queue' claim. AppModel's onDisconnected closure (InteractionCompanionApp.swift:88-91) only disables sensors/BLE and never touches CharacterState, confirming the 'stale character state shown with only an offline hint' claim. Rust side: mobile_autostart_if_paired (mobile.rs:2302-2332, wired at runtime.rs:531) reads mobile-devices.json and on parse/read failure calls mobile_note_devices_unreadable rather than silently starting or silently omitting -- matches the 'devicesUnknown, doesn't silently start the wss server' claim. character.rs:512 device-offline notice constant confirmed present. This supports implemented-partial: the pieces are genuinely wired and reachable, but the offline UX has real, named gaps (no queue by design, stale character state, phone-side diagnosis can't distinguish 'daemon down' from 'desktop moved') that the finding correctly frames as disclosed limitations rather than confirmed-defects or absent features.",
+   "evidence": [
+    "apps/interaction-ios/InteractionCompanion/Services/ConnectionManager.swift:82-135 (ConnectionFailureKind.classify -- ECONNREFUSED/EHOSTUNREACH POSIX and NSURLErrorCannotConnectToHost etc. both map to .connectivity, not distinguished from address-change signals)",
+    "apps/interaction-ios/InteractionCompanion/Services/ConnectionManager.swift:146-190 (ReconnectDiagnosis.evaluate -- 4-consecutive or 60s-sustained .connectivity run triggers fixed re-pair copy with no other signal)",
+    "apps/interaction-ios/InteractionCompanion/Services/ConnectionManager.swift:449-462,1010-1046 (send/sendAip/sendStateApplied all increment droppedFrames and discard when not connected -- no queue)",
+    "apps/interaction-ios/InteractionCompanionApp.swift:88-91 (onDisconnected only disables sensors/BLE, never resets CharacterState)",
+    "crates/interaction-runtime/src/mobile.rs:2302-2332 (mobile_autostart_if_paired) and runtime.rs:531 (autostart wired at daemon start)",
+    "crates/interaction-runtime/src/character.rs:512 (device-offline Notice constant)"
+   ]
+  }
+ ],
+ "critic": {
+  "missingRows": [
+   {
+    "need": "F-07 iPhone 感測受器閉環（iphone.motion／iphone.battery／iphone.mic-level／iphone.touch）：受器註冊與能力宣告、權限誠實回報、全域開關語意（一個 id 一份、所有已配對手機共用）、高風險受器需 consent、Policy Governor 生效值、感測不靜默（status／事件／tray／UI 同步）、sensor journal 落地",
+    "whyItMatters": "iPhone 作為「入口」的另一半是它當感測來源：這是使用者最容易感覺被侵犯隱私的路徑，也是 CLAUDE.md「敏感受器預設關閉」「感測不靜默」「emergency stop 後不得自動恢復」三條不變量的主要落點。F-01..F-06 只在斷線／撤銷／estop 的副作用裡順帶提到 mic-level，從沒有一列直接盤點受器本身的接線與同意模型。",
+    "whereToLook": "crates/interaction-runtime/src/mobile.rs:173-213（MOBILE_RECEPTOR_SPECS：sensitivity／requires_consent／high_risk）、:2915（受器是全域旗標）、:3024-3130（mic-level 啟停與 registry Err）、:3547-3612（受器啟用中判定＋sensor.stopped）、:4167-4212（observation ingest 與 micLevel 確認）；crates/interaction-runtime/src/{sensors.rs,sensor_journal.rs,sensor_source.rs}；crates/interaction-policy；iOS Services/SensorCenter.swift:28-120,334-400、Views/SensorsView.swift:17-60；桌面 apps/interaction-desktop/src/pages/connect/PhoneDeviceCard.tsx:26-60；測試 mobile_loop.rs::high_risk_receptor_forced_off_on_disconnect_and_stays_off:930、::mobile_sensors_stop_targets_one_phone_and_is_honest_when_unreachable:2122、e2e/sensors.spec.ts、scripts/tests/tauri-mobile-sensor-walkthrough.py",
+    "likelyStatus": "implemented-and-connected（真機證據僅 v0.5.0 的 mic 強制停用／estop 停感測列）"
+   },
+   {
+    "need": "F-08 iPhone 動器閉環（iphone.haptic／notify／tts／torch／flash／character）：act 派送、TTL 與 pending、ack／err 誠實回執、physical_effect 標記、預設關閉與 governor 上限、參數映射拒絕不支援值",
+    "whyItMatters": "「電腦主核心＋手機入口」的輸出面全在這裡：agent 要把結果推到使用者身上（震動／通知／朗讀）就走這條，也是「實體副作用動器預設關閉」與「queued≠completed」的檢驗點。目前沒有任何一列盤點它，F-03 反而把「沒有通知推播」寫進限制，讀者會誤以為 iphone.notify 不存在。",
+    "whereToLook": "crates/interaction-runtime/src/mobile.rs:218-226（MOBILE_ACTUATORS 六個）、:415-557（map_wire_params 逐動器參數驗證）、:1892（physical_effect 只給 haptic／torch）、:1588-1720（stop-all 與 pending）；executor.rs／providers.rs 派送；CLI 入口是 Plan（crates/interaction-cli/src/main.rs:179），mobile 子命令沒有 act（main.rs:477-497 只有 Status/Pair/Revoke/StopSensors/Test/BleScan）；iOS Services/ActuatorCenter.swift:5-14,95-110",
+    "likelyStatus": "implemented-and-connected（真機零驗收：apps/interaction-ios/README.md 明列 haptic／torch／通知顯示未經真機驗收）"
+   },
+   {
+    "need": "F-09 位置（location）：iOS 有開關、會真的向使用者要 CoreLocation 授權、桌面 UI 有「位置」欄位，但 wire v1 沒有 location observation、runtime 沒有 iphone.location 受器、App 從不呼叫 startUpdatingLocation",
+    "whyItMatters": "這是唯一一個「使用者被要求授權、兩端 UI 都顯示成一個感測，實際上永遠沒有資料」的能力。對「不用假資料冒充真實」與「感測不靜默」的反面（顯示了但其實沒在感測）是直接風險。沒有任何一列提到 location。",
+    "whereToLook": "iOS Services/SensorCenter.swift:11-13（誠實註解：v1 僅 status 旗標與權限回報）、:28,33,62,88,97,334-357（setLocationEnabled 只設旗標＋requestWhenInUseAuthorization；全檔 grep startUpdatingLocation/didUpdateLocations = 0）、:360-372；Views/SensorsView.swift:39；桌面 PhoneDeviceCard.tsx:32,50（sensor 與 permission 兩表都有 location:「位置」）；runtime mobile.rs:173-213 與 :207-213（無 location 受器）、:2691（status.sensors 原樣轉發）；fixture examples/fake_iphone.rs:211-222（永遠 location:false，故現有測試從未覆蓋）",
+    "likelyStatus": "implemented-partial（by design 且程式已誠實註解）／UI 呈現面 needs-investigation"
+   },
+   {
+    "need": "F-10 緊急停止與 stop-all 投影到手機：estop 送 stop-all{sensors,reason}、手機端 ackStopAll 或事後 status{micLevel:false} 才算確認、estop 期間新連線先停感測再投影 emergency、重啟不自動恢復",
+    "whyItMatters": "「AI 不可解除 emergency stop」「高風險能力重啟後不得自動恢復」是不變量，而 iPhone 是唯一在別台裝置上的實體副作用面。F-05 只把它當重連的一個分支帶過；「確認」的定義（逾時＝unknown）正是誠實階梯的示範點。",
+    "whereToLook": "mobile.rs:66,745,1588,1652,1694-1720,1966（stop-all 送出與確認判定）、:2932-2975（estop-stop-sensors 事件）、:3960-3972（estop 中重連先 stop-all 再 emergency）、:4186-4232（ack{stopAll}／micLevel:false 確認）、:3188-3208（mobile_project_estop）；iOS ActuatorCenter.swift:14,66-70；測試 mobile_loop.rs::estop_projects_emergency_to_connected_phone:2379、::phone_connecting_during_estop_receives_emergency:2468；e2e/estop.spec.ts、e2e/character-session.spec.ts:289",
+    "likelyStatus": "implemented-and-connected（真機列需逐條核對 docs/releases/v0.5.0-iphone-device-evidence.md；README 記的 estop 停感測是模擬器）"
+   },
+   {
+    "need": "F-11 手機端能否發起停止／取消：使用者拿著手機時，能不能停掉桌面正在跑的工作或觸發緊急停止",
+    "whyItMatters": "產品方向明列「取消」與「跨裝置」。目前 stop 是單向的（桌面→手機），手機上的「立即停止」只停自己的感測。使用者不在電腦前時沒有任何手段中止 agent 工作或觸發全系統 estop——安全面的能力缺口，而 F-04 只盤點了核准／回答。",
+    "whereToLook": "iOS Models/Protocol.swift:301-329（ClientMessage 全表無 estop／cancel-task／stop）；Views/SensorsView.swift:33-60（立即停止只清本機感測）；Services/SessionClient.swift:811-814（AIP cancel 被明確忽略，角色動作取消走 character.behavior.cancel）；成員白名單含 Cancel：crates/interaction-session/src/session.rs:1034-1045；桌面／CLI 取消入口 crates/interaction-cli/src/main.rs:193 與 emergency-stop",
+    "likelyStatus": "absent（手機無法發起工作取消或緊急停止）"
+   },
+   {
+    "need": "F-12 iPhone 作為 BLE 閘道：scan／connect／GATT read-write-subscribe 的正式入口與閉環",
+    "whyItMatters": "「iPhone 當周邊硬體的橋」這條產品線；iOS 端已寫了 590 行完整實作（含 TTL／watchdog），桌面卻只接了 scan。connect/gatt 是典型的「型別與實作存在、正式入口不存在」案例，正是本次盤點要抓的。",
+    "whereToLook": "入口只有 scan：crates/interaction-cli/src/main.rs:491-497、crates/interaction-api/src/lib.rs:254、mobile.rs:4349-4395（逾時＝outcome unknown）；wire 已定義 connect/gatt：Protocol.swift:494-502、mobile.rs:4193；iOS Services/BleGateway.swift:5-14,127,170,213-251；全 repo grep ble.connect／ble.gatt 的產生者＝0（唯二命中 hardware.rs:716 是 macOS 硬體掃描標籤、adapter-declarative/src/ble.rs:362 是桌面自己的 BLE link）；fixture fake_iphone.rs:219（bleGateway:false）；scripts/v03-cli-e2e.sh 只有 mobile pair（:567），無 ble-scan",
+    "likelyStatus": "implemented-partial（scan 有入口但零 fixture／E2E 覆蓋）／defined-only（connect／gatt：iOS 實作完整、host 端零產生者）"
+   },
+   {
+    "need": "F-13 iOS App 的安裝與散佈路徑：一般使用者怎麼把 App 裝到自己的 iPhone 上",
+    "whyItMatters": "「桌面／iPhone 入口」要成立，手機端必須有可執行的取得路徑。docs/INSTALL.md、docs/QUICKSTART.md、docs/USER-GUIDE.md 對 iPhone／手機的提及數各為 0，scripts/get.sh 也沒有；只有開發者路徑（Xcode＋自簽＋鑰匙圈授權），而該路徑自 v0.5.1 就被記為 blocked。這是整個 F 維度最上游的可用性缺口。",
+    "whereToLook": "docs/INSTALL.md、docs/QUICKSTART.md、docs/USER-GUIDE.md（grep -ciE 'iphone|手機' 各為 0；對照 docs/DESKTOP-GUIDE.md 為 38）；scripts/get.sh（0 命中）；實際路徑 apps/interaction-ios/scripts/device-build.sh、device-acceptance.sh、apps/interaction-ios/README.md；docs/releases/v0.5.1-iphone-device-evidence.md（codesign 授權 blocked、0 次真機執行）",
+    "likelyStatus": "implemented-partial（開發者自建路徑）／absent（一般使用者的安裝與升級路徑與文件入口）"
+   },
+   {
+    "need": "F-14 手機互動的可追溯性：手機做過什麼（觀察、動器收據、配對／撤銷／認證失敗、感測啟停）在桌面的 Activity／Timeline／audit／事件流看不看得到、能不能依裝置篩選",
+    "whyItMatters": "產品方向明列「可追溯」。跨裝置的信任建立在「我在手機上發生的事，電腦上查得到」。runtime 面看起來有（activity.rs 有 device_id 篩選與人話標題），但沒有一列盤成需求，也沒對照桌面頁面是否真的暴露裝置維度。",
+    "whereToLook": "crates/interaction-runtime/src/activity.rs:36,59-110、:258-304、:325-330、:404；audit 事件名於 mobile.rs（mobile.auth-failed／rate-limited／unauthenticated-timeout／device-revoked／aip.state-applied／aip.outbound-undelivered）；桌面 apps/interaction-desktop/src/pages/{ActivityPage.tsx,Timeline.tsx}；HTTP /v1/events(SSE)",
+    "likelyStatus": "implemented-and-connected（runtime 面）／needs-investigation（桌面頁面的裝置維度）"
+   },
+   {
+    "need": "F-15 手機觀察是否進入記憶／上下文：iphone.* observation 會不會成為 agent 的 ContextBundle／記憶／知識的一部分",
+    "whyItMatters": "產品方向列了「記憶／上下文」與「多 Agent」。跨裝置感知的價值就在於 agent 用得到手機的觀察；若 observation 只落在 storage 而沒進 context 組裝，手機的感測對 AI 就是不可見的。沒有任何一列追這條線。",
+    "whereToLook": "ingest 點 mobile.rs:4117（iphone.touch）、:4167（其他受器）；crates/interaction-runtime/src/memory.rs（grep observation/Observation = 0 命中）；crates/interaction-runtime/src/agents.rs:16,570,931（AgentContextBundleReceipt、receptors:[\"agent.session\"]）；knowledge.rs／curator.rs；skills/orchestrate-adaptive-interaction",
+    "likelyStatus": "needs-investigation（傾向 implemented-partial：observation 有落地，是否進 ContextBundle／記憶未追到）"
+   },
+   {
+    "need": "F-16 角色跨裝置一致性：桌面小樞與 iPhone 端是兩套不同呈現；Character Pack／外觀設定不可攜；unsupportedIntents 降級如何讓使用者看懂",
+    "whyItMatters": "「角色」是產品方向一列，使用者直覺期待是「同一隻角色跟著我在兩台裝置上」。目前 iOS 是刻意簡化的貓耳剪影並在註解裡聲明不冒充桌面形象——誠實的設計決策，但它是需求缺口，應成列而不是留在原始碼註解。",
+    "whereToLook": "apps/interaction-ios/InteractionCompanion/Views/CharacterView.swift:1-20,36-78；Models/CharacterSemantic.swift；語意狀態無外觀欄位：Models/SemanticStateGenerated.swift:6-14；unsupportedIntents 於 schemas/semantic-state-1.0.schema.json（MemberView）；桌面角色與 pack docs/character-protocol/README.md、apps/interaction-desktop/src/character/",
+    "likelyStatus": "implemented-partial（by design；跨裝置外觀一致性 absent）"
+   },
+   {
+    "need": "F-17 任何文字內容跨裝置：角色說的話、主動說話（proactive）、agent 的訊息與提問內容，能不能出現在 iPhone 上",
+    "whyItMatters": "F-03 只說「手機看不到工作內容」，但更根本的事實是權威語意狀態根本沒有任何文字欄位——所以連桌面角色主動說的一句話都不可能到手機。這決定了「手機能不能成為陪伴／提醒面」的天花板，且與 F-08 的 iphone.notify／tts 形成對照（文字要到手機只能走動器 act）。",
+    "whereToLook": "apps/interaction-ios/InteractionCompanion/Models/SemanticStateGenerated.swift:6-14 與內嵌 schema（無 speech／text／utterance；CharacterSemantic.swift 只有 detail=truth.text）；crates/interaction-runtime/src/character_session.rs（grep speech|utterance 無相關命中）；proactive.rs:371-374,742-754（產出 presentation TONES／BEHAVIOR_INTENTS，全檔無 actuator／tts／notify）；可送文字的路徑 mobile.rs:477-496",
+    "likelyStatus": "absent（角色語意狀態面）／implemented-and-connected 但無自動產生者（動器面）"
+   },
+   {
+    "need": "F-18 多支 iPhone 並存與裝置管理：多台配對、逐台命名／辨識、逐台撤銷、同時串流互不干擾、成員上限",
+    "whyItMatters": "「跨裝置」不只是一台手機。程式面有多裝置設計與針對性測試，但沒有一列盤成需求，也沒確認桌面 UI 在多台時的呈現與命名可辨識度。",
+    "whereToLook": "mobile.rs:1346（device_name）、:1934-1944、:2672-2728（devices 清單）、:2730-2795（逐台 revoke）；測試 mobile_loop.rs::one_phone_disconnecting_never_silently_hides_another_streaming_phone:3346、::revoking_a_streaming_phone_ends_its_sensing_and_inflight_acts_at_once:3418；桌面 PhoneDeviceCard.tsx、CapabilitiesHub.tsx:672-800；成員上限 16（schemas/semantic-state-1.0.schema.json members maxItems）",
+    "likelyStatus": "implemented-and-connected（未成列；桌面多裝置 UI needs-investigation）"
+   },
+   {
+    "need": "F-19 網路範圍與遠端使用：wss 只綁區網／loopback、Bonjour 只在同網段、沒有中繼或遠端存取，使用者離開家就完全用不了手機端",
+    "whyItMatters": "「跨裝置」的實際可用邊界。這是產品層級限制（不是缺陷），但沒有一列說明，使用者與後續設計者可能誤以為手機是隨時可用的遠端遙控；也牽涉威脅模型（把 wss 開上區網 vs loopback 的取捨）。",
+    "whereToLook": "mobile.rs:77-79,147-151（INTERACT_AI_MOBILE_ADVERTISE）、:1174-1180（廣播關閉只綁 loopback）、:2361-2368、:53,324-330（Bonjour 服務型別）；iOS host/port 釘在配對當下（Protocol.swift:179-239；ConnectionManager 無 NWBrowser）；docs/aip/threat-model.md、docs/aip/pairing-security.md §7",
+    "likelyStatus": "absent（遠端／中繼）／implemented-and-connected 且 by design（區網內）"
+   },
+   {
+    "need": "F-20 iOS 端的資料保存與隱私：App 本機存了什麼（Keychain 範圍、UserDefaults、有無日誌落地）、隱私用途說明字串、使用者如何清除",
+    "whyItMatters": "手機端是使用者最在意隱私的地方，docs/aip/privacy.md 有契約但沒有一列對照 iOS 實作。與 F-01（桌面只存 sha256）互補：手機端存的是明文 token，範圍與清除路徑必須被盤點。",
+    "whereToLook": "apps/interaction-ios/InteractionCompanion/Services/PairingStore.swift:8,46-78（kSecClassGenericPassword、AfterFirstUnlockThisDeviceOnly、auth-fail 不清 Keychain）、ConnectionManager.swift:353,366-375（UserDefaults autoConnectIntent）、:328,718（配對碼永不落地）、:434-446（unpairByUser）；apps/interaction-ios/Info.plist（隱私用途 key）；docs/aip/privacy.md",
+    "likelyStatus": "needs-investigation（傾向 implemented-partial：有 Keychain 與不落地配對碼，但整體清除與日誌面未追到）"
+   },
+   {
+    "need": "F-21 版本相容與升級路徑：舊版 App 對新 daemon（未協商成員永遠收不到 AIP）、新版 App 對舊 daemon、協定棄用帳本如何對使用者呈現",
+    "whyItMatters": "iPhone 是唯一一個「使用者手上那台的版本不由我們控制」的元件；docs/aip 已寫了契約、程式面也有 legacy 分支，但沒有一列盤點升級／降級時使用者看到什麼。",
+    "whereToLook": "crates/interaction-runtime/tests/mobile_loop.rs::a_legacy_phone_that_never_negotiates_receives_no_aip_frames:3759；mobile.rs:4008-4029（capability 協商判定）；iOS Models/Protocol.swift:179-239（PairingPayload 只認 v:1）、:505,578（unknown type）；docs/aip/{deprecation-ledger.md,compatibility.md,transport-bindings.md §1}；桌面文案 capability-unknown／needs-reconfirmation（docs/aip/general-mode-ux.md:36-39）",
+    "likelyStatus": "implemented-partial（協定面有；使用者可見的升級指引 needs-investigation）"
+   }
+  ],
+  "contradictions": [
+   "F-03 的 limitation 寫「沒有通知推播」，但 crates/interaction-runtime/src/mobile.rs:222-226 註冊了 iphone.notify／iphone.tts 動器、:477-496 有完整參數映射，正式入口是 plan／act（crates/interaction-cli/src/main.rs:179）。真正不存在的是「工作事件自動推到手機」的產生者（F-03 的 evidence 其實講對了：grep iphone.notify 於 proactive/orchestrator/agents/executor/activity/gateway = 0），但 limitation 的措辭會被讀成「手機收不到通知」；行與懷疑者都沒有區分這兩件事，也沒有任何一列盤點動器目錄本身。",
+   "F-05 的 evidenceLevel 帶了 native-desktop，但它引用的唯一原生證據 scripts/tests/tauri-mobile-sensor-walkthrough.py 是用 fake_iphone（Rust fixture）驅動桌面 Tauri 的 AX 走查——對 iOS 的前背景／重連／冷啟動（F-05 need 本體）不提供任何證據。懷疑者對 F-01..F-04 都給了 correctedEvidenceLevel，唯獨 F-05／F-06 沒給，這個標籤因此未被裁決。",
+   "F-06 自己的 evidence 指出了一條具體錯誤路徑（ConnectionManager.swift:96-135 把 ECONNREFUSED 與 EHOSTUNREACH 一起歸為 .connectivity，:173-190 只看連續 connectivity 失敗就顯示「位址可能已變更…請重新配對」），依本次分類定義（confirmed-defect＝能指出具體錯誤路徑）這是 confirmed-defect 候選；懷疑者卻裁為「disclosed limitation, not confirmed-defect」。行本身也承認「靜態閱讀，未實跑」且 confidence=medium。爭議未解決，且雙方都沒提出可實跑的判別方式。",
+   "同一段文案在 F-01 與 F-06 得到相反評價：F-01 把「桌面換 IP 必須重新配對」寫成真機已確認的正確限制（host/port 釘在配對當下、iOS 無 Bonjour），F-06 把同一句「請重新配對」寫成 daemon 只是暫停時的多餘動作。兩列各自成立，但沒有一列指出手機在選擇這句文案的當下無法分辨兩種情境。",
+   "F-05 的 limitation 寫「AIP heartbeat 未實作，presence 只靠 v1 status」，同一列的 existingTests 卻列了 LifecycleTests.swift::testAipHeartbeatIsNotedAndAnsweredWithALegacyStatus:390——iOS 會回應 host 的 AIP heartbeat（用 legacy status 回），只是不主動送。「未實作」與自己引用的測試名互相牴觸。",
+   "F-01 與 F-02 對同一條實體連線給了不同 evidence 等級（F-01 含 real-iphone、F-02 不含），差別只在看哪幾種 frame。散文裡有解釋（F-01 的真機列是 v0.5.0 的配對／撤銷；F-02 的 AIP／applied 真機零執行），但矩陣讀者看到的是陣列，F-01 會被讀成「HEAD 上的配對路徑有真機證據」；F-01 自己也承認之後的配對相關程式只有 integration／fixture 證據——同一列的標籤與限制互相拉扯。",
+   "F-04 的結論「iPhone 完全不是核准／回答面」在人類核准意義上正確，但 crates/interaction-session/src/session.rs:1034-1045 的成員白名單包含 Result 與 Cancel，且 iOS 對 character.behavior.request 會回 result{observed}、對 character.behavior.cancel 回 cancelConfirmed（SessionClient.swift:1080-1117,1187）。手機確實有一條 member→host 的控制回饋通道（限於角色呈現），沒有任何一列記下它，讀者容易得到「手機只能看不能動」的過強結論。",
+   "F-05／F-06 都寫「高風險感測（mic／location）斷線即停用」，把 location 當成真的感測；但 SensorCenter.swift 從不呼叫 startUpdatingLocation（全檔 0 命中），mobile.rs:173-213 也沒有 iphone.location 受器。兩列因此引用了一個不存在資料通道的感測作為安全行為的證據，且無人揭露（PhoneDeviceCard.tsx:32,50 還會在桌面顯示「位置」）。",
+   "F-01 在 status=implemented-and-connected 的同一列裡塞了一個未追到的問題（「tray／原生路徑若要用需另查」），懷疑者也只確認了 WebView 走 HTTP 因此不受影響。依本次規則這應外顯為 needs-investigation 或獨立一列，否則矩陣上看不到還有一條未驗的原生入口。",
+   "既有六列沒有一列提到 BLE，但 CLI／HTTP 只接了 ble/scan，iOS 卻完整實作了 connect/gatt（BleGateway.swift 590 行），且 fixture fake_iphone.rs:219 永遠回報 bleGateway:false——連 scan 這條唯一有入口的路徑，在 repo 的所有自動化（scripts/v03-cli-e2e.sh 只有 mobile pair、e2e/iphone.spec.ts、mobile_loop.rs）裡都沒有覆蓋。六列給出的「evidenceLevel 齊全」印象不涵蓋 F 維度的這一整塊。"
+  ],
+  "reproCandidates": [
+   {
+    "what": "iOS 端全部決策（F-01 配對編解碼／F-02 receive 決策表與 applied 回執／F-05 生命週期閘門與冷啟動／F-06 重連診斷文案）的模擬器 XCTest 基線，確認 163 這個期望數在 HEAD 仍成立",
+    "command": "bash scripts/tests/ios-simulator.sh --out /tmp/p0-f/ios --expected-count 163   # 需 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer",
+    "expected": "腳本自建並只刪除自己的模擬器；輸出 JSON 的最後一輪完整結果＝163 方法、0 failed、0 skipped 才 exit 0。少跑／失敗／skip 一律非零退出；缺 Xcode 環境則記 needs-environment，不得當成通過。"
+   },
+   {
+    "what": "Rust 端 iPhone 連線與安全閉環（F-01 配對／HMAC 燒毀／token 重連／撤銷即斷線；F-05 idle 逾時／未認證死線／速率限制／取代連線；F-06 autostart 與 devicesUnknown；F-18 多手機互不干擾）",
+    "command": "cargo test -p interaction-runtime --test mobile_loop -- --nocapture",
+    "expected": "逐項核對 wrong_pairing_code_is_refused_and_session_burned、token_reconnect_works_until_revoked、revoke_disconnects_live_connection_immediately、idle_connection_times_out_and_capabilities_go_offline、high_risk_receptor_forced_off_on_disconnect_and_stays_off、a_corrupt_paired_device_list_is_reported_as_unknown_not_as_none、one_phone_disconnecting_never_silently_hides_another_streaming_phone 出現在 test result 行的通過數裡；回報實際數字，不寫「全部通過」。"
+   },
+   {
+    "what": "F-02 的 aip.applied/1 回執閉環（真 TLS＋程序內模擬手機）：錯 hash 拒收、正確 hash 收下、patch 後回執、連線被取代即失效",
+    "command": "cargo test -p interaction-runtime --test character_session_loop negotiated_mobile_state_applied -- --nocapture",
+    "expected": "negotiated_mobile_state_applied_requires_valid_current_connection_and_exact_sent_state 通過；建議一併跑 reconnecting_fixture_iphone_resumes_with_patches 與 stale_epoch_resume_gets_a_session_reset_snapshot 覆蓋 F-05／F-06 的 resume 分支。"
+   },
+   {
+    "what": "CLI 正式入口的手機驗收（F-01 pair 的 --json 形狀、Character Session 段的 capability／snapshot／touch applied），全程 fake_iphone fixture",
+    "command": "bash scripts/v03-cli-e2e.sh",
+    "expected": "結尾 `RESULT: N passed, 0 failed`；mobile pair 段（scripts/v03-cli-e2e.sh:567）產生 6 位碼＋QR payload 並由 fake_iphone 完成配對。注意此腳本沒有 ble-scan、沒有動器 act、沒有 location 覆蓋——缺口要記進矩陣。"
+   },
+   {
+    "what": "桌面 UI 面的手機卡與角色同步（F-01 配對面板／F-05 斷線＝能力不可用、移除＝立刻斷線／F-06 離線→重連→撤銷）",
+    "command": "cd apps/interaction-desktop && pnpm test:e2e e2e/iphone.spec.ts e2e/character-session.spec.ts   # 或 PHASE0_OUT=/tmp/p0-f scripts/tests/phase0/baseline.sh pw-e2e",
+    "expected": "Playwright 自起真 daemon＋Chromium，輸出 `N passed`；iphone.spec.ts:78/163/188 與 character-session.spec.ts:263/275/289 全綠。這是 fixture＋browser 等級，不得標成真機。"
+   },
+   {
+    "what": "原生 Tauri（非 WebView 自動化）下的手機／感測走查，用來收斂 F-01 遺留的 needs-investigation：tray／原生路徑是否呼叫了只走 rt() 的 mobile IPC",
+    "command": "python3 scripts/tests/tauri-mobile-sensor-walkthrough.py",
+    "expected": "AX 走查通過；同時人工核對 apps/interaction-desktop/src-tauri/src/lib.rs:1633-1650（mobile_status／pairing_begin／revoke 無 Backend::External 分支）在 external-daemon 模式下有無原生呼叫者。有＝confirmed-defect；沒有＝把該註記降為 by-design。"
+   },
+   {
+    "what": "F-04 的權限邊界負面驗證：agent token 與手機的每機 token 都不能走人類核准／手機管理路徑",
+    "command": "H=/tmp/p0-f/home; INTERACT_AI_HOME=$H INTERACT_AI_MOBILE_ADVERTISE=0 ./target/debug/interact-ai serve & sleep 2; curl -s -o /dev/null -w '%{http_code}\\n' -H \"Authorization: Bearer $(cat $H/state/api-agent-token)\" http://127.0.0.1:8787/v1/mobile/status; curl -s -o /dev/null -w '%{http_code}\\n' -X POST -H \"Authorization: Bearer $(cat $H/state/api-agent-token)\" http://127.0.0.1:8787/v1/agent-sessions/does-not-exist/approve",
+    "expected": "兩個 curl 都回 401/403（非 404、非 200），證明 /v1/mobile/* 與 /approve 是 human-token only（對照 crates/interaction-api/src/lib.rs:494,500-501,751-763）。手機的 wss token 根本不是 HTTP Bearer，無法用於任何 HTTP 路徑。"
+   },
+   {
+    "what": "F-12 BLE 閘道的唯一入口與誠實失敗：對自報 bleGateway:false 的手機掃描，必須回 outcome unknown 而不是空清單當成功",
+    "command": "cargo build -p interaction-runtime --example fake_iphone && INTERACT_AI_HOME=/tmp/p0-f/home ./target/debug/interact-ai mobile pair --json   # 用印出的 code 起 fake_iphone，然後：INTERACT_AI_HOME=/tmp/p0-f/home ./target/debug/interact-ai mobile ble-scan --duration-ms 1000 --json",
+    "expected": "回覆是誠實的 unknown／錯誤（mobile.rs:4375-4391 的「did not answer the BLE scan … outcome unknown」），不是 devices:[] 當成功。同時確認 `interact-ai mobile --help` 只有 Status/Pair/Revoke/StopSensors/Test/BleScan、HTTP 只有 /v1/mobile/ble/scan（lib.rs:254）→ connect/gatt 記為 defined-only。"
+   },
+   {
+    "what": "F-09 location 的存在性驗證：桌面會顯示「位置」但系統沒有對應受器、也沒有任何 observation 通道",
+    "command": "INTERACT_AI_HOME=/tmp/p0-f/home ./target/debug/interact-ai mobile status --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps([x.get(\"sensors\") for x in d.get(\"devices\",[])],ensure_ascii=False))'; INTERACT_AI_HOME=/tmp/p0-f/home ./target/debug/interact-ai receptors --json | grep -c 'iphone.location'",
+    "expected": "第一條輸出含 \"location\" 旗標（status.sensors 原樣轉發，mobile.rs:2691）；第二條為 0（無 iphone.location 受器）。再加 grep -c 'startUpdatingLocation' apps/interaction-ios/InteractionCompanion/Services/SensorCenter.swift 也應為 0 → 確認「UI 有、資料無」。"
+   },
+   {
+    "what": "F-17 的靜態契約檢查：權威語意狀態沒有任何文字／語音欄位，角色說的話結構上到不了手機",
+    "command": "python3 -c \"import json;d=json.load(open('schemas/semantic-state-1.0.schema.json'));print(sorted(d['properties']))\"",
+    "expected": "輸出恰為 ['activity','attention','characterId','lastInteraction','members','mood','reducedMotion','truth']——沒有 speech／text／utterance。任何「手機能顯示角色說的話」的說法必須改走 iphone.tts／iphone.notify 動器並標明是動器而非語意狀態。"
+   },
+   {
+    "what": "F-13 安裝路徑缺口的可重現證據（文件面）",
+    "command": "for f in docs/INSTALL.md docs/QUICKSTART.md docs/USER-GUIDE.md docs/DESKTOP-GUIDE.md scripts/get.sh; do printf '%s: ' \"$f\"; grep -ciE 'iphone|手機' \"$f\"; done",
+    "expected": "docs/INSTALL.md=0、docs/QUICKSTART.md=0、docs/USER-GUIDE.md=0、scripts/get.sh=0、docs/DESKTOP-GUIDE.md=38。即主安裝／快速開始／使用指南完全沒有 iPhone 入口。"
+   },
+   {
+    "what": "F-06 的爭議點：daemon 停止（而非 IP 變更）時手機顯示什麼——現有測試只覆蓋「連續 4 次 connectivity 失敗會建議重新配對」，沒覆蓋「daemon 只是沒開」",
+    "command": "bash scripts/tests/ios-simulator.sh --out /tmp/p0-f/ios-reconnect --expected-count 163   # 之後人工：同一模擬器啟動已配對的 App，關掉 daemon，觀察約 15 秒（退避 1+2+4+8 s）後 PairingView 的文案",
+    "expected": "ReconnectHintTests 的 4 次門檻測試通過；人工步驟預期在 daemon 單純未啟動時看到 PairingView.swift:94-105 的「可能是桌面的網路位址已變更。請在桌面重新產生配對碼並重新配對。」。若重現，就把 F-06 從 disclosed limitation 升級為 confirmed-defect（誤導性補救指引）並記錄實際秒數。"
+   },
+   {
+    "what": "F-01／F-05 真機列的重跑（唯一能產生 real-iphone 證據的路徑；自 v0.5.1 起 blocked）",
+    "command": "bash apps/interaction-ios/scripts/device-build.sh && bash apps/interaction-ios/scripts/device-acceptance.sh   # 需人工完成 codesign 鑰匙圈授權",
+    "expected": "成功則在 HEAD（v0.8.0 世代）重新產生配對／撤銷／背景鎖定／冷啟動自動重連的真機證據並逐列寫進 docs/releases/；失敗（如 v0.5.1 的鑰匙圈授權阻塞）記 needs-environment，且矩陣上所有 real-iphone 標籤必須維持「來自 v0.5.0 建置」的限定，不得寫成 HEAD 已驗。"
+   }
+  ]
+ }
+}

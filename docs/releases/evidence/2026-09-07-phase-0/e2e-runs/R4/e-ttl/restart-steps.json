@@ -1,0 +1,151 @@
+[
+ {
+  "step": "get-after-restart",
+  "status": 200,
+  "resp": {
+   "agentId": "claude-code",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 60000,
+    "maxMessages": 10,
+    "spentCost": 0.0,
+    "spentMessages": 0
+   },
+   "closedAt": "2026-09-07T09:11:31.027795Z",
+   "consentScope": [],
+   "contextBundles": [],
+   "createdAt": "2026-09-07T09:10:30.581617Z",
+   "dataScope": [],
+   "detail": "lease expired",
+   "label": "E0-10-ttl-expire-2",
+   "lease": {
+    "expiresAt": "2026-09-07T09:11:30.581617Z",
+    "issuedAt": "2026-09-07T09:10:30.581617Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/e-ttl/workdir",
+   "sessionId": "asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8",
+   "state": "expired",
+   "toolScope": []
+  }
+ },
+ {
+  "step": "renew-after-restart",
+  "status": 409,
+  "resp": {
+   "error": {
+    "code": "conflict",
+    "message": "conflict: agent session asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8 is Expired; expired/closed sessions cannot be renewed"
+   }
+  }
+ },
+ {
+  "step": "message-after-restart",
+  "status": 409,
+  "resp": {
+   "error": {
+    "code": "conflict",
+    "message": "conflict: agent session asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8 is Expired; mailbox closed"
+   }
+  }
+ },
+ {
+  "step": "list-after-restart",
+  "status": 200,
+  "resp": [
+   {
+    "agentId": "claude-code",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 0.0,
+     "maxDurationMs": 60000,
+     "maxMessages": 10,
+     "spentCost": 0.19123275,
+     "spentMessages": 2
+    },
+    "claimId": "claim-1961aaab-d9cd-4399-aafa-d597e48e23a0",
+    "closedAt": "2026-09-07T09:11:49.497041Z",
+    "consentScope": [],
+    "contextBundles": [
+     {
+      "bundle": {
+       "agentId": "claude-code",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T09:10:11.688113Z",
+       "includes": [],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "expired session task",
+       "truncated": false
+      },
+      "bundleId": "bundle-2dca232d-9c3d-435a-8fcb-110e82e1588a",
+      "contentHash": "019c195e5238936483de7d4ab35000b9e7d2fd3d3dfcb5ee433608ded0ec0996",
+      "generatedAt": "2026-09-07T09:10:11.688342Z",
+      "messageId": "msg-asession-6720f70c-9453-4849-b0a8-e223047f8516-1"
+     }
+    ],
+    "createdAt": "2026-09-07T09:09:33.140337Z",
+    "dataScope": [],
+    "detail": "runtime restarted; orphan subprocess group reaped (pgid 23088)",
+    "label": "E0-10-ttl-expire",
+    "lease": {
+     "expiresAt": "2026-09-07T09:40:33.140337Z",
+     "issuedAt": "2026-09-07T09:09:33.140337Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.claude-code",
+    "providerSessionId": "0bc6b17a-999a-41cb-87b1-08c8a84a8db0",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/e-ttl/workdir",
+    "sessionId": "asession-6720f70c-9453-4849-b0a8-e223047f8516",
+    "state": "expired",
+    "toolScope": []
+   },
+   {
+    "agentId": "claude-code",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 0.0,
+     "maxDurationMs": 60000,
+     "maxMessages": 10,
+     "spentCost": 0.0,
+     "spentMessages": 0
+    },
+    "closedAt": "2026-09-07T09:11:31.027795Z",
+    "consentScope": [],
+    "contextBundles": [],
+    "createdAt": "2026-09-07T09:10:30.581617Z",
+    "dataScope": [],
+    "detail": "lease expired",
+    "label": "E0-10-ttl-expire-2",
+    "lease": {
+     "expiresAt": "2026-09-07T09:11:30.581617Z",
+     "issuedAt": "2026-09-07T09:10:30.581617Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.claude-code",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/e-ttl/workdir",
+    "sessionId": "asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8",
+    "state": "expired",
+    "toolScope": []
+   }
+  ]
+ }
+]

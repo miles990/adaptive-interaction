@@ -1,0 +1,7 @@
+mobile-pair-and-negotiate completed
+mobile-bidirectional-semantic completed
+mobile-disconnect completed
+mobile-reconnect completed
+mobile-remove-old-token-rejected completed
+mobile-pair-again completed
+failed: Command '['osascript', '/Users/user/Workspace/claude-lab/adaptive-interaction/scripts/lib/tauri-ax.applescript', 'pid:41960', 'dump']' timed out after 55 seconds

@@ -1,0 +1,2 @@
+WINDOW: 桌面角色 subrole=AXStandardWindow
+WINDOW: Interaction Control Center subrole=AXStandardWindow

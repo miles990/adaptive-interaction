@@ -1,0 +1,54 @@
+{
+  "drill": "provider-disable-reenable",
+  "evidenceLevel": "production-cli-pty-simulator",
+  "sourceSha": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+  "dirtyTree": false,
+  "binarySha256": "1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7",
+  "binaryVersion": "interact-ai 0.8.0",
+  "steps": [
+    {
+      "name": "initial handshake and human OFF choice",
+      "status": "completed",
+      "elapsedSeconds": 0.06
+    },
+    {
+      "name": "disable/re-enable cycle 1",
+      "status": "completed",
+      "elapsedSeconds": 0.279
+    },
+    {
+      "name": "disable/re-enable cycle 2",
+      "status": "completed",
+      "elapsedSeconds": 0.276
+    },
+    {
+      "name": "revoke rejects re-enable and survives process restart",
+      "status": "completed",
+      "elapsedSeconds": 0.26
+    }
+  ],
+  "productionPath": "CLI -> HTTP -> Runtime::transition_provider/revoke_provider -> run_declarative_rebind -> production serial adapter",
+  "contracts": [
+    "docs/aip/device-profile.md#61",
+    "docs/aip/privacy.md#51"
+  ],
+  "decisions": [
+    "preserve the manually disabled non-consent receptor",
+    "no consent or safety override",
+    "Removed remains experimental"
+  ],
+  "backgroundKnowledge": [
+    "provider lifecycle",
+    "source/binding generation",
+    "simulator versus real-board evidence"
+  ],
+  "modifiedModules": [
+    "temporary config/adapters/button-box.yaml from the committed template"
+  ],
+  "status": "completed",
+  "bindingGenerations": [
+    1,
+    2
+  ],
+  "elapsedSeconds": 2.624
+}

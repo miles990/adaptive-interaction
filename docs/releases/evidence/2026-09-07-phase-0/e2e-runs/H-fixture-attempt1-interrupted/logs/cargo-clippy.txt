@@ -1,0 +1,28 @@
+START 2026-09-07T10:20:16Z
+    Checking interaction-core v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-core)
+    Checking tower-http v0.6.11
+    Checking interaction-character v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-character)
+    Checking clap_builder v4.6.6
+    Checking interaction-aip v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-aip)
+    Checking interaction-agent-gateway v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-agent-gateway)
+    Checking axum v0.8.9
+    Checking reqwest v0.12.28
+    Checking clap v4.6.6
+    Checking rumqttd v0.19.0
+    Checking interaction-character-shu v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-character-shu)
+    Checking interaction-session v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-session)
+    Checking interaction-adapter-sdk v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-adapter-sdk)
+    Checking interaction-events v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-events)
+    Checking interaction-storage v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-storage)
+    Checking interaction-recipe v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-recipe)
+    Checking interaction-tool-schema v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-tool-schema)
+    Checking interaction-policy v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-policy)
+    Checking interaction-adapter-declarative v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-adapter-declarative)
+    Checking adapters-builtin v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/adapters/builtin)
+    Checking adapters-media v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/adapters/media)
+    Checking interaction-registry v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-registry)
+    Checking interaction-runtime v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.62s
+cargo clippy -p interaction-runtime --example fake_iphone -- -D warnings  21.72s user 2.04s system 172% cpu 13.735 total
+clippy exit=0
+END 2026-09-07T10:20:29Z

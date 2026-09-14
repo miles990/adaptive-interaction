@@ -1,0 +1,9 @@
+A count 4 B count 4
+
+Preserved-field mismatches (should be empty): []
+
+NOT PRESERVED fields observed:
+ - createdAt (re-stamped to restore time)
+ - createdBy (A={'id': 'claude-code', 'kind': 'agent'} -> B={'kind': 'human'})
+ - memoryId (new id assigned)
+ - updatedAt (re-stamped)

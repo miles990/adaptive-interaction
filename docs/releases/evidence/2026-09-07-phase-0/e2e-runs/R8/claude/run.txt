@@ -1,0 +1,24 @@
+{"t": "2026-09-07T09:10:53.619Z", "mono": 0.002, "k": "daemon-spawned", "pid": 33157}
+{"t": "2026-09-07T09:10:53.882Z", "mono": 0.265, "k": "daemon-ready"}
+{"t": "2026-09-07T09:10:54.575Z", "mono": 0.958, "k": "S1/create", "status": 200, "sessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96", "state": "created", "body": null}
+{"t": "2026-09-07T09:10:54.662Z", "mono": 1.045, "k": "S1T1/send", "status": 200, "sessionState": "created", "resp": {"messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-1"}}
+{"t": "2026-09-07T09:11:00.789Z", "mono": 7.171, "k": "S1T1/state", "state": "claimed-completed"}
+{"t": "2026-09-07T09:11:54.917Z", "mono": 61.299, "k": "S1T1/done", "state": "claimed-completed", "elapsed": 60.2, "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba"}
+{"t": "2026-09-07T09:11:54.964Z", "mono": 61.347, "k": "S1T2/send", "status": 200, "sessionState": "claimed-completed", "resp": {"messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-3"}}
+{"t": "2026-09-07T09:12:55.190Z", "mono": 121.572, "k": "S1T2/done", "state": "claimed-completed", "elapsed": 60.18, "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba"}
+{"t": "2026-09-07T09:12:55.193Z", "mono": 121.575, "k": "S1/close", "status": 200, "state": "closed"}
+{"t": "2026-09-07T09:12:57.241Z", "mono": 123.623, "k": "S1/post-after-close", "status": 409, "resp": {"error": {"code": "conflict", "message": "conflict: agent session asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96 is Closed; mailbox closed"}}}
+{"t": "2026-09-07T09:12:57.505Z", "mono": 123.887, "k": "S2/create", "status": 200, "sessionId": "asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e", "state": "created", "body": null}
+{"t": "2026-09-07T09:12:57.553Z", "mono": 123.936, "k": "S2T1/send", "status": 200, "sessionState": "created", "resp": {"messageId": "msg-asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e-1"}}
+{"t": "2026-09-07T09:13:01.133Z", "mono": 127.515, "k": "S2T1/state", "state": "claimed-completed"}
+{"t": "2026-09-07T09:13:57.837Z", "mono": 184.219, "k": "S2T1/done", "state": "claimed-completed", "elapsed": 60.23, "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba"}
+{"t": "2026-09-07T09:13:57.840Z", "mono": 184.222, "k": "S2/close", "status": 200, "state": "closed"}
+{"t": "2026-09-07T09:13:57.842Z", "mono": 184.224, "k": "probe/allowWrite/create", "status": 403, "sessionId": null, "state": null, "body": {"error": {"code": "policy_blocked", "message": "policy blocked: 接續上次的工作不得放寬可用工具：workspace.write 不在上次的授權範圍裡"}}}
+{"t": "2026-09-07T09:13:57.843Z", "mono": 184.225, "k": "probe/otherWorkdir/create", "status": 403, "sessionId": null, "state": null, "body": {"error": {"code": "policy_blocked", "message": "policy blocked: 接續上次的工作不得更換工作目錄（上次是 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir）；                     要換資料夾請重新建立一個明確授權的工作階段"}}}
+{"t": "2026-09-07T09:13:57.844Z", "mono": 184.226, "k": "probe/omitWorkdir/create", "status": 403, "sessionId": null, "state": null, "body": {"error": {"code": "policy_blocked", "message": "policy blocked: 接續上次的工作必須帶上同一個工作目錄（上次是 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir）；             省略＝由系統另外挑一個資料夾，那不是接續"}}}
+{"t": "2026-09-07T09:13:57.845Z", "mono": 184.227, "k": "probe/widerTtl/create", "status": 403, "sessionId": null, "state": null, "body": {"error": {"code": "policy_blocked", "message": "policy blocked: 接續上次的工作不得放寬時間上限（上次 20 分鐘，這次要求 120 分鐘）"}}}
+{"t": "2026-09-07T09:13:57.846Z", "mono": 184.228, "k": "probe/widerMessages/create", "status": 403, "sessionId": null, "state": null, "body": {"error": {"code": "policy_blocked", "message": "policy blocked: 接續上次的工作不得放寬訊息上限（上次 40，這次 200）"}}}
+{"t": "2026-09-07T09:13:57.847Z", "mono": 184.228, "k": "probe/omitBudget/create", "status": 403, "sessionId": null, "state": null, "body": {"error": {"code": "policy_blocked", "message": "policy blocked: 接續上次的工作不得放寬時間上限（上次 20 分鐘，這次要求 120 分鐘）"}}}
+{"t": "2026-09-07T09:13:57.847Z", "mono": 184.229, "k": "probe/unknownId/create", "status": 403, "sessionId": null, "state": null, "body": {"error": {"code": "policy_blocked", "message": "policy blocked: 找不到上一次的授權紀錄，無法確認接續沒有放寬任何範圍；請重新建立一個明確授權的工作階段"}}}
+{"t": "2026-09-07T09:13:57.940Z", "mono": 184.322, "k": "daemon-stopped", "returncode": -15}
+DONE {"agent": "claude-code", "secret": "X55XY4F8", "s1": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96", "pid1": "e63b51f8-0c9c-4431-accd-2d9dca4336ba", "wall": 185.39}

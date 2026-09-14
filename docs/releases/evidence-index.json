@@ -298,6 +298,34 @@
         "conclusion": "success"
       },
       "publicationFacts": "docs/releases/evidence/2026-09-06-convergence/publication/publication-facts.json"
+    },
+    {
+      "id": "phase-0-state-recovery-baseline",
+      "branch": "phase-0/state-recovery-baseline",
+      "baseCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+      "status": "checkpoint-in-progress",
+      "versionPolicy": "不改版本號：純基線／文件／測試設備與 fixture 修正，產品程式碼不變（v0.8.0 產品與 tag 不變）。合併後只建 annotated checkpoint tag phase-0-baseline-YYYYMMDD（release.yml 只吃 v*，不觸發發布）。",
+      "progress": "docs/releases/phase-0-progress.md",
+      "docs": {
+        "progress": "docs/releases/phase-0-progress.md",
+        "repositoryState": "docs/releases/phase-0-repository-state.md",
+        "capabilityMatrix": "docs/releases/phase-0-capability-recovery-matrix.md",
+        "architecture": "docs/releases/phase-0-architecture.md",
+        "testResponsibility": "docs/releases/phase-0-test-responsibility.md",
+        "knownIssues": "docs/releases/phase-0-known-issues-reproducibility.md",
+        "docsVsReality": "docs/releases/phase-0-docs-vs-reality.md",
+        "roadmap": "docs/releases/phase-0-roadmap.md",
+        "evidenceManifest": "docs/releases/evidence/2026-09-07-phase-0/artifact-manifest.json",
+        "baselineRunner": "scripts/tests/phase0/README.md"
+      },
+      "evidence": {
+        "baseline": "HEAD 78dcda1：Rust 1278/0（98 binaries）、Tauri 78/0、vitest 1916/0、Playwright 92/0、CLI 96/0、iOS simulator 163/0、architecture 六組 PASS、ESP32 compile（非真板）",
+        "realAgent": "Claude Code 2.1.263 與 Codex 0.153.4 真 CLI 走正式 HTTP 路徑（模型只能由 provider 端本機 log 辨認：claude-fable-5-1／gpt-6-astra）；雙平台各自 completed／product-failed 清單見 e2e-baseline",
+        "iphone": "fixture（fake_iphone）completed；真機 needs-environment（Xcode 未選 Team）",
+        "esp32": "none（compile check 與 pty 模擬器）",
+        "nativeDesktop": "綁定 2026-09-06 候選 App（sha256 1103cda7…，非 HEAD 重建）"
+      },
+      "note": "階段 0 checkpoint 只代表查核快照，不代表產品能力已驗收；產品缺陷 D1–D20 與環境阻礙見 knownIssues／progress §7。"
     }
   ],
   "postReleaseTestCorrections": [

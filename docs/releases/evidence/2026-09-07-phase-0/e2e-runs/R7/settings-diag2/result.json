@@ -1,0 +1,119 @@
+{
+  "evidenceLevel": "native Tauri + production daemon + real AX download and file picker",
+  "sourceSha": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+  "dirtyTree": true,
+  "binarySha256": "1103cda7f8491ece2adbaab478056d14a174da47ab8536a2d652c734a0765f19",
+  "cliSha256": "1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7",
+  "driverSha256": "65ce58d5611823e70560bd2002d0f8edd2358cc1558c7fa4ebe725a00d27a0db",
+  "prefsFixture": null,
+  "prefsFixtureSha256": null,
+  "startingPreferences": {},
+  "steps": [
+    {
+      "id": "export-file",
+      "status": "completed",
+      "elapsedSeconds": 25.731,
+      "bytes": 404,
+      "sha256": "ecbe327ed35548db2d02fd483ad2d64d599443184b3ca702728fc5a411865568"
+    },
+    {
+      "id": "unfinished",
+      "status": "failed",
+      "error": "observable state did not arrive"
+    }
+  ],
+  "ax": [
+    {
+      "command": [
+        "windows"
+      ],
+      "seconds": 0.551,
+      "exit": 0
+    },
+    {
+      "command": [
+        "exists",
+        "AXButton",
+        "現在"
+      ],
+      "seconds": 0.549,
+      "exit": 0
+    },
+    {
+      "command": [
+        "navclick",
+        "2"
+      ],
+      "seconds": 0.513,
+      "exit": 0
+    },
+    {
+      "command": [
+        "exists",
+        "AXDisclosureTriangle",
+        "更換或加入角色"
+      ],
+      "seconds": 2.897,
+      "exit": 0
+    },
+    {
+      "command": [
+        "click",
+        "AXDisclosureTriangle",
+        "更換或加入角色"
+      ],
+      "seconds": 4.009,
+      "exit": 0
+    },
+    {
+      "command": [
+        "click",
+        "AXButton",
+        "匯出角色設定"
+      ],
+      "seconds": 7.695,
+      "exit": 0
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "seconds": 9.333,
+      "exit": 0
+    },
+    {
+      "command": [
+        "click",
+        "AXButton",
+        "選擇角色設定檔"
+      ],
+      "seconds": 8.296,
+      "exit": 0
+    },
+    {
+      "command": [
+        "windows"
+      ],
+      "seconds": 0.286,
+      "exit": 0
+    },
+    {
+      "command": [
+        "choosefile",
+        "/private/tmp/aip-r7-s3/valid-import.json"
+      ],
+      "seconds": 2.033,
+      "exit": 0
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "seconds": 18.141,
+      "exit": 0
+    }
+  ],
+  "seconds": 79.748,
+  "error": "observable state did not arrive",
+  "limits": "No human timing; failed presentation acknowledgement is separately covered by component fault tests; unwritable store is a real task-owned directory"
+}

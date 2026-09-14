@@ -1,0 +1,7 @@
+at|kind|actor|detail
+2026-09-07T10:23:28.808Z|mobile.server-started|runtime|{"port":18790}
+2026-09-07T10:23:28.821Z|mobile.pairing-session|user|{"port":18790}
+2026-09-07T10:23:29.465Z|mobile.paired|user|{"deviceId":"iphone-0fc67bf6"}
+2026-09-07T10:23:32.911Z|mobile.server-started|runtime|{"port":18790}
+2026-09-07T10:23:36.391Z|mobile.device-revoked|user|{"deviceId":"iphone-0fc67bf6","wasConnected":true}
+2026-09-07T10:23:37.411Z|mobile.auth-failed|runtime|{"deviceId":"iphone-0fc67bf6","knownDevice":false,"peer":"127.0.0.1:51530"}

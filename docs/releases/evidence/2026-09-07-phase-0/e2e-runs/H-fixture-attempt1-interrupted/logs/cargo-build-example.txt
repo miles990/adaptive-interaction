@@ -1,0 +1,22 @@
+START 2026-09-07T10:20:35Z
+   Compiling interaction-core v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-core)
+   Compiling interaction-character v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-character)
+   Compiling interaction-aip v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-aip)
+   Compiling interaction-agent-gateway v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-agent-gateway)
+   Compiling interaction-session v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-session)
+   Compiling interaction-character-shu v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-character-shu)
+   Compiling interaction-adapter-sdk v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-adapter-sdk)
+   Compiling interaction-events v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-events)
+   Compiling interaction-tool-schema v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-tool-schema)
+   Compiling interaction-policy v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-policy)
+   Compiling interaction-recipe v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-recipe)
+   Compiling interaction-storage v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-storage)
+   Compiling adapters-media v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/adapters/media)
+   Compiling adapters-builtin v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/adapters/builtin)
+   Compiling interaction-adapter-declarative v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-adapter-declarative)
+   Compiling interaction-registry v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-registry)
+   Compiling interaction-runtime v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 22.79s
+cargo build -p interaction-runtime --example fake_iphone  51.00s user 5.83s system 248% cpu 22.832 total
+build exit=0
+END 2026-09-07T10:20:58Z

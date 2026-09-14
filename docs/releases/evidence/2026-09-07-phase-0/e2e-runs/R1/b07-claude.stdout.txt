@@ -1,0 +1,18 @@
+{"t": "2026-09-07T09:09:31.457Z", "mono": 0.003, "k": "daemon-spawned", "pid": 21899}
+{"t": "2026-09-07T09:09:31.716Z", "mono": 0.262, "k": "daemon-ready"}
+{"t": "2026-09-07T09:09:32.528Z", "mono": 1.074, "k": "create", "status": 200, "state": "created", "id": "asession-65b89fa8-a9a1-4234-a4aa-49b732052665"}
+{"t": "2026-09-07T09:09:32.533Z", "mono": 1.078, "k": "task1-sent", "status": 200}
+{"t": "2026-09-07T09:09:32.534Z", "mono": 1.079, "k": "state", "phase": "p1-await-active", "state": "created"}
+{"t": "2026-09-07T09:10:36.766Z", "mono": 65.311, "k": "state", "phase": "p1-await-active", "state": "active"}
+{"t": "2026-09-07T09:10:36.837Z", "mono": 65.382, "k": "p1-active-observed", "state": "active", "children": ["22342 21899       01:04 SN   claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {"]}
+{"t": "2026-09-07T09:10:39.842Z", "mono": 68.387, "k": "interrupt-issued", "status": 200, "resp": {"interrupted": true}}
+{"t": "2026-09-07T09:10:39.843Z", "mono": 68.389, "k": "state", "phase": "p1-await-terminal", "state": "active"}
+{"t": "2026-09-07T09:10:40.350Z", "mono": 68.895, "k": "state", "phase": "p1-await-terminal", "state": "failed"}
+{"t": "2026-09-07T09:10:40.397Z", "mono": 68.942, "k": "p1-terminal", "state": "failed", "children": []}
+{"t": "2026-09-07T09:10:42.457Z", "mono": 71.002, "k": "p1-children-after-2s", "children": []}
+{"t": "2026-09-07T09:10:42.458Z", "mono": 71.004, "k": "p1-from-session", "count": 0}
+{"t": "2026-09-07T09:10:42.459Z", "mono": 71.005, "k": "task2-sent", "status": 409, "resp": {"error": {"code": "conflict", "message": "conflict: agent session asession-65b89fa8-a9a1-4234-a4aa-49b732052665 is Failed; mailbox closed"}}}
+{"t": "2026-09-07T09:10:42.506Z", "mono": 71.051, "k": "final", "state": "failed", "children": []}
+{"t": "2026-09-07T09:10:42.557Z", "mono": 71.103, "k": "children-final", "children": []}
+{"t": "2026-09-07T09:10:42.561Z", "mono": 71.107, "k": "daemon-stopped"}
+RESULT {"agent": "claude-code", "p1": "failed", "task2Status": 409, "final": "failed"}

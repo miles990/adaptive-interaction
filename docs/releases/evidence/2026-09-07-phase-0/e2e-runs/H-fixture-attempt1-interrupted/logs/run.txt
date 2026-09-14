@@ -1,0 +1,35 @@
+[2026-09-07T10:23:28Z] === PHASE A: 起 daemon、配對、連線 ===
+[2026-09-07T10:23:28Z] daemon(1) pid=85501
+[2026-09-07T10:23:28Z] daemon(1) ready http=200
+[2026-09-07T10:23:28Z] mobile port=18790 fingerprint=842e9caeb2554bd5… code=6chars
+[2026-09-07T10:23:28Z] fake_iphone pid=85633
+[2026-09-07T10:23:29Z] deviceId=iphone-0fc67bf6
+[2026-09-07T10:23:29Z] -> phone: {"op":"status","micLevel":true}
+[2026-09-07T10:23:30Z] A done:  A done:  A done: ['connected'] A done:
+[2026-09-07T10:23:30Z] === PHASE B: SIGKILL daemon，送 reconnect，期望 reconnect-failed 且 process 還活著 ===
+[2026-09-07T10:23:30Z] kill -KILL 85501 -> dead
+[2026-09-07T10:23:31Z] daemon after kill: dead
+[2026-09-07T10:23:31Z] http while dead: curl_exit=7 http=000
+[2026-09-07T10:23:31Z] -> phone: {"op":"reconnect"}
+[2026-09-07T10:23:31Z] PASS B1: reconnect-failed 出現
+[2026-09-07T10:23:32Z] PASS/FAIL B2 (process 存活): fake_iphone pid=85633 alive
+[2026-09-07T10:23:32Z] phone.log lines before=       5 after=       6
+[2026-09-07T10:23:32Z] === PHASE C: 同 home 重啟 daemon，再送 reconnect，期望恢復 ===
+[2026-09-07T10:23:32Z] daemon(2) pid=85742
+[2026-09-07T10:23:33Z] daemon(2) ready http=200
+[2026-09-07T10:23:34Z] restarted mobile port=18790 (原本 18790)
+[2026-09-07T10:23:34Z] -> phone: {"op":"reconnect"}
+[2026-09-07T10:23:34Z] PASS C1: fixture 回報 connected（第 2 次）
+[2026-09-07T10:23:35Z] C done:  C done:  C done:
+[2026-09-07T10:23:35Z] -> phone: {"op":"status","micLevel":true}
+[2026-09-07T10:23:36Z] === PHASE D: 撤銷裝置後再 reconnect，期望 auth-fail ===
+[2026-09-07T10:23:36Z] revoke http=200 body={"revoked":"iphone-0fc67bf6","wasConnected":true}
+[2026-09-07T10:23:37Z] -> phone: {"op":"reconnect"}
+[2026-09-07T10:23:37Z] PASS D1: auth-fail
+[2026-09-07T10:23:38Z] D2 (process 存活): alive
+[2026-09-07T10:23:38Z] === PHASE E: 收工 ===
+[2026-09-07T10:23:38Z] -> phone: {"op":"quit"}
+[2026-09-07T10:23:40Z] fake_iphone: dead
+[2026-09-07T10:23:40Z] fake_iphone final: dead
+[2026-09-07T10:23:42Z] daemon2 final: dead
+[2026-09-07T10:23:42Z] === 完成 ===

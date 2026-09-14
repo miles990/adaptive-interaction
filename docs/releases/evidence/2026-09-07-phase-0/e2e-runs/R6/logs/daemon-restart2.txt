@@ -1,0 +1,5 @@
+[2m2026-09-07T09:17:17.361528Z[0m [33m WARN[0m [2minteraction_runtime::lock[0m[2m:[0m reclaiming stale instance lock [3mpid[0m[2m=[0m67267
+interact-ai daemon listening on http://127.0.0.1:19060
+human token file: /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R6/home/state/api-token
+restricted agent token file: /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R6/home/state/api-agent-token
+press Ctrl-C to stop

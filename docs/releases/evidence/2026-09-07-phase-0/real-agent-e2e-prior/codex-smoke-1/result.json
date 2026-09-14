@@ -1,0 +1,601 @@
+{
+ "agent": "codex",
+ "port": 18912,
+ "task": "請讀取目前工作目錄裡的 NOTES.md，用一句話（繁體中文）回答檔案的第一個標題是什麼。不要修改任何檔案。",
+ "allowWrite": false,
+ "events": [
+  {
+   "t": "2026-09-07T03:45:18.308Z",
+   "mono": 0.002,
+   "k": "daemon-spawned",
+   "pid": 83403
+  },
+  {
+   "t": "2026-09-07T03:45:18.575Z",
+   "mono": 0.269,
+   "k": "daemon-ready"
+  },
+  {
+   "t": "2026-09-07T03:45:19.946Z",
+   "mono": 1.64,
+   "k": "create",
+   "status": 200,
+   "state": "created",
+   "id": "asession-033ce8d3-2b59-41de-b58b-1b9bb7485138",
+   "error": null
+  },
+  {
+   "t": "2026-09-07T03:45:19.950Z",
+   "mono": 1.644,
+   "k": "task-sent",
+   "status": 200,
+   "resp": {
+    "id": null,
+    "kind": "task",
+    "direction": "to-session",
+    "contextBundle": null
+   }
+  },
+  {
+   "t": "2026-09-07T03:45:19.951Z",
+   "mono": 1.645,
+   "k": "state",
+   "state": "created",
+   "delegation": null
+  },
+  {
+   "t": "2026-09-07T03:45:20.458Z",
+   "mono": 2.151,
+   "k": "state",
+   "state": "active",
+   "delegation": null
+  },
+  {
+   "t": "2026-09-07T03:45:31.088Z",
+   "mono": 12.781,
+   "k": "state",
+   "state": "waiting-for-consent",
+   "delegation": null
+  },
+  {
+   "t": "2026-09-07T03:50:21.571Z",
+   "mono": 303.261,
+   "k": "final",
+   "state": "waiting-for-consent"
+  },
+  {
+   "t": "2026-09-07T03:50:21.652Z",
+   "mono": 303.343,
+   "k": "daemon-stopped"
+  }
+ ],
+ "snapshots": [
+  {
+   "agentId": "codex",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.0,
+    "spentMessages": 1
+   },
+   "consentScope": [],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "codex",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T03:45:19.949049Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請讀取目前工作目錄裡的 NOTES.md，用一句話（繁體中文）回答檔案的第一個標題是什麼。不要修改任何檔案。",
+      "truncated": false
+     },
+     "bundleId": "bundle-347f9f85-e5da-4b3f-ac67-718dd3995dcc",
+     "contentHash": "d5b76c578fc1b3f2509895bcf0d655789166f430cbdcb7caed1a41b47d782fff",
+     "generatedAt": "2026-09-07T03:45:19.949263Z",
+     "messageId": "msg-asession-033ce8d3-2b59-41de-b58b-1b9bb7485138-1"
+    }
+   ],
+   "createdAt": "2026-09-07T03:45:19.102113Z",
+   "dataScope": [],
+   "label": "phase0-smoke",
+   "lease": {
+    "expiresAt": "2026-09-07T04:05:19.102113Z",
+    "issuedAt": "2026-09-07T03:45:19.102113Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.codex",
+   "providerSessionId": "01a079f8-6f42-7141-b935-9805fd6603f6",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/codex-smoke-1/workdir",
+   "sessionId": "asession-033ce8d3-2b59-41de-b58b-1b9bb7485138",
+   "state": "created",
+   "toolScope": []
+  },
+  {
+   "agentId": "codex",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.0,
+    "spentMessages": 1
+   },
+   "consentScope": [],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "codex",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T03:45:19.949049Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請讀取目前工作目錄裡的 NOTES.md，用一句話（繁體中文）回答檔案的第一個標題是什麼。不要修改任何檔案。",
+      "truncated": false
+     },
+     "bundleId": "bundle-347f9f85-e5da-4b3f-ac67-718dd3995dcc",
+     "contentHash": "d5b76c578fc1b3f2509895bcf0d655789166f430cbdcb7caed1a41b47d782fff",
+     "generatedAt": "2026-09-07T03:45:19.949263Z",
+     "messageId": "msg-asession-033ce8d3-2b59-41de-b58b-1b9bb7485138-1"
+    }
+   ],
+   "createdAt": "2026-09-07T03:45:19.102113Z",
+   "dataScope": [],
+   "label": "phase0-smoke",
+   "lease": {
+    "expiresAt": "2026-09-07T04:05:19.102113Z",
+    "issuedAt": "2026-09-07T03:45:19.102113Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.codex",
+   "providerSessionId": "01a079f8-6f42-7141-b935-9805fd6603f6",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/codex-smoke-1/workdir",
+   "sessionId": "asession-033ce8d3-2b59-41de-b58b-1b9bb7485138",
+   "state": "active",
+   "toolScope": []
+  },
+  {
+   "agentId": "codex",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.0,
+    "spentMessages": 2
+   },
+   "consentScope": [],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "codex",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T03:45:19.949049Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請讀取目前工作目錄裡的 NOTES.md，用一句話（繁體中文）回答檔案的第一個標題是什麼。不要修改任何檔案。",
+      "truncated": false
+     },
+     "bundleId": "bundle-347f9f85-e5da-4b3f-ac67-718dd3995dcc",
+     "contentHash": "d5b76c578fc1b3f2509895bcf0d655789166f430cbdcb7caed1a41b47d782fff",
+     "generatedAt": "2026-09-07T03:45:19.949263Z",
+     "messageId": "msg-asession-033ce8d3-2b59-41de-b58b-1b9bb7485138-1"
+    }
+   ],
+   "createdAt": "2026-09-07T03:45:19.102113Z",
+   "dataScope": [],
+   "label": "phase0-smoke",
+   "lease": {
+    "expiresAt": "2026-09-07T04:05:19.102113Z",
+    "issuedAt": "2026-09-07T03:45:19.102113Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.codex",
+   "providerSessionId": "01a079f8-6f42-7141-b935-9805fd6603f6",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/codex-smoke-1/workdir",
+   "sessionId": "asession-033ce8d3-2b59-41de-b58b-1b9bb7485138",
+   "state": "waiting-for-consent",
+   "toolScope": []
+  }
+ ],
+ "discovery": {
+  "agents": [
+   {
+    "binaryPath": "claude",
+    "detail": "2.1.263 (Claude Code)（已登入）",
+    "found": true,
+    "kind": "claude-code",
+    "loggedIn": true,
+    "protocolSupported": true,
+    "version": "2.1.263 (Claude Code)"
+   },
+   {
+    "binaryPath": "codex",
+    "detail": "codex-cli 0.153.4（已登入，app-server 可用）",
+    "found": true,
+    "kind": "codex",
+    "loggedIn": true,
+    "protocolSupported": true,
+    "version": "codex-cli 0.153.4"
+   }
+  ]
+ },
+ "sessionId": "asession-033ce8d3-2b59-41de-b58b-1b9bb7485138",
+ "createRecord": {
+  "agentId": "codex",
+  "allowWrite": false,
+  "budget": {
+   "maxCost": 0.0,
+   "maxDurationMs": 1200000,
+   "maxMessages": 40,
+   "spentCost": 0.0,
+   "spentMessages": 0
+  },
+  "consentScope": [],
+  "contextBundles": [],
+  "createdAt": "2026-09-07T03:45:19.102113Z",
+  "dataScope": [],
+  "label": "phase0-smoke",
+  "lease": {
+   "expiresAt": "2026-09-07T04:05:19.102113Z",
+   "issuedAt": "2026-09-07T03:45:19.102113Z",
+   "renewable": true,
+   "revokeOnSessionEnd": true
+  },
+  "providerId": "provider.ai-agent.codex",
+  "providerSessionId": "01a079f8-6f42-7141-b935-9805fd6603f6",
+  "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/codex-smoke-1/workdir",
+  "sessionId": "asession-033ce8d3-2b59-41de-b58b-1b9bb7485138",
+  "state": "created",
+  "toolScope": []
+ },
+ "taskSend": {
+  "body": {
+   "contextBundle": {
+    "agentId": "codex",
+    "domains": [],
+    "excluded": {
+     "needsReview": [],
+     "notVisibleToAgent": 0,
+     "outsideGrantedDomains": 0,
+     "overCapacity": 0,
+     "sensitive": 0,
+     "unreviewedCandidates": 0
+    },
+    "generatedAt": "2026-09-07T03:45:19.949049Z",
+    "includes": [],
+    "limits": {
+     "maxBytes": 49152,
+     "maxItems": 24,
+     "scanLimit": 1000,
+     "scanLimitReached": false
+    },
+    "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+    "task": "請讀取目前工作目錄裡的 NOTES.md，用一句話（繁體中文）回答檔案的第一個標題是什麼。不要修改任何檔案。",
+    "truncated": false
+   },
+   "task": "請讀取目前工作目錄裡的 NOTES.md，用一句話（繁體中文）回答檔案的第一個標題是什麼。不要修改任何檔案。"
+  },
+  "createdAt": "2026-09-07T03:45:19.949218Z",
+  "deliveredAt": "2026-09-07T03:45:19.949994Z",
+  "direction": "to-session",
+  "kind": "task",
+  "messageId": "msg-asession-033ce8d3-2b59-41de-b58b-1b9bb7485138-1",
+  "sessionId": "asession-033ce8d3-2b59-41de-b58b-1b9bb7485138"
+ },
+ "final": {
+  "agentId": "codex",
+  "allowWrite": false,
+  "budget": {
+   "maxCost": 0.0,
+   "maxDurationMs": 1200000,
+   "maxMessages": 40,
+   "spentCost": 0.0,
+   "spentMessages": 2
+  },
+  "consentScope": [],
+  "contextBundles": [
+   {
+    "bundle": {
+     "agentId": "codex",
+     "domains": [],
+     "excluded": {
+      "needsReview": [],
+      "notVisibleToAgent": 0,
+      "outsideGrantedDomains": 0,
+      "overCapacity": 0,
+      "sensitive": 0,
+      "unreviewedCandidates": 0
+     },
+     "generatedAt": "2026-09-07T03:45:19.949049Z",
+     "includes": [],
+     "limits": {
+      "maxBytes": 49152,
+      "maxItems": 24,
+      "scanLimit": 1000,
+      "scanLimitReached": false
+     },
+     "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+     "task": "請讀取目前工作目錄裡的 NOTES.md，用一句話（繁體中文）回答檔案的第一個標題是什麼。不要修改任何檔案。",
+     "truncated": false
+    },
+    "bundleId": "bundle-347f9f85-e5da-4b3f-ac67-718dd3995dcc",
+    "contentHash": "d5b76c578fc1b3f2509895bcf0d655789166f430cbdcb7caed1a41b47d782fff",
+    "generatedAt": "2026-09-07T03:45:19.949263Z",
+    "messageId": "msg-asession-033ce8d3-2b59-41de-b58b-1b9bb7485138-1"
+   }
+  ],
+  "createdAt": "2026-09-07T03:45:19.102113Z",
+  "dataScope": [],
+  "label": "phase0-smoke",
+  "lease": {
+   "expiresAt": "2026-09-07T04:05:19.102113Z",
+   "issuedAt": "2026-09-07T03:45:19.102113Z",
+   "renewable": true,
+   "revokeOnSessionEnd": true
+  },
+  "providerId": "provider.ai-agent.codex",
+  "providerSessionId": "01a079f8-6f42-7141-b935-9805fd6603f6",
+  "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/codex-smoke-1/workdir",
+  "sessionId": "asession-033ce8d3-2b59-41de-b58b-1b9bb7485138",
+  "state": "waiting-for-consent",
+  "toolScope": []
+ },
+ "messages-to-session": [
+  {
+   "body": {
+    "contextBundle": {
+     "agentId": "codex",
+     "domains": [],
+     "excluded": {
+      "needsReview": [],
+      "notVisibleToAgent": 0,
+      "outsideGrantedDomains": 0,
+      "overCapacity": 0,
+      "sensitive": 0,
+      "unreviewedCandidates": 0
+     },
+     "generatedAt": "2026-09-07T03:45:19.949049Z",
+     "includes": [],
+     "limits": {
+      "maxBytes": 49152,
+      "maxItems": 24,
+      "scanLimit": 1000,
+      "scanLimitReached": false
+     },
+     "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+     "task": "請讀取目前工作目錄裡的 NOTES.md，用一句話（繁體中文）回答檔案的第一個標題是什麼。不要修改任何檔案。",
+     "truncated": false
+    },
+    "task": "請讀取目前工作目錄裡的 NOTES.md，用一句話（繁體中文）回答檔案的第一個標題是什麼。不要修改任何檔案。"
+   },
+   "createdAt": "2026-09-07T03:45:19.949218Z",
+   "deliveredAt": "2026-09-07T03:45:19.949994Z",
+   "direction": "to-session",
+   "kind": "task",
+   "messageId": "msg-asession-033ce8d3-2b59-41de-b58b-1b9bb7485138-1",
+   "sessionId": "asession-033ce8d3-2b59-41de-b58b-1b9bb7485138"
+  }
+ ],
+ "messages-from-session": [
+  {
+   "body": {
+    "requestId": "0",
+    "summary": "codex 請求核可：item/commandExecution/requestApproval \"/bin/zsh -lc 'cat NOTES.md'\""
+   },
+   "createdAt": "2026-09-07T03:45:30.630423Z",
+   "direction": "from-session",
+   "kind": "approval-request",
+   "messageId": "msg-asession-033ce8d3-2b59-41de-b58b-1b9bb7485138-2",
+   "sessionId": "asession-033ce8d3-2b59-41de-b58b-1b9bb7485138"
+  }
+ ],
+ "status": {
+  "activeSensors": [],
+  "agentSessions": 1,
+  "capabilityVersion": 56,
+  "characterProtocol": {
+   "activeCharacter": null,
+   "instances": 0,
+   "version": "1.0"
+  },
+  "configErrors": [],
+  "emergencyStop": false,
+  "eventSequence": 110,
+  "hasReceipts": false,
+  "name": "adaptive-interaction",
+  "onboardingCompleted": false,
+  "pendingAiAssists": 0,
+  "presentation": {
+   "behaviorExplanation": null,
+   "behaviorState": null,
+   "character": null,
+   "connected": false,
+   "lastSeenSecondsAgo": null,
+   "packId": null,
+   "pendingCommands": 0,
+   "visible": false
+  },
+  "proactivePause": {
+   "paused": false
+  },
+  "quietHours": false,
+  "recipes": {
+   "errors": 0,
+   "loaded": 1
+  },
+  "schemaVersion": "1.0",
+  "session": null,
+  "startedAt": "2026-09-07T03:45:18.448070Z",
+  "unresolvedStopHealth": {
+   "overflowCount": 0,
+   "parked": false,
+   "recoveryUnknown": false,
+   "storage": "durable"
+  },
+  "uptimeSeconds": 303,
+  "version": "0.8.0"
+ },
+ "auditTail": [
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T03:45:30.630Z",
+   "detail": {
+    "revision": 4,
+    "truth": "waiting-consent"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T03:45:30.630Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "request-consent",
+    "messageId": "rt-3e11eb866cf44340b8d316768877439e",
+    "truthState": "waiting-consent"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T03:45:30.629Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T03:45:27.940Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T03:45:19.987Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T03:45:19.950Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T03:45:19.105Z",
+   "detail": {
+    "agentSessionId": "asession-033ce8d3-2b59-41de-b58b-1b9bb7485138",
+    "expiresAt": "2026-09-07T04:05:19.102113Z"
+   },
+   "kind": "agent-session.capability-issued"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T03:45:19.104Z",
+   "detail": {
+    "revision": 2,
+    "truth": "queued"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T03:45:19.104Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "wait",
+    "messageId": "rt-2b4bac6a1c004c198ed32b19fcc74ebb",
+    "truthState": "queued"
+   },
+   "kind": "character.system-text"
+  }
+ ],
+ "psAgents": [
+  " 2805   741  1537 02-09:35:54 node /Users/user/Workspace/claude-code-mcp/claude-code-server/build/index.js",
+  "45051 45019 45019    18:34:54 /Users/user/.codex/plugins/cache/openai-bundled/chrome/latest/extension-host/macos/arm64/ChatGPT for Chrome chrome-extension://hehggadaopoacecdllhhajmbjkdcmajg/",
+  "70588 70561 70561    10:59:35 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service) --type=utility -",
+  "70590 70561 70561    10:59:35 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service) --type=utility -",
+  "70818 70561 70561    10:59:34 /Applications/ChatGPT.app/Contents/Resources/codex -c features.code_mode_host=true app-server --analytics-default-enabled -c mcp_servers.codex_app={\"command\"=\"/Applicatio",
+  "70826 70561 70561    10:59:34 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "70895 70561 70561    10:59:30 /Users/user/.codex/computer-use/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
+  "71291 70561 70561    10:59:24 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "71333 71333 70818    10:59:19 /Applications/ChatGPT.app/Contents/Resources/codex-code-mode-host",
+  "71650 70561 70561    10:56:35 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service) --type=utility -",
+  "73588 70561 70561       12:29 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "73589 70561 70561       12:29 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "76696 76696 70818    03:24:23 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/user/.codex/plugins/cache/openai-bundled/unified-computer-use/26.901.51231/scripts/launch.mjs",
+  "79849 79849 70818    01:00:03 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/user/.codex/plugins/cache/openai-bundled/unified-computer-use/26.901.51231/scripts/launch.mjs",
+  "80153 80153 70818    01:00:01 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/user/.codex/plugins/cache/openai-bundled/unified-computer-use/26.901.51231/scripts/launch.mjs",
+  "80683 80683 70818       59:20 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/user/.codex/plugins/cache/openai-bundled/unified-computer-use/26.901.51231/scripts/launch.mjs",
+  "80816 80816 80720       59:19 /opt/homebrew/lib/node_modules/@colbymchenry/codegraph/node_modules/@colbymchenry/codegraph-darwin-arm64/node --liftoff-only --disable-warning=ExperimentalWarning /opt/ho",
+  "80904 80816 80816       59:19 /opt/homebrew/lib/node_modules/@colbymchenry/codegraph/node_modules/@colbymchenry/codegraph-darwin-arm64/node -e \\012const fs = require('fs');\\012const parentPid = Number",
+  "83384 83382 83382       05:03 /opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/Resources/Python.app/Contents/MacOS/Python /private/tmp/claude-501/-Users-user-Workspac",
+  "83403 83403 83384       05:03 /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai serve",
+  "83686 83686 83403       05:02 codex app-server",
+  "83711 83711 83686       05:02 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/user/.codex/plugins/cache/openai-bundled/unified-computer-use/26.901.51231/scripts/launch.mjs",
+  "84321 84321 83686       04:52 /opt/homebrew/Caskroom/codex/0.153.4/bin/codex-code-mode-host",
+  "16272 16272   790       42:06 claude --dangerously-skip-permissions --chrome"
+ ],
+ "finishedAt": "2026-09-07T03:50:21.653Z",
+ "wallSeconds": 303.34
+}

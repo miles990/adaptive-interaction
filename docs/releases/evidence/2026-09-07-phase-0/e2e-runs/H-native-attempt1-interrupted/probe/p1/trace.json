@@ -1,0 +1,103 @@
+[
+  {
+    "script": "tauri-ax.applescript",
+    "cmd": [
+      "windows"
+    ],
+    "exit": 0,
+    "seconds": 1.052,
+    "err": ""
+  },
+  {
+    "script": "tauri-ax.applescript",
+    "cmd": [
+      "exists",
+      "AXButton",
+      "現在"
+    ],
+    "exit": 0,
+    "seconds": 0.504,
+    "err": ""
+  },
+  {
+    "script": "tauri-ax.applescript",
+    "cmd": [
+      "exists",
+      "AXButton",
+      "現在"
+    ],
+    "exit": 0,
+    "seconds": 0.515,
+    "err": ""
+  },
+  {
+    "script": "tauri-ax.applescript",
+    "cmd": [
+      "navclick",
+      "2"
+    ],
+    "exit": 0,
+    "seconds": 0.522,
+    "err": ""
+  },
+  {
+    "script": "tauri-ax.applescript",
+    "cmd": [
+      "exists",
+      "AXDisclosureTriangle",
+      "更換或加入角色"
+    ],
+    "exit": 0,
+    "seconds": 2.1,
+    "err": ""
+  },
+  {
+    "script": "tauri-ax.applescript",
+    "cmd": [
+      "click",
+      "AXDisclosureTriangle",
+      "更換或加入角色"
+    ],
+    "exit": 0,
+    "seconds": 3.808,
+    "err": ""
+  },
+  {
+    "script": "ax_probe.applescript",
+    "cmd": [
+      "slowdump"
+    ],
+    "exit": 0,
+    "seconds": 10.166,
+    "err": ""
+  },
+  {
+    "script": "ax_probe.applescript",
+    "cmd": [
+      "batchdump"
+    ],
+    "exit": 1,
+    "seconds": 0.235,
+    "err": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/H-native/probe/ax_probe.applescript:3566:3570: execution error: System Events發生錯誤：無法將「role of entire contents of item 2 of every window of application process \"inte"
+  },
+  {
+    "script": "tauri-ax.applescript",
+    "cmd": [
+      "click",
+      "AXButton",
+      "選擇角色設定檔"
+    ],
+    "exit": 0,
+    "seconds": 4.43,
+    "err": ""
+  },
+  {
+    "script": "tauri-ax.applescript",
+    "cmd": [
+      "windows"
+    ],
+    "exit": 0,
+    "seconds": 0.282,
+    "err": ""
+  }
+]

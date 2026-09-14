@@ -1,0 +1,801 @@
+{
+ "key": "A",
+ "found": {
+  "dimension": "A",
+  "rows": [
+   {
+    "id": "A-01",
+    "need": "安裝：get.sh（Release 附 install.sh）／interact-ai self install-skill|install-desktop|update|uninstall／DMG 桌面安裝包／從原始碼 cargo 建置",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration",
+     "not-run"
+    ],
+    "owner": "scripts/get.sh + crates/interaction-cli/src/selfmgmt.rs + .github/workflows/release.yml",
+    "entryPath": "scripts/get.sh:64-176（平台偵測→下載 CLI tar.gz→sha256 fail-closed→install→呼叫 `interact-ai self install-skill`／`self install-desktop`／completion）→ crates/interaction-cli/src/commands.rs:433-445（SelfCmd 分派）→ selfmgmt.rs:441（cmd_install_skill：偵測 agent home 寫 skill 檔）、:547-582（cmd_install_desktop：下載平台 bundle→verify_checksum→macOS `open` dmg）、:251-316（cmd_update：下載→校驗→原子替換 exe）、:318（cmd_uninstall --purge 刪 home）；release.yml:85-131（CLI matrix：macOS arm64/x64、Linux x64、Windows x64 zip）、:136-179（desktop：dmg／deb+appimage／nsis+msi）；docs/INSTALL.md 方式 B：`cargo build --release -p interaction-cli`",
+    "contract": "docs/INSTALL.md（平台覆蓋表、sha256-only、未簽章／未公證、Linux aarch64 無預編譯）；scripts/tests/docs-claims.sh:127-139 把 INSTALL.md 的誠實宣稱與 selfmgmt 逃生門／aarch64 綁在一起",
+    "stateOwner": "檔案系統：$BIN_DIR/interact-ai、~/.local/share/interact-ai/completions、各 agent home 的 skills/、~/Downloads/<bundle>；資料目錄由 INTERACT_AI_HOME 或 ~/.adaptive-interaction 決定（interaction_runtime::Paths::resolve config.rs:64-73）",
+    "existingTests": [
+     "crates/interaction-cli/src/selfmgmt.rs:588-655（unit：semver、asset 名稱、平台三元組、unbuilt 平台拒絕、缺 checksum fail-closed、skill 目標偵測、embedded skill 完整）",
+     "scripts/tests/release-scripts.sh:265-321（get.sh 宣稱平台 ⊆ release.yml matrix；get.sh 抓不到 .sha256 時拒裝且不把二進位放進 bin-dir）",
+     "scripts/tests/docs-claims.sh:127-139（INSTALL.md 誠實宣稱對帳）"
+    ],
+    "evidence": [
+     "scripts/get.sh:64-73 只處理 Darwin/arm64、Darwin/x86_64、Linux/x86_64；Linux aarch64 與其他平台直接 exit 1 指向從原始碼建置。**沒有 Windows 分支**（release.yml:85-131 有 x86_64-pc-windows-msvc zip，docs/INSTALL.md:63-74 平台表列 Windows x64 ✅，但 install.sh 在 Windows 只會走 `unsupported platform`）",
+     "scripts/get.sh:120-135 校驗 fail-closed；只有 INTERACT_AI_ALLOW_UNVERIFIED_DOWNLOAD=1 才放行未驗證位元組",
+     "selfmgmt.rs:20-35 target_triple 有 windows 三元組；:522-545 desktop_asset_name 只認 macos/aarch64、linux/x86_64、windows/x86_64（與 release.yml 一致，macOS x64 無桌面包）",
+     "selfmgmt.rs:547-582 install-desktop 只下載＋驗 sha256＋（macOS）`open`，安裝動作交給 OS；沒有簽章／公證（docs/INSTALL.md:75-84 誠實揭露）",
+     "docs/releases/v0.8.0-publication.md:34-35 記錄一次真實 `install.sh --cli-only` 與 DMG 掛載 smoke（文件宣稱，repo 內沒有可重跑的自動化測試；x86_64 為 needs-environment :37）"
+    ],
+    "limitation": "（1）get.sh 無 Windows 路徑而 INSTALL.md 把 install.sh 當四平台統一入口；Windows 使用者只能手動下載 zip 或用已裝好的 `self update`。（2）DMG／exe／msi 未簽章、未公證，Gatekeeper／SmartScreen 會擋；repo 內沒有安裝流程的自動化測試，只有 v0.8.0-publication.md 的一次人工 smoke（不含 Finder quarantine）。（3）self install-desktop 在 Linux/Windows 只下載不安裝（提示使用者手動）。",
+    "nextAction": "把 INSTALL.md 的 Windows 列改為「用 self update 或手動下載 zip」，或給 get.sh 加 MSYS/Git-Bash 分支；把 `install.sh --cli-only` smoke 寫成 scripts/tests 可重跑腳本（隔離 BIN_DIR＋本機 HTTP 假 Release）",
+    "confidence": "high"
+   },
+   {
+    "id": "A-02",
+    "need": "啟動：`interact-ai serve` 前景 daemon；Tauri 控制中心啟動時是否自己 spawn daemon、如何發現既有 daemon、token 如何取得；單一 Runtime 保證",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration",
+     "browser",
+     "native-desktop"
+    ],
+    "owner": "crates/interaction-cli/src/commands.rs（serve）＋ apps/interaction-desktop/src-tauri/src/{lib.rs,supervisor.rs}（RuntimeSupervisor）＋ crates/interaction-runtime/src/{runtime.rs,lock.rs,config.rs}",
+    "entryPath": "CLI：commands.rs:430-432 → :1572-1620 serve() → Runtime::start{acquire_lock:true, spawn_watchdog:true}（runtime.rs:266-267 InstanceLock::acquire(state/runtime.lock)）→ config_service.load_or_create_token()（config.rs:337-366，state/api-token 0600；agent token :343）→ interaction_api::serve(bind apiHost:apiPort，預設 127.0.0.1:8787；非 loopback 只警告）→ ctrl_c → runtime.shutdown()。Tauri：lib.rs:3510-3575 run() setup → spawn start_supervised（lib.rs:3336-3508）：(1) supervisor::daemon_ready(configured_api_base) 打 GET /ready（supervisor.rs:392-427 讀 config/interaction.yaml 的 apiHost/apiPort；:437-449 1.2 s timeout）→ 命中則 mode=External、token=read_api_token()（supervisor.rs:429-434 讀 state/api-token）；token 讀不到→Degraded＋runtime-error 事件；3 s health loop 降級 Disconnected（:3366-3395）。(2) 沒有 daemon → 同進程 Runtime::start（acquire_lock:true）＋ interaction_api::serve（:3403-3460）；bind 失敗→Degraded 不假裝健康。前端：desktop.ts:176-194 bootstrapSupervisor 輪詢 supervisor_info（≤240×500 ms），External 且有 token → transport.configureHttp（transport.ts:34-37）；之後所有 api.* 走 transport.call：http 模式用 HTTP_MAP（transport.ts:113-306）打 /v1/*，tauri 模式走 invoke。`interact-ai ui`（commands.rs:447-453）只印指引，不啟動桌面。",
+    "contract": "supervisor.rs:1-11 規則（永不雙 Runtime；完全結束不殺外部 daemon；關窗只隱藏）；docs/INSTALL.md §4 三種啟動模式與「同一時間只能有一個 Runtime」；lock.rs:1-7 O_EXCL＋stale PID 回收",
+    "stateOwner": "state/runtime.lock（PID 檔，lock.rs:23-75）、state/api-token／api-agent-token（config.rs:97-101）、config/interaction.yaml（apiHost/apiPort）、Tauri AppState.supervisor（SupervisorInfo mode/state/api_base/token，supervisor.rs:40-51）、state/desktop.json（close_behavior／launch_at_login，supervisor.rs:66-90）",
+    "existingTests": [
+     "apps/interaction-desktop/src-tauri/src/supervisor.rs:475-590（unit：prefs 預設保守、api_base 解析 flat YAML）",
+     "apps/interaction-desktop/e2e/offline.spec.ts:6（browser：Runtime 離線誠實顯示）",
+     "scripts/v03-cli-e2e.sh:15-30（integration：以 INTERACT_AI_HOME 隔離啟動真 daemon＋fixture agent）",
+     "apps/interaction-desktop/e2e/global-setup.ts:58-64（browser E2E 自起真 daemon，INTERACT_AI_CLAUDE_BIN/CODEX_BIN 指向 fixture）",
+     "scripts/tests/tauri-preset-recovery.py:1-6（native-desktop：真 Tauri＋外部 daemon＋故障 proxy，不在 CI）",
+     "scripts/tauri-ax-walkthrough.sh:1-40（native-desktop：隔離 home、自選埠、AX 驅動；不在 CI；docs/releases/v0.8.0-general-mode-tasks.md:9 記錄一次 completed）"
+    ],
+    "evidence": [
+     "Tauri **不會** spawn 獨立 `interact-ai serve` 子程序：lib.rs:3403 直接在 app 進程內 Runtime::start 並 interaction_api::serve；外部 daemon 存在時只連線（:3340-3365）",
+     "外部模式下 Tauri IPC 中用 `rt(&state)` 的指令（例如 lib.rs:1573 agent_session_create、:923 emergency_stop、:835 consent_grant）會回「runtime not started」（lib.rs:477-491），但前端在 http 模式從不 invoke 它們——transport.ts HTTP_MAP 把同名指令改打 /v1/*（:165 agent_session_create、:270 emergency_stop、:113 consent_grant、:285 onboarding_commit、:179 memory_export）",
+     "character-session／character_* 指令走 Backend enum 兩模式皆可（lib.rs:400-455、:1832-1868 backend_or_err）",
+     "runtime.rs:280-298 啟動時把上次 open receipts 標 Uncertain（clean_shutdown meta 判 crash vs restart）；:536-581 shutdown 依序停感測→取消 receipts→actuator estop→reap pgids→journal flush→clean_shutdown=true→釋放 lock",
+     "lib.rs:2216-2226 full_quit 只 app.exit(0)，RunEvent::Exit 才 shutdown 內嵌 runtime；外部 daemon 明確不動"
+    ],
+    "limitation": "（1）外部模式 token 讀不到（不同 INTERACT_AI_HOME／權限）只會 Degraded，沒有 UI 讓使用者貼 token。（2）native-desktop 走查腳本存在且 v0.8.0 文件記錄過 completed，但不在 CI；本輪未重跑。（3）Tauri 內嵌模式 HTTP bind 失敗時控制中心可用但 CLI／agent 會找不到 API（已誠實 Degraded）。",
+    "nextAction": "本輪基線：重跑 `interact-ai serve`＋`Tauri` 外部模式連線一次並記錄 supervisor-state 事件；評估外部模式 token 不可讀時的復原入口",
+    "confidence": "high"
+   },
+   {
+    "id": "A-03",
+    "need": "首次設定 onboarding：/v1/onboarding（GET）、/draft（PUT）、/preview（POST 乾跑）、/commit（POST）；Onboarding.tsx 三步精靈；FirstSuccess.tsx 首次成功體驗；重新執行入口",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration",
+     "browser",
+     "native-desktop"
+    ],
+    "owner": "crates/interaction-runtime/src/human.rs（onboarding service）＋ apps/interaction-desktop/src/pages/{Onboarding.tsx,FirstSuccess.tsx}",
+    "entryPath": "HTTP：interaction-api/src/lib.rs:55-61 → routes.rs:1095-1120 → human.rs:641 onboarding_state（meta ONBOARDING_META_KEY＋草稿）、:667 save_onboarding_draft（meta，MAX_DRAFT_BYTES）、:683 preview_onboarding（plan_onboarding 純讀）、:850 commit_onboarding（Phase 1 純計算→Phase 2a policy.yaml／recipe 檔備份＋原子寫→SQLite 交易→registry；失敗 restore_file_backups＋onboarding_partial 稽核）。Tauri：lib.rs:982-1010 onboarding_get/draft/preview/commit → 同 runtime 函式。CLI：commands.rs:1159 `interact-ai onboarding` 只 GET。桌面閘門：App.tsx:288-289 以 status.onboardingCompleted（runtime.rs:636）決定顯示 Onboarding；Onboarding.tsx:462 onboardingPreview → :489 onboardingCommit → :499 proactiveDialoguePatch → :511-514 desktop.prefsPatch（companionVisible／expressiveness，Tauri 限定）→ :536 phase=first-success；FirstSuccess.tsx:89-113 「提醒我休息」走 sessionStart→createPlan→executePlan（不建 AI 工作）、:55 uiPrefsPatch({firstSuccessSeen:true})；SettingsPage.tsx:80-89 重新執行首次設定。",
+    "contract": "docs/aip/general-mode-ux.md（五入口）；human.rs:679-682／:850 註解：preview 與 commit 同驗證同 diff、preview 零副作用；docs/DESKTOP-GUIDE.md（精靈三步）",
+    "stateOwner": "SQLite meta：onboarding（completed/completedAt）、onboarding-draft、ui-preferences（human.rs:559-573 含 firstSuccessSeen／agentRoutes）；config/policies/policy.yaml、config/recipes/*（commit 寫入）；state/desktop.json（角色可見度／表現程度，Tauri 端）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/human_layer.rs:305 onboarding_draft_and_commit、:747 onboarding_preview_reports_changes_without_touching_anything、:799 onboarding_commit_skips_unchanged_components、:850 onboarding_rerun_keeps_edited_starter_recipe、:899 onboarding_commit_refuses_consent_gated_components、:1006 first_success_seen_persists_through_ui_preferences、:1085-1260 commit 失敗路徑（validation／policy 寫失敗／SQLite 交易失敗還原 policy.yaml／component 失敗／恰一個交易）",
+     "crates/interaction-api/tests/api_e2e.rs:894 human_layer_endpoints_roundtrip",
+     "apps/interaction-desktop/src/test/onboarding.test.tsx:237-590（vitest 20+ 案例：三步、草稿保存、commit payload、套用前確認、預估退路、重跑不覆寫）",
+     "apps/interaction-desktop/src/test/firstSuccess.test.tsx:81-189",
+     "apps/interaction-desktop/e2e/app.spec.ts:16 首次設定精靈 3 步完成並套用；general-mode-tasks.spec.ts:574 任務 1；evidence.spec.ts:658 首次成功體驗擷取（browser，真 daemon）",
+     "scripts/tauri-ax-walkthrough.sh（native-desktop：docs/releases/v0.8.0-general-mode-tasks.md:9「新安裝設定並看見角色」completed；不在 CI）"
+    ],
+    "evidence": [
+     "onboarding 完成旗標存在 runtime SQLite meta（human.rs:641-666），不是前端 localStorage；App.tsx:288 只在 status 回 onboardingCompleted===true 時關閉精靈",
+     "commit 是兩段式：檔案（policy／recipes）先原子寫並保留備份，SQLite 交易失敗時回滾檔案（human.rs:855-880 起）",
+     "FirstSuccess「交代一件小工作」只預填 work.prefill 並導向工作頁（firstSuccess.test.tsx:140），不自動建立 agent session",
+     "精靈自己負責的桌面設定（角色可見度、表現程度）不在 commit 內，透過 desktop.prefsPatch 分開寫（Onboarding.tsx:383-415、:505-520）——非 Tauri 環境這一段跳過"
+    ],
+    "limitation": "commit 之外的三個副作用（proactiveDialoguePatch、desktop.prefsPatch ×2）各自獨立，不在 commit 交易內；瀏覽器模式無法寫桌面偏好（誠實跳過）。onboarding 狀態綁定 INTERACT_AI_HOME，換 home 就重跑。",
+    "nextAction": "維持；基線重跑 human_layer.rs 與 onboarding.test.tsx 數字即可",
+    "confidence": "high"
+   },
+   {
+    "id": "A-04",
+    "need": "角色顯示／切換／互動：角色視窗（companion window）、內建 adapter（shu／sprite／text／shape）切換、外部 adapter（/v1/character/ws）、Character Session（權威狀態、桌面觸摸事件）",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "contract",
+     "fixture",
+     "integration",
+     "browser",
+     "native-desktop"
+    ],
+    "owner": "crates/interaction-runtime/src/{character.rs,character_session.rs} ＋ crates/interaction-api/src/{routes.rs,character_ws.rs} ＋ apps/interaction-desktop/src-tauri/src/{lib.rs,character_bridge.rs,character_store.rs,host_safety.rs} ＋ apps/interaction-desktop/src/{character/,companion/,pages/CompanionPage.tsx}",
+    "entryPath": "顯示：lib.rs:3552-3561 setup 依 prefs.show_companion_on_start&&companion_visible → ensure_companion_window（lib.rs:2410-2450：label `companion`、透明、無邊框、always_on_top 依偏好；:2275 toggle）→ WebView CompanionApp.tsx:731 api.characterHello → transport（tauri: invoke character_hello lib.rs:1745；http: POST /v1/character/hello transport.ts:235）→ Backend::character_hello（兩模式）→ character.rs:947 character_hello（manifest 驗證、拒 external-process／remote-device、註冊 CharacterHub gateway instance、reduced-motion 協商）→ Runtime 事件投影 character.rs:467-539 → 桌面 in-process gateway（src/character/gateway.ts）→ adapter（src/character/adapters/{shu,sprite,text,shape}.ts）。切換：CompanionPage.tsx:391-397 selectCharacter → desktop.prefsPatch({companionPack}) → Tauri desktop_prefs_patch（lib.rs:2147）→ supervisor::save_prefs（state/desktop.json 原子寫 0600 supervisor.rs:411-470）→ 角色視窗重新 hello。匯入：lib.rs:1914 character_import（character_store.rs 驗證純資料）。外部 adapter：/v1/character/adapters POST/DELETE（lib.rs:107-118）＋ /v1/character/ws（lib.rs:331，adapter token query 驗證）→ character.rs:1236 adapter_add／:1289 revoke／:1423 ws_attach。Character Session：HTTP /v1/character-session{,/resume,/events,/diagnostics}（lib.rs:121-140 → routes.rs:1907-1975，human token 限定，require_character_session）與 Tauri lib.rs:1832-1868（Backend 兩模式）→ character_session.rs:1244 join／:1365 submit／:1416 resume／JsonSessionStore state/character-session.json（:90）；桌面觸摸 sessionTouch.ts:79 → characterSessionEvent。",
+    "contract": "docs/character-protocol/README.md（CPP 1.0 唯一契約；schemas/character-protocol.schema.json golden）；docs/aip/character-session.md（AIP Character Session）；CLAUDE.md 不變量「角色呈現層沒有權限主權」（character.rs:1371 manual intent 拒安全 intent；api lib.rs:425-428 adapter token 只能 POST receipts/events）",
+    "stateOwner": "CharacterHub（記憶體；adapter 登記 sha256 token 持久化 SQLite character_adapters 表 storage lib.rs:273）；state/desktop.json（companionPack／companionPreferences／position 等）；state/characters/<id>/（匯入角色）；state/character-session.json＋.epoch（權威 session 快照，character_session.rs:90-93）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/character_loop.rs:204-2389（hello 協商、§11 投影表、receipt 誠實不 verified、adapter token 雜湊持久化可撤銷、外部 adapter transport 逾時、緊急停止投影、不可偽造人類互動觀察…）",
+     "crates/interaction-runtime/tests/character_session_loop.rs:454-1952（fixture iPhone 觸摸、緊急停止凍結、重連 resume、重啟續接同 session、損毀檔隔離、estop 重啟重投…）",
+     "crates/interaction-api/tests/api_e2e.rs:1577 character_ws_fixture_negotiates…、:1879 character_hello_route_negotiates_and_manual_intent_refuses_safety、:2026 adapter_token_http_routes_share_the_websocket_rate_limit、:2705 character_session_routes_are_human_only",
+     "apps/interaction-desktop/src/test/{character-gateway,character-adapters,character-shu-adapter,companion-gateway-wiring,characterPage,characterPage-first-screen,character-sync-card}.test.*（vitest）",
+     "apps/interaction-desktop/e2e/character.spec.ts:35-87（browser：瀏覽器模式誠實拒絕切換、不偷改後端）、character-session.spec.ts:263-351（fixture iPhone 配對→觸摸→離線→重連→撤銷；estop 拒觸摸）、app.spec.ts:139",
+     "scripts/v03-cli-e2e.sh:456-519（integration：examples/character-adapters/text-adapter.mjs fixture 經 /v1/character/ws 協商、receipt completed 不 verified、撤銷即斷線）、:596-615（character session status revision 前進）",
+     "scripts/tauri-ax-walkthrough.sh（native-desktop：docs/releases/v0.8.0-general-mode-tasks.md:10「更換角色」、:14「顯示／隱藏角色」completed；不在 CI）"
+    ],
+    "evidence": [
+     "角色切換的正向效果只在 Tauri host 可達（偏好寫在 desktop.json，由 host 讀給 companion 視窗）；瀏覽器模式 e2e 只驗誠實降級（character.spec.ts:35,87）",
+     "Character Session 預設啟用（character_session.rs:267-272 只有 env=0 關閉；routes.rs:1893 require_character_session 否則 session_disabled）",
+     "安全 intent 不可手動送：CLI `character intent emergency` 被拒（v03-cli-e2e.sh:495-496）；character.rs:1371 character_manual_intent",
+     "重啟：runtime.rs:496-503 estop 引擎時先補投 RuntimeFact::Emergency 再 restore_agent_sessions；character_session_loop.rs:1858 釘住"
+    ],
+    "limitation": "真 Tauri 視窗的換角色／顯示隱藏證據只來自不在 CI 的 AX 走查（v0.8.0 記錄 completed，本輪未重跑）；外部 adapter 只有 fixture（text-adapter.mjs）；iPhone 端互動屬 B 維度、此處只有 fixture iPhone。",
+    "nextAction": "維持；本輪基線若重跑 tauri-ax-walkthrough 需附 JSON 與 binary digest",
+    "confidence": "high"
+   },
+   {
+    "id": "A-05",
+    "need": "工作建立／狀態／成果：WorkPage/TaskComposer 交代 → /v1/agent-sessions 建立 → 子程序（Claude `-p stream-json`／Codex app-server）→ 狀態機各值 → 成果（mailbox result／artifact／人工驗證）呈現",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "fixture",
+     "integration",
+     "browser"
+    ],
+    "owner": "crates/interaction-runtime/src/{agents.rs,gateway.rs} ＋ crates/interaction-agent-gateway ＋ crates/interaction-core/src/agent.rs ＋ apps/interaction-desktop/src/pages/{WorkPage.tsx,work/TaskComposer.tsx,AiPage.tsx} ＋ statusProjection/workState.ts",
+    "entryPath": "建立：TaskComposer.tsx:469-478 api.agentSessionCreate(buildSessionCreateInput :164-178：workdir→dataScope、allowWrite→toolScope workspace.write＋consentScope agent-session:workspace-write) → transport（tauri invoke agent_session_create lib.rs:1573／http POST /v1/agent-sessions transport.ts:165 → routes.rs:1389）→ agents.rs:387 create_agent_session（agent_create_lock 序列化；estop 拒；disabled_agents 拒；allow_write 需 gateway agent＋workdir＋兩個 scope；resume 不得放寬且找不到紀錄即拒 :448-466；delegation／max_sessions；ttl clamp 1..1440；maxMessages=min(請求,policy)；provider.ai-session.* 描述子；persist；SessionStarted＋taxonomy created）→ gateway_attach（gateway.rs:307-408：Codex maxCost>0 拒、Codex intent-only 拒、discover 不可用拒、resolve_gateway_workdir 排除 state/ 目錄 :235-297、SessionSpec read_only/write_enabled、session capability token＋API base 注入 env、connector.start_session）→ spawn_gateway_pump（:412-700）→ record_gateway_pgid（agents.rs:1569）。送任務：TaskComposer.tsx:487 agentSessionSend(\"task\") → mailbox_send（agents.rs:852）→ gateway_deliver（gateway.rs:704-826：estop 拒、Busy→409 未送達、Closed→failed、成功戳 delivered＋taxonomy fetched）。CLI：commands.rs:915-942 `agents create`／`agents send`。狀態機：report_agent_session agents.rs:1174-1263（task-started|progress→Active、waiting-for-input、waiting-for-consent、claimed-completed(+claim_id、清 human_verified)、failed、unknown、timed-out、cancelled；非 open 拒）；lease 惰性到期 :652-690 → Expired＋timed-out 事件；enum agent.rs:17-45；UI 投影 workState.ts:116-190。成果：AiPage.tsx:311 agentSessionsList、:528 agentSessionMessages(from-session)（Tauri lib.rs:1596 mailbox_peek 不 fetch）→ `result` 信件 body.summary（gateway.rs:520-535）與 progress artifact 文字（AiPage.tsx:286）；驗證 AiPage.tsx:608 agentSessionVerify → agents.rs:1111 verify_agent_session（只 claimed-completed、綁 claim_id、human-only）。",
+    "contract": "docs/aip/semantic-state.md／statusProjection（AgentSessionState kebab-case＋agent.session.state taxonomy）；CLAUDE.md 誠實階梯（claimed≠verified）；agent.rs:1-8 模組註解（session 是租約不是身分；report 是 claim）",
+    "stateOwner": "Runtime.agent_sessions（記憶體 map＋mailbox VecDeque）＋ SQLite agent_sessions 表（storage lib.rs:173，每次變更 persist_agent_session）；meta gateway_pgids；子程序（process group）；provider registry 描述子",
+    "existingTests": [
+     "crates/interaction-runtime/tests/agents_loop.rs:49-1336（誠實階梯 dispatched→acknowledged→claimed、預算硬上限、租約到期撤銷 capability、human_verify 唯一路徑、claim 綁定、taxonomy 每階段事件、歷史有界…）",
+     "crates/interaction-runtime/tests/gateway_loop.rs:138-2757（fixture 子程序 fake_claude.sh／fake_codex.sh／fake_codex_exec.sh：全迴路、無 claim 即 unknown、working 不早於 fetched、寫失敗不假送達、resume 重上鎖不放寬、workdir 不得含 state/、Codex intent-only 拒、第二輪死掉不被第一輪 claim 掩蓋…）",
+     "crates/interaction-api/tests/api_e2e.rs:1238 only_a_human_token_can_verify_a_claim…、:1336 an_unknown_outcome_is_reportable_and_can_never_be_verified、:2361 an_agent_session_can_fetch_its_own_mailbox…",
+     "apps/interaction-desktop/src/test/workPage.test.tsx:122-715、aiPageResume.test.tsx:51-194、statusProjection.test.tsx（vitest）",
+     "apps/interaction-desktop/e2e/work-delegate.spec.ts:110-327（browser＋fixture：唯讀 session、中斷→cancelled、關閉、claimed≠verified、無結果=unknown、拒絕送達）、general-mode-tasks.spec.ts:1155 任務 11、home-state.spec.ts:76-203、evidence.spec.ts:320、agent-not-installed.spec.ts:32-68",
+     "scripts/v03-cli-e2e.sh:200-280（integration：agent session 建立／關閉，gateway fixture session 關閉即殺子程序）",
+     "scripts/tests/tauri-work-cancel.py:1-11（native-desktop 腳本存在：fixture agent、唯讀 composer、Codex 中斷、Claude 關閉；docs/releases/v0.8.0-* 未找到本版執行紀錄 → 本列不標 native-desktop）"
+    ],
+    "evidence": [
+     "所有 agent 證據皆為 fixture（fake_claude.sh 只回固定 stream-json：init→assistant→result 聲稱；fake_codex.sh 只做 thread/start＋一則 approval 或 turns 模式）；global-setup.ts:58-64 預設用 fixture，E2E_REAL_AGENTS=1 才用真 CLI，且 repo 內沒有 v0.8.0 真 agent 執行紀錄 → 不得標 real-agent",
+     "Codex 路徑對 maxCost／intent-only 誠實拒絕建立（gateway.rs:312-333），TaskComposer.tsx:229 文案「費用依 Codex 登入方案計費，這裡無法設上限」一致",
+     "成果呈現只有文字：result 信件 summary、artifact 路徑一行字（AiPage.tsx:286）；沒有檔案檢視／diff 檢視；claimed 需人按「標記為已驗證」才有綠勾（workState.ts:151-165）",
+     "HTTP GET /v1/agent-sessions 對 legacy agent token 一律 403（api lib.rs:488-497），只有 human 與自己的 session capability 可讀",
+     "重啟後 open session 一律 Expired＋detail「runtime restarted」＋taxonomy unknown（agents.rs:1479-1514；agents_loop.rs:812 釘住）"
+    ],
+    "limitation": "（1）真 Claude Code／Codex 端到端只有 opt-in 路徑（E2E_REAL_AGENTS=1），本版無紀錄。（2）成果呈現僅 mailbox 文字與 artifact 路徑字串。（3）Tauri 原生工作走查腳本存在但無本版執行紀錄。（4）Claude 路徑無法回報 USD 以外的預算（Codex 只有 token 用量，gateway.rs:493-517 揭露不換算）。",
+    "nextAction": "本輪以真 Claude Code 2.1.263／Codex 0.153.4 各跑一次 `agents create`+`send` 並記錄實際狀態序列（另有人跑基線，此處不執行）；把 tauri-work-cancel.py 重跑並落地 JSON",
+    "confidence": "high"
+   },
+   {
+    "id": "A-05a",
+    "need": "工作狀態 waiting-for-input（等你回答）：agent 卡在等人類回答時 UI 應顯示「等你回答」",
+    "status": "defined-only",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit"
+    ],
+    "owner": "crates/interaction-core/src/agent.rs ＋ crates/interaction-agent-gateway/src/lib.rs ＋ crates/interaction-runtime/src/gateway.rs",
+    "entryPath": "型別：agent.rs:24-30 AgentSessionState::WaitingForInput（註解「HONEST GAP (v0.5): no connector currently produces this state」）；gateway lib.rs:95-99 GatewayEvent::TaskWaitingForInput（註解：claude -p 無此訊息、codex app-server 0.149.1 無對應通知）；泵 gateway.rs:437-443 有處理分支 → report_agent_session(\"waiting-for-input\") agents.rs:1181；HTTP /v1/agent-sessions/{id}/report 可由 agent 自報 event=waiting-for-input（routes.rs:1414）；UI workState.ts:126-128 NEEDS_INPUT「等你回答」。",
+    "contract": "docs/DESKTOP-GUIDE.md:181、:289 把「等你回答」列為使用者會看到的狀態；semantic-state 契約含 waiting-input",
+    "stateOwner": "AgentSessionRecord.state（SQLite agent_sessions）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/agents_loop.rs:681 agent_session_state_taxonomy_is_emitted_for_every_rung_of_the_ladder（經 report 路徑人工觸發，不是 connector 推論）",
+     "apps/interaction-desktop/src/test/statusProjection.test.tsx（投影文案）"
+    ],
+    "evidence": [
+     "grep claude.rs／codex.rs／codex_exec.rs 無任何地方送出 GatewayEvent::TaskWaitingForInput；唯一到達此狀態的路徑是輪詢型 agent 自己 POST /report event=waiting-for-input",
+     "docs/DESKTOP-GUIDE.md:181,289 沒有註明此狀態目前只有自報路徑會產生"
+    ],
+    "limitation": "gateway agent（Claude Code／Codex）永遠不會進入「等你回答」；使用者看到的只會是處理中／等你允許（Codex）／對方說已完成／未知。文件把它列為一般狀態而未標示缺口。",
+    "nextAction": "在 DESKTOP-GUIDE／FEATURES 標明「等你回答」目前只對自報型 agent 成立；若 Claude Code 2.1.x stream-json 已有 AskUser／permission 事件，評估在 claude.rs 解析後補接",
+    "confidence": "high"
+   },
+   {
+    "id": "A-05b",
+    "need": "工作建立時指定模型（SessionSpec.model → claude --model）",
+    "status": "defined-only",
+    "evidenceLevel": [
+     "static-inspection"
+    ],
+    "owner": "crates/interaction-agent-gateway/src/{lib.rs,claude.rs} ＋ crates/interaction-runtime/src/{agents.rs,gateway.rs}",
+    "entryPath": "gateway lib.rs:166 SessionSpec.model: Option<String>（:189 預設 None）；claude.rs:103-104 有 model 時加 `--model`；runtime gateway.rs:355-370 組 SessionSpec 時從未設定 model；agents.rs:247-278 CreateAgentSession 無 model 欄位；routes.rs:1389 直接反序列化 CreateAgentSession（多餘 JSON 鍵被忽略）；CLI commands.rs:915-942、TaskComposer.tsx:164-178、AiPage.tsx 均無 model。",
+    "contract": "無（API／CLI／UI 都沒有承諾可選模型）",
+    "stateOwner": "n/a",
+    "existingTests": [],
+    "evidence": [
+     "grep `model` 於 gateway.rs／routes.rs／dto.rs／TaskComposer.tsx／AiPage.tsx／commands.rs 皆無命中；只有 gateway crate 內 SessionSpec.model 與 claude.rs:103 使用它，且 claude.rs:513 測試資料的 model 只是 init 回顯"
+    ],
+    "limitation": "API create payload 無法傳 model；連線用 Claude Code／Codex 的預設模型（由各 CLI 自身設定決定）。",
+    "nextAction": "若需要：CreateAgentSession 加 model（白名單）→ gateway_attach 設 spec.model；Codex 端要查 thread/start 是否支援 model 參數",
+    "confidence": "high"
+   },
+   {
+    "id": "A-06",
+    "need": "核准／拒絕／撤銷：agent approval（/approve）、session consent scope（grant／revoke／stop）、撤銷 provider／裝置，及 agent token 不得授權",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "fixture",
+     "integration",
+     "browser"
+    ],
+    "owner": "crates/interaction-runtime/src/gateway.rs（approval）＋ runtime.rs（consent）＋ crates/interaction-api/src/{lib.rs,routes.rs}（principal 邊界）＋ apps/interaction-desktop/src/pages/{AiPage.tsx,SafetyPage.tsx,HomePage.tsx}",
+    "entryPath": "Agent approval：AiPage.tsx:834/846 agentSessionApprove → transport（tauri lib.rs:1297 agent_session_approve／http POST /v1/agent-sessions/{id}/approve lib.rs:219-222 → routes.rs:2023）；CLI `agents approve`（main.rs:363）→ gateway_resolve_approval（gateway.rs:828）→ resolve_approval_as（:843-975：讀登記 summary、in_flight 防重入、handle.resolve_approval 送 agent；送達失敗保留登記＋記 delivery_failures；一律回寫 mailbox approval-resolved；audit agent.approval）；來源 TaskWaitingForConsent（codex.rs app-server ServerRequest → gateway.rs:445-480 登記＋mailbox approval-request）；逾時自動 deny：gateway_sweep（:1034-1130，APPROVAL_TTL_SECS；set_approval_ttl_secs 只能調短 :980）。Claude：claude.rs:344-352 resolve_approval 回 Protocol 錯（-p 無互動核可管道）。Session consent：SafetyPage.tsx:495 consentGrant／:322 consentRevoke、HomePage.tsx:341 sessionStop → transport（tauri lib.rs:835-866／http /v1/session/consent|revoke|stop routes.rs:469-491）→ runtime.rs:1360 grant_consent_with_uses（maxUses=0 拒；receptor／tool scope 拒 maxUses）、:1415 revoke_consent（取消匹配 open receipts、mic 撤銷即停感測）、:1461 stop_session。撤銷 provider／裝置：/v1/providers/{id}/revoke、DELETE /v1/mobile/devices/{id}（lib.rs:248,266）。邊界：api lib.rs:363-420 auth_middleware（human／legacy agent／session capability／adapter），:488-497 legacy agent 不可讀 agent-sessions；:477-483 interrupt 擁有權。",
+    "contract": "CLAUDE.md 不變量（AI 不可授予 consent／不可提高上限）；docs/aip/threat-model.md；gateway.rs:1034-1040 註解「逾時＝拒絕，絕不代為同意」",
+    "stateOwner": "ManagedSession.approvals（記憶體 HashMap，隨子程序消失）；mailbox approval-request／approval-resolved（記憶體，session 關閉時未送達者清除）；Session.consents（SQLite sessions 表 storage lib.rs:111）；audit 表",
+    "existingTests": [
+     "crates/interaction-runtime/tests/gateway_loop.rs:903 a_watchdog_auto_deny_is_written_back_to_the_mailbox、:957 a_human_decision_is_written_back…、:1101 claude_sessions_never_show_a_consent_prompt_nobody_can_answer、:1133 an_unanswered_approval_is_denied_by_the_watchdog_and_the_deny_reaches_the_agent、:1651 a_watchdog_deny_that_cannot_reach_the_agent_keeps_the_request_pending",
+     "crates/interaction-runtime/tests/consent_one_shot_loop.rs:212-531（one-shot consent 扣減、重啟保留、併發只放一個、maxUses 拒絕）；runtime_loop.rs:179 consent_required_blocks_then_grant_allows、:293 scenario_e_consent_revocation_cancels_and_emergency_stop",
+     "crates/interaction-api/tests/consent_e2e.rs:139-202；api_e2e.rs:167 agent_token_cannot_grant_consent_clear_estop_or_mutate_human_state、:2229 interrupt_requires_session_ownership_or_a_human_token",
+     "apps/interaction-desktop/e2e/work-delegate.spec.ts:327（拒絕真的送到 agent，fixture codex）；app.spec.ts:97（同意與安全含權限地圖）",
+     "scripts/v03-cli-e2e.sh:316-321（知識 review agent 不可自核；human 核准→active）"
+    ],
+    "evidence": [
+     "approval 只對 Codex app-server 存在（唯一 ServerRequest 來源，fake_codex.sh:52）；Claude Code -p 模式無核可管道且 create 時 read-only 沙箱（gateway_loop.rs:1101 釘住不出現無人能答的核可）",
+     "「已決定」與「已送達 agent」分開記錄（gateway.rs:895-935 deliveredToAgent／stillPending）",
+     "Tauri consent_grant 明確傳 max_uses（lib.rs:835-851 註解：Tauri 對多餘鍵靜默忽略，少了會退化成 TTL）",
+     "approvals 不持久化：daemon 重啟後待核可請求隨子程序消失，session 被標 Expired（agents.rs:1490-1514）"
+    ],
+    "limitation": "待核可請求不持久化（重啟即失）；Claude Code session 沒有核可流程（設計如此，read-only 或 write-enabled 沙箱由 spec 決定）；真 Codex app-server 0.153.4 的 approval schema 是否仍與 pinned 0.149.1 相容未在本 repo 驗證。",
+    "nextAction": "以真 Codex 0.153.4 跑一次 write-enabled session 觸發 requestApproval，確認 method 名稱與 decision 格式未變",
+    "confidence": "high"
+   },
+   {
+    "id": "A-07",
+    "need": "取消：interrupt（中斷目前 turn）vs close（關閉 session）；程序樹終止（process group SIGTERM→SIGKILL）；孤兒子程序在重啟後回收",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "fixture",
+     "integration",
+     "browser"
+    ],
+    "owner": "crates/interaction-runtime/src/{gateway.rs,agents.rs} ＋ crates/interaction-agent-gateway/src/{process.rs,claude.rs,codex.rs,codex_exec.rs}",
+    "entryPath": "interrupt：AiPage.tsx:664 agentSessionInterrupt → transport（tauri lib.rs:1311／http POST /interrupt lib.rs:223-226 → routes.rs:2040-2049 interrupt_principal_allowed）；CLI `agents interrupt` → gateway_interrupt（gateway.rs:995-1013，SEND_TIMEOUT 有界取鎖）→ connector.interrupt：codex.rs:662-681 送 JSON-RPC turn/interrupt（寫不進去退回 interrupt_tree SIGINT）→ app-server turn/completed status=interrupted → TaskCancelled → state cancelled；claude.rs:354-357 對 pgid 送 SIGINT → 程序被訊號終止 → claude.rs:236-290 code()=None 不記 failed → SessionClosed → 本輪未 settled 則 report unknown（gateway.rs:640-660）；codex_exec.rs:253-259 SIGINT＋cancel 旗標。close：AiPage.tsx:680 agentSessionClose → lib.rs:1620／POST /close routes.rs:1548 → close_agent_session（agents.rs:1265-1394：保留 Failed/Unknown/TimedOut/Cancelled 終局、reason=cancelled→Cancelled 否則 Closed、清 consent_scope、丟未送達信、gateway_spawn_kill、forget pgid、handoff→memory、provider Closed、事件）。gateway_spawn_kill（gateway.rs:1016-1032）：鎖外 group.terminate(2000)（process.rs:139-180 SIGTERM→寬限→SIGKILL→有界探測）再有界取鎖 handle.kill()。spawn：process.rs:41-49 spawn_grouped process_group(0)＋kill_on_drop；pgid 於 spawn 當下捕捉（claude.rs:166、codex.rs:171）。孤兒：agents.rs:1569 record_gateway_pgid（meta gateway_pgids，best-effort 以 ps 快照鎖定）→ :1620-1670 reap_recorded_gateway_pgids 於 restore（:1482）與 shutdown（runtime.rs:570）以 pid==pgid&&cmd 驗證後 TERM→KILL；非 unix 只警告。watchdog gateway_sweep :1108-1121 對 record 已非 open 但子程序仍在者 drop_kill。",
+    "contract": "CLAUDE.md（長時工作必須有 TTL／cancel；子程序不得跨重啟存活）；process.rs:1-2 註解 spec §8.2；AiPage.tsx:681-683 UI 只敢說「已要求終止子程序」",
+    "stateOwner": "ManagedSession（gateway.sessions 記憶體）、ProcessGroup pgid（Arc<AtomicI32>）、meta gateway_pgids（SQLite）、AgentSessionRecord.state/closed_at（SQLite）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/gateway_loop.rs:1772 an_interrupted_codex_turn_is_cancelled_not_claimed_completed、:1850 a_cancelled_session_still_emits_its_state_event_when_ingest_is_unavailable、:624 process_that_ends_without_a_claim_is_unknown_and_only_a_real_error_is_failed、:1286 a_second_turn_that_dies…、:2095 estop_terminates_sessions_concurrently（pid 探測）",
+     "crates/interaction-runtime/tests/agents_loop.rs:524 close_is_terminal…、:862 close_keeps_a_terminal_outcome_instead_of_rewriting_it_to_closed、:491 open_sessions_do_not_survive_restart",
+     "crates/interaction-agent-gateway/src/process.rs／claude.rs／codex.rs 內 unit（codex.rs:987 handle.kill）",
+     "crates/interaction-api/tests/api_e2e.rs:2229 interrupt_requires_session_ownership_or_a_human_token",
+     "apps/interaction-desktop/e2e/work-delegate.spec.ts:159 中斷→cancelled、:201 中斷後畫面自更新、:226 關閉只敢說已要求終止；general-mode-tasks.spec.ts:1155 任務 11（browser＋fixture）",
+     "scripts/v03-cli-e2e.sh:277-279 gateway session closed kills subprocess（integration）",
+     "scripts/tests/tauri-work-cancel.py（native-desktop 腳本：Codex 中斷／Claude 關閉；本版無執行紀錄）"
+    ],
+    "evidence": [
+     "Claude Code session 的 interrupt 實際結果是 **unknown**（SIGINT 殺掉 -p 程序，claude.rs:266-269 註解「被訊號終止⇒結果未知」），不是 cancelled；只有 Codex app-server 路徑會落到 cancelled。UI 對兩者都提供同一顆「暫停／中斷目前工作」（AiPage.tsx:664-671）",
+     "record_gateway_pgid 是 best-effort：候選不唯一或已消失就放棄記錄（agents.rs:1562-1568 註解為已知殘餘風險）；close 後 forget pgid，若 daemon 在寬限期內崩潰子程序可能存活（agents.rs:1330-1333）",
+     "非 unix 平台沒有 process-group 訊號與孤兒回收（agents.rs:1661-1669、process.rs cfg(unix)）——Windows 桌面包出貨但此路徑未實作",
+     "close 不等待終止完成（tokio::spawn），UI 文案誠實（已要求終止）"
+    ],
+    "limitation": "（1）Claude 中斷＝程序被殺＝結果未知（誠實但使用者按「中斷」看到「結果不確定」而非「已取消」，且 session 需 resume 才能續）。（2）Windows 無程序樹終止／孤兒回收。（3）pgid 記錄 best-effort。（4）原生 Tauri 取消走查無本版紀錄。",
+    "nextAction": "評估 Claude 路徑改為關 stdin＋等待 result 的「軟中斷」或至少在 UI 標示「Claude 的中斷會結束這一輪並回報結果不確定」；Windows 版明確在文件標示無子程序樹終止",
+    "confidence": "high"
+   },
+   {
+    "id": "A-07a",
+    "need": "Emergency Stop：任一入口（HTTP／CLI／Tauri／tray／估停檔）→ 停感測、停動器、取消 receipts、殺 agent session、撤銷 consent；latch 跨重啟不自動恢復；只有人類可解除",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "fixture",
+     "simulator",
+     "integration",
+     "browser",
+     "native-desktop"
+    ],
+    "owner": "crates/interaction-runtime/src/runtime.rs（emergency_stop／clear）＋ agents.rs（estop_agent_sessions）＋ crates/interaction-api（路由與 principal）＋ apps/interaction-desktop/src-tauri/src/{lib.rs,tray.rs,host_safety.rs}",
+    "entryPath": "入口：HTTP POST /v1/emergency-stop（lib.rs:309 → routes.rs:995-1008；human 與 legacy agent 可按，adapter token 403）、POST /v1/emergency-stop/clear（lib.rs:310-313 → routes.rs:1010，human-only）；tool-call emergency_stop（routes.rs:755）；CLI `emergency-stop [--clear]`；Tauri lib.rs:923-946（rt 內嵌；外部模式前端改打 HTTP transport.ts:270-271）；tray.rs:39/103/138（Rust 直達 Backend.emergency_stop，不經 WebView）；App.tsx:326-338 triggerEstop、HomePage.tsx:166、SafetyPage.tsx:199 clear；估停檔 state/emergency-stop.requested 由 watchdog 每 tick 讀（runtime.rs:2431-2436）。實作 runtime.rs:1116-1251：AtomicBool latch＋meta estop_engaged；並行 stop_all_sensors（reason emergency）＋mobile_project_estop；open receipts→Stopped；所有 actuator 併行 2 s bound emergency_stop，未確認者列 unconfirmedActuators；estop_agent_sessions（agents.rs:1394-1428：每 session 有界 close(cancelled) 逾時則 spawn_kill；只留 runtime 稽核信、不送 agent 回合）；撤銷全部 consent；outbox 文案依確認數降級；EmergencyStop 事件、character_project_emergency、audit。解除 :1253-1270 clear_emergency_stop：人類明確呼叫；actuator emergency_clear；不恢復任何動作。重啟：runtime.rs:298 讀 meta → :431 latch 初始化 → :496-503 先補投 Character Session Emergency 再 restore sessions；create_agent_session 與 gateway_deliver 在 estop 下拒（agents.rs:395-399, 690-700；gateway.rs:712-716）。",
+    "contract": "CLAUDE.md 不變量（AI 不可解除；重啟不自動恢復；dispatched≠confirmed）；docs/aip/threat-model.md；tray.rs:1-3 註解 estop 直走 Rust",
+    "stateOwner": "Runtime.estop AtomicBool＋SQLite meta estop_engaged；receipts 表；sessions.consents；state/emergency-stop.requested（外部觸發檔）；Character Session truth（state/character-session.json）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/estop_parallel.rs:53-366（動器階段有界併行、未確認不宣稱全停、感測階段有界誠實）",
+     "crates/interaction-runtime/tests/agents_loop.rs:428 estop_cancels_all_open_sessions_and_blocks_new_ones、:1068 estop_leaves_a_runtime_note_instead_of_a_cancel_task；gateway_loop.rs:1932 estop_does_not_send_a_user_turn、:2095 estop_terminates_sessions_concurrently",
+     "crates/interaction-runtime/tests/runtime_loop.rs:293 scenario_e_consent_revocation_cancels_and_emergency_stop、:857 emergency_clear_rearms_latched_devices；character_session_loop.rs:957 emergency_stop_freezes_the_character…、:1858 an_engaged_emergency_stop_is_replayed_into_the_session_on_startup；character_loop.rs:1957 external_adapter_connecting_during_emergency_stop_gets_the_emergency_projection",
+     "crates/interaction-api/tests/api_e2e.rs:686 emergency_stop_via_api、:167 agent_token_cannot_grant_consent_clear_estop_or_mutate_human_state",
+     "apps/interaction-desktop/src-tauri/src/tray.rs:265-295（unit：estop 視圖）；host_safety 單元",
+     "apps/interaction-desktop/e2e/estop.spec.ts:37-192、app.spec.ts:324、general-mode-tasks.spec.ts:1598 任務 13、home-state.spec.ts:203、character-session.spec.ts:289（browser＋fixture iPhone）",
+     "scripts/v03-cli-e2e.sh:674-684（integration：estop 取消 agent session、擋新建、serial 模擬器收到 stop-all）",
+     "scripts/tauri-ax-walkthrough.sh（native-desktop：docs/releases/v0.8.0-general-mode-tasks.md:21 緊急停止 completed；:22 人類解除 needs-environment）"
+    ],
+    "evidence": [
+     "重啟不自動恢復：estop_engaged 只在 clear_emergency_stop 寫 false（runtime.rs:1255）；啟動只讀不清（:298,431）",
+     "legacy agent token 可觸發 estop（安全遞減操作，api lib.rs:485-487 註解）但不可 clear（api_e2e.rs:167）",
+     "estop 對 agent 不再開新回合（agents.rs:1382-1393 註解說明舊版曾送 cancel 信進 stdin 造成計費回合，已改）",
+     "「人類解除 estop」在原生走查標 needs-environment（不代人操作），browser e2e 有走解除流程（estop.spec.ts:37；app.spec.ts:324）"
+    ],
+    "limitation": "真硬體 estop 只有 serial pty 模擬器（v03-cli-e2e:679-684）；動器未回 ack 只能記 unconfirmed；原生 tray／解除流程的真人操作證據為 needs-environment。",
+    "nextAction": "維持；基線重跑 estop_parallel.rs 與 estop.spec.ts 數字",
+    "confidence": "high"
+   },
+   {
+    "id": "A-08",
+    "need": "備份／還原：記憶匯出（/v1/memory/export）、還原（BackupSection）、角色設定匯出／匯入、是否有整體狀態（SQLite／config）備份",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "browser",
+     "native-desktop"
+    ],
+    "owner": "crates/interaction-runtime/src/memory.rs ＋ apps/interaction-desktop/src/pages/BackupSection.tsx ＋ apps/interaction-desktop/src/companion/settingsTransfer.ts ＋ src-tauri supervisor.rs",
+    "entryPath": "匯出：BackupSection.tsx:118-140 api.memoryExport → transport（tauri lib.rs:1361 memory_export／http GET /v1/memory/export lib.rs:193 → routes.rs:2135）→ memory.rs:192-239 memory_export（只 memory_items、EXPORT_MAX_ITEMS 上限、included/notIncluded 明列、limitReached）；CLI `memory export`（main.rs:661）。結果只在頁面 <pre> 顯示（BackupSection.tsx:158-165），沒有寫檔／下載。還原：**沒有** /v1/memory/import 路由（lib.rs:191-204）也沒有 CLI MemoryAction::Import（main.rs:626-675）；BackupSection.tsx:56-100 restoreBackup 在前端解析 JSON（≤5 MiB、≤1000 筆）逐筆呼叫 api.memoryCreate（tauri lib.rs:1330／http POST /v1/memory）→ memory.rs:36 memory_create（重新驗證、新 ID、不信任檔內身分／時間／狀態）；非原子，中途失敗如實報已寫幾筆。角色設定：CompanionPage「匯出角色設定」→ settingsTransfer.ts:57 exportCompanionSettings（desktop.json 子集）／:110 parseCompanionSettingsImport → desktop.prefsPatch。整體狀態備份：無任何入口（SQLite／config 目錄需使用者自行複製）。",
+    "contract": "docs/DESKTOP-GUIDE.md:362（明說不是完整備份、範圍由後端回報）；BackupSection.tsx:1-16 誠實原則註解；memory.rs:216-233 scope 宣告",
+    "stateOwner": "SQLite memory_items 表（storage lib.rs:187）；state/desktop.json（角色設定）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/memory_loop.rs:467 memory_export_declares_scope_and_reports_its_limit、:506 memory_export_exact_limit_is_not_falsely_reported、:526 memory_export_one_over_limit_reports_truncation",
+     "apps/interaction-desktop/src/test/backupSection.test.tsx:38-120（7 案例：範圍文案、後端範圍轉述、5 MiB／1000 筆拒絕、中途失敗誠實）",
+     "apps/interaction-desktop/e2e/app.spec.ts:230 更多：備份與還原是唯一的家（browser）",
+     "scripts/tests/tauri-settings-walkthrough.py:2-151（native-desktop：真 AX 檔案選擇器匯出角色設定→還原→重啟仍在；缺角色／未來 schema／非法值被擋；不在 CI，本版執行紀錄未在 docs/releases/v0.8.0-* grep 到）",
+     "scripts/v03-cli-e2e.sh:282-295（integration：memory add／bundle／delete）"
+    ],
+    "evidence": [
+     "「還原」是前端逐筆重放 memoryCreate（BackupSection.tsx:72-89），後端沒有 import 概念；瀏覽器／外部模式同樣走 HTTP POST /v1/memory 逐筆",
+     "匯出只顯示在畫面（BackupSection.tsx:118 setExported），使用者需自行複製；沒有 Tauri 存檔對話框（lib.rs 只註冊 dialog plugin 供資料夾選取 :3522-3526）",
+     "匯出範圍不含知識節點、素材、知識收據、角色互動記憶（memory.rs:222-227）；docs/DESKTOP-GUIDE.md:362 同步誠實",
+     "角色設定匯出／匯入與記憶匯出是兩條互不相干的路（desktop.json vs SQLite）；v0.8.0-known-limitations.md:15「兩個設定 store 不是跨程序 ACID」"
+    ],
+    "limitation": "無整體備份／還原（SQLite、config YAML、tokens、character-session.json 都不在任何匯出內）；記憶匯出不落檔；還原非原子且只有記憶層；角色設定匯出入僅 desktop.json 子集。",
+    "nextAction": "若要「備份／還原」成為產品能力：加 Runtime 端 export/import bundle（memory＋knowledge＋assets manifest）與 Tauri save dialog；或在 UI 文案把「備份與還原」改名為「匯出／還原記憶」以免誤導",
+    "confidence": "high"
+   },
+   {
+    "id": "A-08a",
+    "need": "持久化與重啟恢復：SQLite（WAL）、config YAML、desktop.json、character-session.json；重啟後 open receipts→uncertain、open agent session→expired＋unknown 事件、estop 保留、pause／consent／recipe 狀態保留",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "fixture",
+     "integration",
+     "native-desktop"
+    ],
+    "owner": "crates/interaction-storage ＋ crates/interaction-runtime/src/{runtime.rs,agents.rs,config.rs,sensor_journal.rs,character_session.rs} ＋ src-tauri/src/supervisor.rs",
+    "entryPath": "Runtime::start（runtime.rs:266-520）：InstanceLock → Store::open(state/interaction.db，storage lib.rs:48-63 journal_mode=WAL；表 :87-273）→ clean_shutdown meta 判斷 → open receipts 標 Uncertain（:280-296）→ estop meta（:298）→ SensorJournal::open（:299）→ 建 Runtime（config／policy／recipes 由 ConfigService 讀 config/*.yaml）→ estop 補投 Character Session（:496-503）→ restore_agent_sessions（agents.rs:1479-1538：reap pgids；open→Expired＋closed_at＋detail「runtime restarted」；發 taxonomy unknown；prune 歷史）→ init_providers → character_load_adapters（SQLite character_adapters）。shutdown（runtime.rs:536-581）：停感測（有界）→ character_session_persist_now（state/character-session.json）→ open receipts→Cancelled → actuator estop → reap pgids → journal flush → clean_shutdown=true → 釋放 lock。桌面：supervisor.rs:395-470 load_prefs／save_prefs（state/desktop.json，tmp+fsync+rename，保留 0600）；ui preferences 在 SQLite meta（human.rs:559-573）。",
+    "contract": "docs/aip/character-session.md（快照格式／遷移／隔離）；docs/ARCHITECTURE.md；runtime.rs:282-292 crash vs restart 註解；agents.rs:1490-1492「Open sessions do NOT survive a restart」",
+    "stateOwner": "state/interaction.db（receipts、plans、sessions、observations、audit、meta、providers、agent_sessions、memory_items、assets、knowledge_*、character_adapters）；config/{interaction.yaml,policies/policy.yaml,recipes/}；state/{desktop.json,character-session.json,character-session.epoch,api-token,api-agent-token,runtime.lock}",
+    "existingTests": [
+     "crates/interaction-runtime/tests/runtime_loop.rs:422 crash_recovery_marks_open_actions_uncertain、:772 recipe_state_survives_restart；human_layer.rs:123 pause_expires_lazily_and_persists_restart、:162 ui_preferences_persist_and_validate；consent_one_shot_loop.rs:246 a_spent_one_shot_consent_stays_spent_across_a_restart；proactive_loop.rs:303 rate_state_survives_restart；providers_loop.rs:490/:730 restart 保留 tested／revoked",
+     "crates/interaction-runtime/tests/agents_loop.rs:491 open_sessions_do_not_survive_restart、:812 restart_reports_unknown_for_work_that_was_still_open（斷言 record.state==Expired 且事件序列==[\"unknown\"]）",
+     "crates/interaction-runtime/tests/character_session_loop.rs:1331 a_restart_resumes_the_same_session_and_asks_members_to_renegotiate、:1394 an_unreadable_session_file_is_quarantined_and_never_silently_reused、:1858 estop 重啟重投；sensor_journal_review.rs",
+     "apps/interaction-desktop/src-tauri/src/supervisor.rs:475-590 與 settings_recovery_review.rs（unit：desktop.json 原子寫、權限保留、未知欄位容忍）",
+     "scripts/tests/tauri-preset-recovery.py、tauri-settings-walkthrough.py:133-136（native-desktop：重啟後偏好仍在；不在 CI）",
+     "crates/interaction-storage/src/lib.rs:1847-1909（storage unit）"
+    ],
+    "evidence": [
+     "重啟後 open 工作的**主要狀態是 Expired**（UI「已到期」workState.ts:171-176），只有 taxonomy 事件說 unknown（角色投影「結果不確定」）——兩個面向講法不同但都非成功；agents_loop.rs:812 釘住這個組合",
+     "Tauri 外部 daemon 模式下 desktop.json 與 SQLite 是兩個 store（v0.8.0-known-limitations.md:15 accepted limitation）",
+     "restore 只回收 ps 快照中 pid==pgid&&cmd 相符的孤兒（agents.rs:1631-1638），非 unix 不回收",
+     "SQLite 無 schema 版本遷移框架跡象（CREATE TABLE IF NOT EXISTS）；character-session.json 有格式版本與遷移備份（character_session.rs:86-93）"
+    ],
+    "limitation": "重啟後工作恢復語意在 record（expired）與事件（unknown）之間不一致（皆誠實但 UI 兩處文案不同）；沒有整體資料目錄備份；WAL 檔與 config 目錄的搬遷／升級沒有工具。",
+    "nextAction": "決定重啟後 open session 的單一對外狀態（expired vs unknown）並在 workState 投影統一；基線重跑 agents_loop:812、runtime_loop:422",
+    "confidence": "high"
+   }
+  ],
+  "openQuestions": [
+   "真 Claude Code 2.1.263 的 stream-json 是否已有可映射到 waiting-for-input 的事件（例如 AskUserQuestion／permission 請求）？repo 內 claude.rs 只解析 system.init／assistant／result／error。",
+   "真 Codex 0.153.4 app-server 的 approval ServerRequest method 名稱是否仍為 pinned 0.149.1 的 item/commandExecution/requestApproval？fake_codex.sh 只模擬該名稱。",
+   "scripts/tests/tauri-work-cancel.py 與 tauri-settings-walkthrough.py 在 v0.8.0 是否實際跑過？docs/releases/v0.8.0-* 只 grep 到 tauri-ax-walkthrough 的紀錄。",
+   "外部 daemon 模式下 Tauri 讀不到 state/api-token（不同 INTERACT_AI_HOME）時，除了 Degraded 之外是否有預期的使用者復原路徑？",
+   "Windows 出貨包（release.yml nsis/msi）在缺少 process-group 終止與孤兒回收下，是否應在 INSTALL.md 標明 agent 子程序終止不受保證？"
+  ],
+  "notes": "本盤點只讀程式與文件；未執行 cargo／pnpm／任何測試。同一份 JSON 已寫到 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/matrix/find-A.json（已用 python json 驗證 12 列欄位與 enum）。evidenceLevel 標記依 repo 內既有測試檔實際存在的層級：unit＝cargo/vitest/Tauri 單元；fixture＝fake_claude.sh／fake_codex.sh／fake_iphone 子程序；integration＝v03-cli-e2e.sh 與 crates/*/tests 起真 daemon；browser＝Playwright（真 daemon＋fixture agent）；native-desktop＝scripts/tauri-*.py／tauri-ax-walkthrough.sh（皆不在 CI；只有 docs/releases/v0.8.0-general-mode-tasks.md 記錄 tauri-ax-walkthrough 在 v0.8.0 tag 上跑過）。沒有任何 A 列可標 real-agent／real-iphone／real-hardware：E2E_REAL_AGENTS=1 路徑存在但本版無執行紀錄，v0.5.x 的 iPhone 真機證據不涵蓋本維度。A-01 的真實安裝 smoke 只存在於 docs/releases/v0.8.0-publication.md:34-35 的人工紀錄。與任務前提對照：GatewayEvent::TaskWaitingForInput 確認無 connector 產生（A-05a defined-only）；SessionSpec.model 確認 API create payload 無法傳入（A-05b defined-only）；Tauri 不 spawn 獨立 daemon 而是同進程內嵌，外部 daemon 以 /ready 探測＋讀 state/api-token 發現（A-02）。值得上層注意的三個程式與文件落差：(1) get.sh 無 Windows 分支但 INSTALL.md 把 install.sh 當四平台入口；(2) DESKTOP-GUIDE 把「等你回答」列為一般狀態但 gateway agent 永遠不會產生；(3) Claude session 的「中斷」實際落到 unknown 而非 cancelled，UI 同一顆按鈕。"
+ },
+ "verdicts": [
+  {
+   "id": "A-01",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "All checked file:line citations verified exact or within 1-2 lines: scripts/get.sh platform detection (Darwin/arm64, Darwin/x86_64, Linux/x86_64 only, no Windows branch — falls through to the generic 'unsupported platform' exit), commands.rs:433-445 SelfCmd dispatch, selfmgmt.rs cmd_install_skill:441, desktop_asset_name:522, cmd_install_desktop:547, cmd_update:251, cmd_uninstall:318 all match exactly. Confirmed release.yml:242 does `cp scripts/get.sh install.sh`, so install.sh IS get.sh verbatim — the claimed Windows-support gap between docs/INSTALL.md:86 (Windows x64 listed with checkmarks) and get.sh's actual platform switch is real and correctly identified as a limitation, not a fabrication. docs/INSTALL.md platform table (lines ~79-90) and scripts/tests/docs-claims.sh honesty-claim tests (~123-139, off by a few lines from claimed 127-139 but same content) also confirmed. scripts/tests/release-scripts.sh:262-321 does test get.sh's fail-closed checksum behavior by actually executing the real script against a stubbed curl — matches the claimed integration-level test. Status classification (implemented-and-connected) and evidenceLevel claims are appropriately conservative (no browser/native-desktop/real-* claimed for pure install flow, only static-inspection/unit/integration/not-run, matching that only unit tests and a shell harness exist plus one human-run smoke).",
+   "evidence": [
+    "scripts/get.sh:69-76 platform case statement — only Darwin/arm64, Darwin/x86_64, Linux/x86_64 handled; Linux/aarch64 and default case both exit 1 with 'build from source' message; no windows case exists",
+    "crates/interaction-cli/src/commands.rs:433-445 SelfCmd dispatch matches exactly (InstallSkill:440, InstallDesktop:441)",
+    "crates/interaction-cli/src/selfmgmt.rs: cmd_install_skill fn at line 441, desktop_asset_name fn at line 522 (with windows/x86_64 => .exe/.msi hint), cmd_install_desktop fn at line 547 (macOS-only `open` call under #[cfg(target_os=\"macos\")]), cmd_update fn at 251, cmd_uninstall fn at 318 — all exact matches",
+    ".github/workflows/release.yml:242 `cp scripts/get.sh install.sh` confirms install.sh == get.sh verbatim, supporting the claimed doc/script Windows mismatch",
+    "docs/INSTALL.md:79-90 platform coverage table lists 'Windows x64 | ✅ | ✅' for CLI, contradicting get.sh's actual switch statement",
+    "scripts/tests/release-scripts.sh:262-321 actually executes scripts/get.sh with stubbed curl/gh returning a 404 for .sha256, and asserts fail-closed rejection and that no binary lands in bin-dir — this is a real integration-level exercise of the script, not just unit tests"
+   ]
+  },
+  {
+   "id": "A-02",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "Every checked citation was exact: commands.rs serve() at 1572-1620 with acquire_lock/spawn_watchdog at 1576/1578 and load_or_create_token at 1594; supervisor.rs daemon_ready fn (actual line 459, claim says 437-449 for the timeout detail — functionally correct, minor line offset from configured_api_base at 411 vs claimed 392) and read_api_token at 451; lib.rs start_supervised fn spans exactly 3336-3507 (claim: 3336-3508, off by one, immaterial) with verified content matching every described behavior — external daemon detection, token-unreadable Degraded path with exact user-facing Chinese message, 3s health loop demoting to Disconnected/ConnectedToExternal, embedded Runtime::start fallback with HTTP bind-failure handling that sets Degraded rather than lying about health. lib.rs:3542 setup() and companion-window creation logic at 3549-3560 matches claim's 3552-3561 range almost exactly. rt() helper at 477-491 and its 'runtime not started' fallback confirmed exact. Frontend transport.ts HTTP_MAP entries (consent_grant:113, agent_session_create:165, memory_export:179, emergency_stop:270, onboarding_commit:285) all confirmed at the exact claimed line numbers, as was desktop.ts bootstrapSupervisor:175 and transport.ts configureHttp:35. full_quit fn at exactly 2216 confirmed not touching external daemon. The claim that Tauri does NOT spawn a separate `interact-ai serve` subprocess but instead runs an embedded Runtime in-process is directly verified by the code at lib.rs:3403 (Runtime::start called in the same async fn, not via Command/subprocess).",
+   "evidence": [
+    "crates/interaction-cli/src/commands.rs:1572 async fn serve, :1576 acquire_lock: true, :1578 spawn_watchdog: true, :1594 .load_or_create_token() — all exact",
+    "apps/interaction-desktop/src-tauri/src/supervisor.rs: configured_api_base at line 411, daemon_ready at line 459 (1200ms timeout confirmed), read_api_token at line 451 — content matches claim though claim's own line numbers (392-427, 437-449) are each off by ~15-20 lines from the actual fn starts; substance fully correct",
+    "apps/interaction-desktop/src-tauri/src/lib.rs:3336 async fn start_supervised ... ends at line 3507 (function closes at 3508) — matches claimed 3336-3508 range; verified external-daemon branch (token None -> Degraded with exact quoted Chinese message), 3s health loop, embedded Runtime::start fallback with bind-failure -> api_error -> Degraded (not swallowed)",
+    "lib.rs:3542 .setup(|app| {...}) with companion window creation gated on show_companion_on_start && companion_visible calling ensure_companion_window — matches claimed 3552-3561 (actual conditional at ~3549-3560)",
+    "lib.rs:477-491 fn rt() returns Err('runtime not started') fallback when state.startup_error empty — exact match",
+    "apps/interaction-desktop/src/transport.ts: consent_grant:113, agent_session_create:165 (POST /v1/agent-sessions), memory_export:179 (GET /v1/memory/export), emergency_stop:270 (POST /v1/emergency-stop), onboarding_commit:285 (POST /v1/onboarding/commit) — every HTTP_MAP line exactly as claimed",
+    "apps/interaction-desktop/src/desktop.ts:175 bootstrapSupervisor, :181 configureHttp call — matches claimed 176-194",
+    "lib.rs:2216 async fn full_quit — app.exit(0) only, comment confirms external daemon deliberately not touched, matching claim exactly"
+   ]
+  },
+  {
+   "id": "A-03",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "human.rs onboarding functions verified at exact claimed line numbers: ONBOARDING_META_KEY:31, MAX_DRAFT_BYTES:33, onboarding_state:641, save_onboarding_draft:667 (with MAX_DRAFT_BYTES enforcement), preview_onboarding:683 (calls plan_onboarding, zero side effects as claimed), plan_onboarding:701, commit_onboarding:850. App.tsx:289 (claim says 288-289) confirmed exact — onboarding gate reads s['onboardingCompleted']===true from backend status, not localStorage, matching the claim's emphasis that this is Runtime-owned state. All spot-checked citations line up closely enough that I have no basis to refute status or evidence-level claims; the claim's own hedging (native-desktop AX walkthrough not rerun this session, browser mode limitations for desktop prefs) is appropriately conservative and matches what the code shows (Onboarding.tsx desktop.prefsPatch calls are Tauri-only per the code's own gating pattern seen elsewhere in this session, e.g. companion window prefs).",
+   "evidence": [
+    "crates/interaction-runtime/src/human.rs:31 ONBOARDING_META_KEY, :33 MAX_DRAFT_BYTES=64*1024, :641 onboarding_state, :667 save_onboarding_draft (enforces MAX_DRAFT_BYTES with Validation error), :683 preview_onboarding (calls self.plan_onboarding then returns diff with zero mutation), :701 plan_onboarding, :850 commit_onboarding — every function line number matches exactly",
+    "apps/interaction-desktop/src/App.tsx:289 `setOnboarding(s[\"onboardingCompleted\"] === true ? \"closed\" : \"open\")` inside a status-polling effect — confirms onboarding completion is sourced from backend /v1/status, not frontend-local state, exactly as claimed"
+   ]
+  },
+  {
+   "id": "A-04",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "Extensive spot-checks across HTTP routes, Tauri IPC, and runtime domain logic all confirmed exact or near-exact: interaction-api/src/lib.rs:121-140 route registrations for /v1/character-session{,/resume,/events,/diagnostics} match exactly against routes.rs handlers (character_session_snapshot, character_session_resume, character_session_event, character_session_diagnostics all present at routes.rs:1895-1970, each gated by require_character_session at routes.rs:1893). character_hello fn at character.rs:947 exact. character_manual_intent at character.rs:1371 area confirmed to reject is_safety() intents with PolicyBlocked, exactly matching the claimed 'safety intent cannot be manually sent' invariant, and independently confirmed by scripts/v03-cli-e2e.sh:495-496 actually invoking `character intent emergency` via CLI and asserting non-zero exit ('manual safety intent refused'). adapter_request_allowed in interaction-api/src/lib.rs:425-428 confirmed to restrict adapter tokens to POST /v1/character/receipts and /v1/character/events only, matching claim's 'adapter token 只能 POST receipts/events' and the CLAUDE.md invariant about the character layer having no permission sovereignty. character_session_enabled_from_env in character_session.rs (~266-272) confirmed default-enabled unless env var is literally '0'. lib.rs:3542-3561 companion window creation and full_quit at 2216 (shared with A-02 verification) also support this row. No evidence of overclaiming was found in the checked subset; evidenceLevel claims (fixture for external adapter, native-desktop only via non-CI script, browser via real e2e specs) are consistent with what the code and referenced tests show.",
+   "evidence": [
+    "crates/interaction-api/src/lib.rs:121-140 route().'/v1/character-session' GET, '/v1/character-session/resume' POST, '/v1/character-session/events' POST, '/v1/character-session/diagnostics' GET — exact route table match",
+    "crates/interaction-api/src/routes.rs:1893 fn require_character_session, :1895 character_session_snapshot (calls require_character_session first), :1913 character_session_diagnostics, :1934 character_session_resume, :1958 character_session_event — matches claimed 1907-1975 range",
+    "crates/interaction-runtime/src/character.rs:947 pub async fn character_hello — exact match",
+    "crates/interaction-runtime/src/character.rs: character_manual_intent (~1371) rejects intents where parsed.is_safety() with DomainError::PolicyBlocked — matches claim exactly",
+    "scripts/v03-cli-e2e.sh:494-496: `character intent emergency` invoked via real CLI binary against real fixture daemon, non-zero exit asserted with message 'manual safety intent refused (runtime-only)' — confirms this is actually tested at integration level, not merely asserted in prose",
+    "crates/interaction-api/src/lib.rs:423-428 fn adapter_request_allowed: `method == POST && matches!(path, \"/v1/character/receipts\" | \"/v1/character/events\")` — exact match to claimed 425-428",
+    "crates/interaction-runtime/src/character_session.rs:266-272 character_session_enabled_from_env: `!matches!(env_var, Some(\"0\"))` — confirms default-enabled unless explicitly disabled, as claimed",
+    "apps/interaction-desktop/src-tauri/src/lib.rs:3549-3560 companion window creation gated on prefs.show_companion_on_start && prefs.companion_visible inside .setup() at 3542 — matches claimed 3552-3561"
+   ]
+  },
+  {
+   "id": "A-05",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "Extensively re-verified against source: every cited file:line for the create→attach→pump→deliver→report→verify chain checks out almost exactly (TaskComposer.tsx:469-478/166 buildSessionCreateInput, transport.ts:165/303-309, lib.rs:1573, routes.rs:1389, agents.rs:387 create_agent_session with agent_create_lock/estop/disabled_agents/allow_write scope checks/resume-not-wider/delegation/max_sessions/ttl clamp(1,1440)/maxMessages min-with-policy/SessionStarted event all present as described; gateway.rs gateway_attach at 285 (Codex maxCost/intent-only honest-reject at 297-310) → resolve_gateway_workdir 240 (excludes state dir) → spawn_gateway_pump 380; gateway_deliver at 669 with estop check, Busy/Closed handling exactly as claimed; report_agent_session 1174 with full state-taxonomy mapping; verify_agent_session 1111 restricted to ClaimedCompleted+claim_id binding, human-only enforced at auth_middleware/session_request_allowed/agent_request_allowed (verify path absent from both agent and session whitelists); AiPage.tsx lines 311/528/608/834/846 all match; workState.ts NEEDS_INPUT label at 92, WORK_STATE_PROJECTION at 116). All cited tests exist at the cited (or very close) line numbers and assert what's claimed (agents_loop.rs:681, gateway_loop.rs:903/957/1101/1133/1651, api_e2e.rs:1238/1336/2361, consent_one_shot_loop.rs:212-531, work-delegate.spec.ts:110-327). Fixture-only claim confirmed via global-setup.ts:58-64 (E2E_REAL_AGENTS default off, fake_claude.sh/fake_codex.sh used) and no v0.8.0 real-agent evidence found in docs/releases/ (v0.8.0-general-mode-tasks.md explicitly says '手機和 Agent 都是 fixture'). tauri-work-cancel.py exists (355 lines) but no v0.8.0 execution record found, consistent with the row correctly omitting native-desktop evidence. One minor citation slip: 'commands.rs:915-942 agents create／agents send' — Create is at ~914-936 but Send is actually at line 1003, outside the cited range; this is a trivial citation imprecision, not a status/evidence-level error.",
+   "evidence": [
+    "crates/interaction-runtime/src/agents.rs:387-593 create_agent_session (estop/disabled_agents/allow_write scopes/resume/delegation/ttl clamp/SessionStarted all present)",
+    "crates/interaction-runtime/src/gateway.rs:240-479 resolve_gateway_workdir/gateway_attach/spawn_gateway_pump; :669-826 gateway_deliver",
+    "crates/interaction-runtime/src/agents.rs:1111-1173 verify_agent_session (claimed-completed only, claim_id bound); crates/interaction-api/src/lib.rs:430-465 session_request_allowed and :488-510 agent_request_allowed both omit /verify, confirming human-only",
+    "apps/interaction-desktop/e2e/global-setup.ts:58-64 (fixture agents by default); docs/releases/v0.8.0-general-mode-tasks.md:3 ('手機和 Agent 都是 fixture')",
+    "crates/interaction-cli/src/commands.rs: AgentsAction::Create at ~914, AgentsAction::Send actually at line 1003 (outside the cited 915-942 range) — minor citation imprecision only"
+   ]
+  },
+  {
+   "id": "A-05a",
+   "refuted": false,
+   "correctedStatus": "defined-only",
+   "reason": "Fully confirmed. agent.rs:24-30 (actually the WaitingForInput variant with the 'HONEST GAP' doc-comment sits at that location) states no connector produces this state. grep across claude.rs, codex.rs, and codex_exec.rs found zero occurrences of GatewayEvent::TaskWaitingForInput being emitted — the only place it appears in the gateway crate is the enum definition (lib.rs:99) and the runtime's pump handler (gateway.rs:413) that would consume it if it were ever sent. The only reachable path to this state is the self-report HTTP endpoint (routes.rs:1414 agent_session_report → report_agent_session), confirmed by the cited test (agents_loop.rs:681) which drives it via a direct rt.report_agent_session(&a, \"waiting-for-input\", ...) call, not via any connector-derived event. DESKTOP-GUIDE.md:181,289 do list 等你回答 as a normal-looking state without flagging this gap, as claimed.",
+   "evidence": [
+    "crates/interaction-core/src/agent.rs:24-30 WaitingForInput variant with explicit 'HONEST GAP (v0.5): no connector currently produces this state' comment",
+    "grep TaskWaitingForInput across claude.rs/codex.rs/codex_exec.rs: no hits; only lib.rs:99 (enum) and gateway.rs:413 (dead-in-practice handler)",
+    "crates/interaction-runtime/tests/agents_loop.rs:681-698 drives waiting-for-input via direct report_agent_session call, not connector inference",
+    "docs/DESKTOP-GUIDE.md:181,289 list 等你回答 without caveat"
+   ]
+  },
+  {
+   "id": "A-05b",
+   "refuted": false,
+   "correctedStatus": "defined-only",
+   "reason": "Fully confirmed. SessionSpec.model: Option<String> exists in crates/interaction-agent-gateway/src/lib.rs:166 (default None at :189), and claude.rs:103-104 does add --model when spec.model is Some. But grep for 'model' across gateway.rs, agents.rs, routes.rs, TaskComposer.tsx, AiPage.tsx, and commands.rs returned zero relevant hits (routes.rs's only hit is an unrelated 'domain model' code comment). CreateAgentSession struct (agents.rs:247-278) has no model field, confirming the API/CLI/UI cannot pass a model choice through to the gateway.",
+   "evidence": [
+    "crates/interaction-agent-gateway/src/lib.rs:166,189 SessionSpec.model: Option<String>, default None",
+    "crates/interaction-agent-gateway/src/claude.rs:103-104 uses spec.model when present",
+    "grep 'model' across gateway.rs/agents.rs/routes.rs/TaskComposer.tsx/AiPage.tsx/commands.rs: no relevant hits",
+    "crates/interaction-runtime/src/agents.rs:247-278 CreateAgentSession struct has no model field"
+   ]
+  },
+  {
+   "id": "A-06",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "Fully re-verified. AiPage.tsx:834/846 agentSessionApprove → transport.ts:168 → lib.rs:1297 (Tauri) confirmed; gateway_resolve_approval (gateway.rs:828) delegates to resolve_approval_as (gateway.rs:844) whose body matches the claim precisely: reads pending request without removing it first, in_flight guard against reentrancy, writes approval-resolved to mailbox unconditionally (even on delivery failure) via mailbox_send, records delivery_failures with exponential backoff on watchdog path, and only removes the registration once actually delivered — then calls store.audit(\"agent.approval\", ...). Codex-only reachability confirmed (TaskWaitingForConsent is the sole ServerRequest source; claude.rs:343-352 resolve_approval unconditionally returns GatewayError::Protocol, matching 'claude -p 模式沒有互動核可管道'). Watchdog auto-deny at gateway_sweep (gateway.rs:1034, comment '逾時 approval → 自動 deny（絕不自動同意）' matches 'timeout=deny, never auto-consent on behalf of the user'). set_approval_ttl_secs (gateway.rs:980) only clamps downward (secs.clamp(0, APPROVAL_TTL_SECS)), matching the 'can only be shortened' claim. Session consent: grant_consent_with_uses (runtime.rs:1360) rejects max_uses=0 and rejects max_uses for Receptor/ToolOperation scopes exactly as described; revoke_consent at :1415, stop_session at :1461, all confirmed. auth_middleware (lib.rs:363) principal boundary confirmed, including agent_request_allowed excluding GET /v1/agent-sessions (lib.rs:494) and session_request_allowed lacking any /verify path. All cited tests exist at the cited line numbers with matching names (gateway_loop.rs:903/957/1101/1133/1651; consent_one_shot_loop.rs 212-531 all present at exact lines; runtime_loop.rs:179/293; api_e2e.rs:167/2229; consent_e2e.rs 139-202 present). No discrepancy found in this row.",
+   "evidence": [
+    "crates/interaction-runtime/src/gateway.rs:828-975 gateway_resolve_approval/resolve_approval_as matches claimed in_flight guard, mailbox write-back-always, delivery_failures backoff, audit call",
+    "crates/interaction-agent-gateway/src/claude.rs:343-352 resolve_approval returns GatewayError::Protocol unconditionally",
+    "crates/interaction-runtime/src/gateway.rs:1034-1045 gateway_sweep comment '逾時 approval → 自動 deny（絕不自動同意）'; :980-982 set_approval_ttl_secs clamps only downward",
+    "crates/interaction-runtime/src/runtime.rs:1360-1409 grant_consent_with_uses rejects max_uses=0 and Receptor/ToolOperation+maxUses exactly as claimed",
+    "crates/interaction-api/src/lib.rs:363-420 auth_middleware, :488-510 agent_request_allowed (excludes GET /v1/agent-sessions), :430-465 session_request_allowed (no /verify path)",
+    "All cited test function names/line numbers in gateway_loop.rs, consent_one_shot_loop.rs, runtime_loop.rs, api_e2e.rs, consent_e2e.rs confirmed exact matches"
+   ]
+  },
+  {
+   "id": "A-07",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "所有 file:line 引用逐一核對皆準確（entryPath、owner、existingTests 的函式名與行號誤差在數行內，屬正常漂移）：AiPage.tsx:664/680 按鈕確實呼叫 agentSessionInterrupt/agentSessionClose；lib.rs:1311/1620 與 routes.rs:1548/2039 的 Tauri／HTTP 入口存在且與描述相符；interrupt_principal_allowed（lib.rs:477）語意與 owner ship 描述一致；gateway_interrupt（gateway.rs:995-1010）、codex.rs:662-681 turn/interrupt 寫入失敗退回 interrupt_tree(SIGINT)、claude.rs:354-357 group.interrupt()→SIGINT（process.rs:134-137 確認）、codex_exec.rs:253-259 SIGINT+cancel 旗標、claude.rs 的『被訊號終止不記 failed』註解全部屬實；close_agent_session（agents.rs:1265-1394）完整核對：保留終局狀態、清 consent、handoff→memory、provider Closed、gateway_spawn_kill、forget_gateway_pgid 皆與程式碼相符；record_gateway_pgid/reap_recorded_gateway_pgids/gateway_sweep 的 best-effort／non-unix 警告字句與行號也對得上。所引用的 gateway_loop.rs／agents_loop.rs 測試函式名稱與行號全部存在且斷言與描述一致（an_interrupted_codex_turn_is_cancelled_not_claimed_completed 確實斷言 codex 中斷→cancelled 且非 unknown/failed；process_that_ends_without_a_claim_is_unknown_and_only_a_real_error_is_failed 確實驗證安靜退出→unknown）。scripts/tests/tauri-work-cancel.py 存在且 docs/releases/v0.8.0-*.md 中確實查無執行紀錄，符合『本版無執行紀錄』的說法。",
+   "evidence": [
+    "claude.rs:354-357 interrupt() 呼叫 group.interrupt()，process.rs:134-137 確認 group.interrupt() 對 pgid 送 SIGINT（libc::SIGINT）",
+    "gateway.rs:606-627 SessionClosed 分支：turn_settled 為 false 時才 report unknown，與敘述完全一致",
+    "codex_exec.rs:253-259 逐字比對：busy 時才設 cancel_requested 並呼叫 group.interrupt()",
+    "crates/interaction-runtime/tests/gateway_loop.rs:1772-1836 完整讀過，確認斷言 states 含 cancelled 且不含 claimed-completed/unknown/failed",
+    "scripts/tests/tauri-work-cancel.py 存在（355 行），grep docs/releases/v0.8.0-*.md 無 'tauri-work-cancel' 字樣，match『本版無執行紀錄』"
+   ],
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "unit",
+    "fixture",
+    "integration",
+    "browser"
+   ]
+  },
+  {
+   "id": "A-07a",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "全數 file:line 核對通過。emergency_stop/clear_emergency_stop 於 runtime.rs:1116/1253 存在；routes.rs:994-1010 兩支 handler 與描述相符；agent_request_allowed（lib.rs:483-534）確認 '/v1/emergency-stop' 在允許清單但 '/v1/emergency-stop/clear' 不在，與『legacy agent token 可觸發但不可 clear』完全吻合，並由 api_e2e.rs:167-207 的 agent_token_cannot_grant_consent_clear_estop_or_mutate_human_state 測試逐行核對確實對 '/v1/emergency-stop/clear' 斷言 403。tray.rs:39/103/138 選單項與 dispatch 邏輯核對相符（直接呼叫 Backend，不經 WebView，註解語意一致）。runtime.rs:298/431/496-503 的重啟流程（estop_engaged 讀取、latch 初始化、Character Session 補投順序）逐行核對無誤，且 clear_emergency_stop（1253-1270）只在明確呼叫時才寫 false，重啟只讀不清，完全符合『latch 跨重啟不自動恢復』。所引用之 estop_parallel.rs／agents_loop.rs／runtime_loop.rs／character_session_loop.rs／character_loop.rs／api_e2e.rs 測試函式全數存在，行號誤差在個位數內。docs/releases/v0.8.0-general-mode-tasks.md 逐行核對，緊急停止=completed、人類解除=needs-environment 的引用完全準確（含檔案第 21-22 行原文）。",
+   "evidence": [
+    "lib.rs:456-464 agent_request_allowed 明確把 '/v1/emergency-stop' 放進安全遞減操作清單，但 clear 路徑不在其中且函式結尾 fall-through 到 false",
+    "api_e2e.rs:194 逐項測試陣列中確有 (POST, '/v1/emergency-stop/clear', {}) 且斷言 403",
+    "docs/releases/v0.8.0-general-mode-tasks.md:21-22 原文核對：『緊急停止｜completed…』『人類解除緊急停止｜needs-environment…須人類親自確認，不代為操作』"
+   ],
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "unit",
+    "fixture",
+    "simulator",
+    "integration",
+    "browser",
+    "native-desktop"
+   ]
+  },
+  {
+   "id": "A-08",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "reason": "核對通過。BackupSection.tsx:56-100 restoreBackup 逐筆呼叫 api.memoryCreate 且明確不信任檔內身分/時間/狀態、非原子逐筆計數失敗訊息，與描述完全一致；lib.rs:191-204 確認路由清單裡沒有 /v1/memory/import，CLI main.rs 的 MemoryAction 也未見 Import 變體（憑經驗常識加上路由缺失佐證）。memory.rs:192-233 memory_export 函式（含 EXPORT_MAX_ITEMS=1000、limitReached 邏輯、scope/included/notIncluded 欄位）逐行核對與敘述吻合。settingsTransfer.ts:57/110 兩個函式存在。畫面端只 setExported 顯示於 <pre>，未見任何存檔 API 呼叫；lib.rs 中 tauri_plugin_dialog 只註冊一次（3523 行）且未搜到 save dialog 呼叫，與『沒有 Tauri 存檔對話框』相符。backupSection.test.tsx 確實有 7 個 it() 案例，與『7 案例』相符。app.spec.ts:230 測試標題核對為『更多：五個入口；備份與還原是匯出／還原唯一的家』，與引用的『備份與還原是唯一的家』語意一致（原引用略有省略但不影響事實）。tauri-settings-walkthrough.py 逐行核對第 139/144/149 行確實測試 missing-character／schemaVersion 99／invalid companionPlay 三種被擋情境，且該腳本在 docs/releases 中無執行紀錄，與『不在 CI，本版執行紀錄未 grep 到』相符。",
+   "evidence": [
+    "BackupSection.tsx:56-90 restoreBackup 函式逐行核對，確認注解『不信任備份中的身分、時間與狀態』與呼叫 api.memoryCreate 的欄位子集完全一致",
+    "crates/interaction-api/src/lib.rs:191-204 路由表無 /v1/memory/import",
+    "scripts/tests/tauri-settings-walkthrough.py:139,144,149 三行分別觸發 missing-character/future-settings/invalid-settings 並斷言 correctly-blocked"
+   ],
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "unit",
+    "browser",
+    "native-desktop"
+   ]
+  },
+  {
+   "id": "A-08a",
+   "refuted": true,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "整體狀態分類仍正確（implemented-and-connected），且絕大多數引用（runtime.rs:266-300/431/496-503/536 shutdown、agents.rs:1479-1538 restore_agent_sessions、supervisor.rs 的原子寫入與 0600 權限、character_session.rs 的格式版本與備份機制、以及 agents_loop.rs:812/491 兩個測試斷言 record.state==Expired 且 states==['unknown']）全數核對屬實。但 evidence 欄位中『SQLite 無 schema 版本遷移框架跡象（CREATE TABLE IF NOT EXISTS）』這一條是事實錯誤：crates/interaction-storage/src/lib.rs 內確實存在版本化 migration 框架——`migrate()`（第 76 行起）讀取 `PRAGMA user_version`，以 `if version < N`（N=1..8，第 84/144/162/182/202/238/251/268 行）逐步套用 schema 變更，結束後寫回 `CURRENT_SCHEMA`(=8, 第 18 行) 到 `user_version`；這正是一套教科書式的版本化 migration 機制，只是目前 8 個步驟恰好都只新增資料表/索引（尚未出現需要 ALTER TABLE 改欄位的案例），不能因此說『無 schema 版本遷移框架跡象』。這條證據應改為：『SQLite 有 PRAGMA user_version 版本化 migration 框架（CURRENT_SCHEMA=8），但目前只驗證過新增表/索引的路徑，未見過需要真正欄位遷移（如 ALTER TABLE 搬資料）的案例，該情境下框架是否足夠穩健未經驗證』。這不影響 A-08a 的整體 status（重啟恢復語意仍是 implemented-and-connected），但『limitation』段落中『WAL 檔與 config 目錄的搬遷／升級沒有工具』這句話若被理解成『SQLite 沒有版本管理』則是誤導，需要修正為僅適用於 config YAML 目錄本身沒有工具化搬遷，SQLite 側已有版本化 migration。",
+   "evidence": [
+    "crates/interaction-storage/src/lib.rs:18 `const CURRENT_SCHEMA: i64 = 8;`",
+    "crates/interaction-storage/src/lib.rs:76-282 `fn migrate()`：讀 PRAGMA user_version、以 `if version < 1` 至 `if version < 8` 八個階段套用 schema 變更，結尾 `conn.pragma_update(None, \"user_version\", CURRENT_SCHEMA)`",
+    "crates/interaction-runtime/tests/agents_loop.rs:842-849 逐行核對確認 assert_eq!(record.state, AgentSessionState::Expired) 與 assert_eq!(states, vec![\"unknown\"]) 同時成立，A-08a 對此測試的描述完全準確"
+   ],
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "unit",
+    "fixture",
+    "integration",
+    "native-desktop"
+   ]
+  }
+ ],
+ "critic": {
+  "missingRows": [
+   {
+    "need": "A-09 狀態列（tray）常駐與快捷動作：狀態文字（系統狀態／主動互動／AI 工作階段）、開啟控制中心、顯示角色、暫停／暫停一小時、停止所有感測、緊急停止、外觀與語言、完全結束；estop 與停感測不經 WebView",
+    "whyItMatters": "CLAUDE.md 把「狀態列常駐」列為產品主軸，且它是 estop／停感測在 UI 卡死時唯一可達的入口；現有 A 列只在 A-02／A-07a 順帶提到 tray，沒有任何一列盤點選單項目與兩種模式（內嵌／外部 daemon）的可達性。",
+    "whereToLook": "apps/interaction-desktop/src-tauri/src/tray.rs:27-64（選單建置）、:88-118（handler）、:118-152（dispatch→Backend，(None,_)→\"runtime not available\"）、:265-295（unit）；lib.rs:460-475 AppState::backend（外部模式有 token 才有 Backend）；docs/releases/v0.8.0-general-mode-tasks.md:12-21（暫停／估停 completed，來源 tauri-ax-walkthrough.json）",
+    "likelyStatus": "implemented-and-connected（native-desktop 證據只覆蓋部分選單項；「停止所有感測」「完全結束」無逐項紀錄）"
+   },
+   {
+    "need": "A-10 視窗生命週期：關閉主視窗的行為（keep-running／hide-companion／quit＋askOnClose）、完全結束不動外部 daemon、桌面單一實例（第二次啟動聚焦既有視窗）",
+    "whyItMatters": "「關掉視窗＝關掉程式嗎」是常駐型工具最常見的使用者疑問，也直接決定 estop latch／工作是否還在跑；目前只在 A-02 的 stateOwner 出現 close_behavior 欄位名稱，沒有列盤點行為與證據。",
+    "whereToLook": "apps/interaction-desktop/src-tauri/src/lib.rs:2216-2226 full_quit（只 app.exit(0)，RunEvent::Exit 才關內嵌 runtime）、:3512-3515 tauri_plugin_single_instance、supervisor.rs:66-90 DesktopPrefs.close_behavior/ask_on_close；apps/interaction-desktop/src/desktop.ts:196-199 onCloseRequested",
+    "likelyStatus": "implemented-and-connected"
+   },
+   {
+    "need": "A-11 開機自啟（launchAtLogin → macOS LaunchAgent）與啟動時開控制中心／角色視窗",
+    "whyItMatters": "常駐型產品的「開機就在」是核心期待；目前偏好存了就回報成功，OS 端失敗被吞掉，使用者會看到「已開啟」但重開機後沒有啟動——違反 dispatched≠confirmed 的不變量。",
+    "whereToLook": "apps/interaction-desktop/src-tauri/src/lib.rs:2158-2170（`let _ = if updated.launch_at_login { autostart.enable() } else { autostart.disable() }`，Result 被丟棄）、:3516-3521 plugin 註冊（MacosLauncher::LaunchAgent）、supervisor.rs:79-80,299 預設 false、lib.rs:3549-3560 show_companion_on_start／open_control_center_on_start",
+    "likelyStatus": "confirmed-defect（autostart 失敗靜默）＋其餘 implemented-partial（無自動化或原生證據）"
+   },
+   {
+    "need": "A-12 事件串流（SSE /v1/events）：即時狀態更新、Last-Event-ID 續傳、daemon 重啟後游標重置、斷線時的誠實降級；Tauri 內嵌走 runtime-event-raw、外部／瀏覽器走 fetch SSE",
+    "whyItMatters": "產品方向明列「串流」；工作狀態、角色投影、收件匣、tray 都吃這條流。它是唯一一條長連線，斷線行為直接決定 UI 會不會停在過期假象。目前沒有任何 A 列盤點它。",
+    "whereToLook": "crates/interaction-api/src/lib.rs:311 route /v1/events → sse::events；apps/interaction-desktop/src/transport.ts:345-500（StreamState、nextStreamCursor 依 status.startedAt 判 instance、runStream 重連、eventsRecentHttp）、:519-540 onEvent 兩模式；apps/interaction-desktop/src-tauri/src/lib.rs:1823 events_recent_raw；crates/interaction-cli/src/main.rs:250-255 `events`；apps/interaction-desktop/src/test/regressions-v05-round2.test.tsx:70",
+    "likelyStatus": "implemented-and-connected（unit＋browser；無 native-desktop 逐項）"
+   },
+   {
+    "need": "A-13 可追溯：稽核軌跡（/v1/audit）、活動收件匣（/v1/activity/inbox）、動作收據（/v1/actions）、時間軸（進階）、outbox 訊息",
+    "whyItMatters": "「可追溯」是產品方向明列項，也是誠實階梯的落地面（誰在什麼時候被誰授權做了什麼）。A-01..A-08a 只在單列 evidence 裡提到 audit，沒有一列盤點使用者能不能查、查得到多久、能不能匯出。",
+    "whereToLook": "crates/interaction-api/src/lib.rs:312-313 /v1/outbox、/v1/audit；apps/interaction-desktop/src/pages/SafetyPage.tsx:51 auditTail(50)、ActivityPage.tsx:31,287、HomePage.tsx:253,470、ConnectPage.tsx:96-104；crates/interaction-cli/src/main.rs:229-247 Inbox／:261 Audit",
+    "likelyStatus": "implemented-and-connected（保留期限、匯出、稽核完整性未盤點 → 該子項 needs-investigation）"
+   },
+   {
+    "need": "A-14 多 Agent：偵測已安裝的 agent（/v1/agents、/v1/agents/refresh）、未安裝時的誠實提示、停用某個 agent（uiPreferences.disabledAgents）、路由建議（/v1/agents/routing）、同時進行上限（policy.delegation.max_sessions）、agent→agent 委派",
+    "whyItMatters": "產品方向明列「多 Agent」。A-05 只盤點單一 session 的建立與狀態，沒有盤點「電腦上有哪些 agent、選哪一個、能同時幾個、沒裝怎麼辦」這一整段使用者旅程。",
+    "whereToLook": "crates/interaction-runtime/src/gateway.rs:189 refresh_agent_providers、:1144-1195 agent_route_suggestion（含 disabled_agents 過濾與「建議僅供參考」註記）；agents.rs:403-410 disabled_agents 拒絕、:496-500 max_sessions、:16 check_delegation；crates/interaction-api/src/routes.rs:2007 agents_discoveries；apps/interaction-desktop/src/pages/AiPage.tsx:308,330-390,863-890；apps/interaction-desktop/e2e/agent-not-installed.spec.ts:32-68",
+    "likelyStatus": "implemented-and-connected（delegation 的正式使用者入口 needs-investigation）"
+   },
+   {
+    "need": "A-15 租約續期（renew）：工作快到期時延長 TTL",
+    "whyItMatters": "lease 到期即 Expired 且不可回復（agents.rs:825 註解 expired = gone for good），續租是使用者唯一的補救；桌面 UI 有按鈕但沒有任何 transport 接線，等於長工作只能眼睜睜到期後重建。",
+    "whereToLook": "crates/interaction-runtime/src/agents.rs:826-850 renew_agent_session；crates/interaction-api/src/routes.rs:1527-1540 與 lib.rs 的 /renew 路由；crates/interaction-cli/src/main.rs:454-460、commands.rs:1030-1037；apps/interaction-desktop/src/api.ts:373-374、pages/AiPage.tsx:623-648（「續租 30 分鐘」）；apps/interaction-desktop/src/transport.ts:165-308（ROUTES 內無 agent_session_renew）；apps/interaction-desktop/src-tauri/src/lib.rs 的 generate_handler!（無 agent_session_renew 指令）",
+    "likelyStatus": "confirmed-defect（後端／CLI 可用；桌面按鈕在 Tauri 內嵌、外部 daemon、瀏覽器三種模式都必然丟錯）"
+   },
+   {
+    "need": "A-16 追加訊息／回答：對同一個 session 再交代一句、送達六態（已送達／未送達：忙／不可用／失敗）、以及「回答 agent 的提問」是否存在真正的入口",
+    "whyItMatters": "產品方向明列「提問」。目前 UI 只有 kind=\"task\" 的追加輸入，runtime 對任何 kind 都直接開一個新的 user turn；agent 正在跑就回 409。使用者在 A-05a 的「等你回答」狀態下並沒有一條「回答」路徑。",
+    "whereToLook": "apps/interaction-desktop/src/pages/AiPage.tsx:714-742（唯一輸入框，固定 kind=\"task\"）；crates/interaction-runtime/src/gateway.rs:669-760 gateway_deliver（estop／子程序不在／預算／Busy→Conflict；body.task|text 直接變 user turn）；agents.rs:861-885（只有 direction=to-session 且 kind==\"task\" 才附 contextBundle）；crates/interaction-cli/src/main.rs:428-433（help 寫 kind: task/question/cancel）",
+    "likelyStatus": "implemented-partial"
+   },
+   {
+    "need": "A-17 上下文注入：每次交代任務自動附上 ContextBundle（記憶／知識）＋不可提權的 runtimeRules，收據上限與可稽核性；以及 session 上下文清除（/v1/memory/clear-session-context）",
+    "whyItMatters": "產品方向明列「記憶／上下文」，而且它就在任務路徑上（不是獨立功能）：bundle 決定 agent 看到什麼資料、以及注入內容是否被當成指令。A 維度沒有任何一列盤點這條線。",
+    "whereToLook": "crates/interaction-runtime/src/agents.rs:861-941（自動取代呼叫端提供的 contextBundle、寫 AgentContextBundleReceipt、CONTEXT_BUNDLE_RECEIPT_CAP）；memory.rs:239 memory_context_bundle；gateway.rs:722-737（runtimeRules：contextBundle 是不可信參考資料）；crates/interaction-api/src/lib.rs:191-200 /v1/memory/context-bundle、/v1/memory/clear-session-context",
+    "likelyStatus": "implemented-and-connected（與記憶維度重疊，需劃清歸屬）"
+   },
+   {
+    "need": "A-18 工作成果的保存與可讀性：result 摘要、progress artifact、以及「重啟之後還看不看得到成果」",
+    "whyItMatters": "使用者交代工作的目的就是拿成果。mailbox 只存在記憶體：daemon 重啟後 claimed-completed 的 session 仍在（record 持久化，claim_id 也在），但成果文字全數消失，畫面顯示「對方說已完成」＋「Agent 尚未回報任何結果。」，而且人還能按「標記為已驗證」——沒有東西可檢查卻能升級誠實階梯。",
+    "whereToLook": "crates/interaction-runtime/src/agents.rs:239-243 AgentSessionEntry{mailbox: VecDeque}（不入庫）、:1470-1476 persist_agent_session（只存 record）、:1516-1521 restore 以 mailbox: VecDeque::new() 重建、:1111-1173 verify_agent_session（只綁 claim_id）；gateway.rs:511-546（result 只進 mailbox＋report payload）；apps/interaction-desktop/src/pages/AiPage.tsx:743-746（「Agent 尚未回報任何結果。」）；crates/interaction-storage/src/lib.rs:173-181 agent_sessions 表只有 body/updated_at",
+    "likelyStatus": "confirmed-defect（成果不跨重啟，且與 A-08a 的「重啟恢復」列宣稱不一致）"
+   },
+   {
+    "need": "A-19 預算與政策設定的使用者入口：花費上限、TTL 預設、同時上限、initiative／quietHours 等 policy 值",
+    "whyItMatters": "Policy Governor 是安全主軸，但一般模式沒有任何預算／上限的可視編輯；唯一入口是進階頁的原始 JSON merge patch 文字框。使用者「我要限制它最多花多少／跑多久」目前沒有列。",
+    "whereToLook": "apps/interaction-desktop/src/pages/Policy.tsx:5-60（textarea JSON merge patch）、routing.ts:40-50（adv-policy 只在進階導覽）；crates/interaction-api/src/routes.rs policy_get/policy_patch（lib.rs 的 /v1/policy）；apps/interaction-desktop/src/pages/work/TaskComposer.tsx:229（Codex 無法設上限的誠實文案）；crates/interaction-runtime/src/agents.rs:496-500 max_sessions",
+    "likelyStatus": "implemented-partial"
+   },
+   {
+    "need": "A-20 暫停／恢復與安靜時段（常態控制，非 estop）：/v1/pause、tray 暫停一小時、主動對話 quiet、勿擾",
+    "whyItMatters": "CLAUDE.md 與 CLI help 都強調 pause≠emergency stop；使用者最常做的其實是暫停而不是估停。A 維度只盤點了 estop，沒有盤點這條常態路徑（含惰性到期與跨重啟保留）。",
+    "whereToLook": "crates/interaction-api/src/lib.rs:62-64 /v1/pause、/v1/pause/clear；crates/interaction-runtime/src/human.rs（pause 惰性到期，測試 crates/interaction-runtime/tests/human_layer.rs:123 pause_expires_lazily_and_persists_restart）；crates/interaction-cli/src/main.rs:115-131 Pause／Resume；apps/interaction-desktop/src-tauri/src/tray.rs:36-37,90-100；apps/interaction-desktop/src/pages/CompanionPage.tsx:149-216（proactiveDialogueGet/Patch/Quiet）",
+    "likelyStatus": "implemented-and-connected"
+   },
+   {
+    "need": "A-21 更新與版本一致性：self version --check／self update（原子替換）、桌面 app 與外部 daemon 版本不一致時的行為、SQLite schema 遷移、config YAML 升級、降級（rollback）",
+    "whyItMatters": "安裝之後最常發生的事就是升級。目前沒有任何地方比對桌面 app 與它連上的外部 daemon 版本（/v1/status 有 version 但沒人比對），升一半的組合會靜默運作；降級路徑完全未定義（storage 只往上遷移到 user_version=8）。",
+    "whereToLook": "crates/interaction-cli/src/selfmgmt.rs:16 CURRENT_VERSION、:66-100 latest_tag、:223-249 version --check、:251-316 cmd_update；crates/interaction-runtime/src/runtime.rs:613 status.version；apps/interaction-desktop/src-tauri/src/supervisor.rs:392-460（daemon_ready 只看 /ready，不比對版本）；crates/interaction-storage/src/lib.rs:18 CURRENT_SCHEMA=8、:76-282 migrate()",
+    "likelyStatus": "implemented-partial"
+   },
+   {
+    "need": "A-22 解除安裝與資料清除：self uninstall（--purge）是否一併移除 skill、completion、LaunchAgent 自啟項、桌面 App、角色資產與 SQLite",
+    "whyItMatters": "「裝得起來也要移得乾淨」是安裝列的另一半；purge 若沒清 LaunchAgent 或桌面 App，使用者會遇到「刪了 CLI 但開機還在跳」的狀況。A-01 只提了一句 cmd_uninstall。",
+    "whereToLook": "crates/interaction-cli/src/selfmgmt.rs:318-360 cmd_uninstall；scripts/drills/remove-package-keep-user-data.sh；apps/interaction-desktop/src-tauri/src/lib.rs:3516 autostart（LaunchAgent 由桌面 app 建立，CLI 未必知道）",
+    "likelyStatus": "needs-investigation"
+   },
+   {
+    "need": "A-23 診斷與問題回報：daemon 日誌落地、Tauri 內嵌模式的 stderr 去向、supervisor 狀態歷史、一鍵診斷包",
+    "whyItMatters": "出事時使用者與維護者只有 /v1/audit 與畫面文字可看：repo 內沒有任何 log 檔輪替（無 tracing_appender、無 tauri-plugin-log），從 Finder 啟動的桌面 app stderr 直接消失，事件流只有記憶體 ring buffer。這使「重現／回報」極度依賴人工。",
+    "whereToLook": "crates/interaction-cli/src/main.rs:288-305（tracing_subscriber 寫 stderr）；apps/interaction-desktop/src-tauri/Cargo.toml:32-40（只有 single-instance／autostart／dialog，無 log plugin）；apps/interaction-desktop/src-tauri/src/lib.rs:3336-3400（supervisor detail 只進 UI 事件）",
+    "likelyStatus": "implemented-partial（接近 absent：無持久化日誌）"
+   },
+   {
+    "need": "A-24 憑證管理：api-token／api-agent-token 的建立、輪換、外洩後撤換；外部 daemon 模式讀不到 token 時的復原入口",
+    "whyItMatters": "token 就是本機 API 的唯一閘門（interaction-api auth_middleware）。目前只有「不存在就建立」，沒有輪換命令，也沒有讓使用者在桌面貼上 token 的入口——A-02 自己列出的 Degraded 狀態因此是死路。",
+    "whereToLook": "crates/interaction-runtime/src/config.rs:97-101 token_file/agent_token_file、:337-366 load_or_create_token/load_or_create_capability_token（無 rotate）；apps/interaction-desktop/src-tauri/src/lib.rs:3344-3370（token None→Degraded＋runtime-error）；apps/interaction-desktop/src/pages/*（grep 無任何 token 輸入欄位）",
+    "likelyStatus": "absent（輪換與復原入口）"
+   },
+   {
+    "need": "A-25 Windows／Linux 平台對等性：CLI 安裝路徑、程序樹終止與孤兒回收、tray／角色視窗、自啟",
+    "whyItMatters": "release.yml 實際建置 Windows CLI zip 與 .exe/.msi、Linux .deb/.AppImage，docs/INSTALL.md 平台表也打勾，但 install.sh 沒有 Windows 分支，且取消／估停所依賴的 process-group 終止與孤兒回收是 cfg(unix)。等於在非 Unix 平台上，A-07 的取消語意不成立。",
+    "whereToLook": "scripts/get.sh:69-76（僅 Darwin arm64/x86_64、Linux x86_64）；docs/INSTALL.md:79-90 平台表；docs/QUICKSTART.md:36（只講 .exe 桌面安裝）；crates/interaction-runtime/src/agents.rs:1655-1670（非 unix 只警告）；crates/interaction-agent-gateway/src/process.rs（cfg(unix) 訊號路徑）；.github/workflows/release.yml:85-179",
+    "likelyStatus": "implemented-partial（Windows 取消語意 absent；安裝路徑與文件不符 → 文件層 confirmed-defect）"
+   },
+   {
+    "need": "A-26 軟停止的層級：cancel 單一動作／stop --all（取消所有開放動作）／session stop（結束互動 session 與其 consent）／estop 的差別與 UI 對應",
+    "whyItMatters": "使用者面前至少有四種「停」，語意與副作用各不相同（是否撤銷 consent、是否影響 agent session、重啟是否恢復）。A-06／A-07／A-07a 各自覆蓋一部分，中間的 /v1/stop-all 與 action cancel 沒有列。",
+    "whereToLook": "crates/interaction-api/src/lib.rs:309-314（/v1/actions/{id}/cancel、/v1/stop-all、/v1/emergency-stop）；crates/interaction-cli/src/main.rs:190-205 Cancel／Stop --all／EmergencyStop；crates/interaction-runtime/src/runtime.rs:1461 stop_session、:1116 emergency_stop；apps/interaction-desktop/src/pages/HomePage.tsx:341 sessionStop",
+    "likelyStatus": "implemented-and-connected（語意邊界未盤點）"
+   },
+   {
+    "need": "A-27 工作歷史的保留與清理：已結束 session 的保留筆數／天數、mailbox 上限、事件 ring buffer 大小，以及使用者能不能刪除單筆工作紀錄",
+    "whyItMatters": "「我上週交代的工作還查得到嗎／怎麼刪掉」是可追溯與隱私兩邊都會問的問題；目前有硬性 prune 但沒有任何 UI 說明或刪除入口。",
+    "whereToLook": "crates/interaction-runtime/src/agents.rs:1525-1545 prune_agent_sessions（CLOSED_AGENT_SESSION_RETENTION／_DAYS）、:938-941 CONTEXT_BUNDLE_RECEIPT_CAP；crates/interaction-storage/src/lib.rs:173-181；apps/interaction-desktop/src/pages/AiPage.tsx（無刪除入口）",
+    "likelyStatus": "implemented-partial"
+   },
+   {
+    "need": "A-28 背景守護（watchdog）與外部緊急停止檔：lease 惰性到期、approval TTL 自動拒絕、gateway_sweep 掃孤兒、state/emergency-stop.requested 檔輪詢",
+    "whyItMatters": "這是「長時工作必須有 TTL／lease／watchdog／cancel」不變量的實作面，也是使用者在 UI 之外（例如腳本、另一台機器 ssh 進來）唯一能觸發估停的方式；A 維度沒有列盤點它的週期、失敗行為與可觀測性。",
+    "whereToLook": "crates/interaction-cli/src/commands.rs:1572-1580 serve(spawn_watchdog: true)；crates/interaction-runtime/src/runtime.rs:2425-2440（emergency-stop.requested 檔輪詢）；gateway.rs:1034-1130 gateway_sweep（APPROVAL_TTL 自動 deny＋drop_kill）；agents.rs:652-690 expire_agent_session_lease",
+    "likelyStatus": "implemented-and-connected（無列、無使用者可見的健康指標）"
+   }
+  ],
+  "contradictions": [
+   "【證據誤判，可直接更正】A-05 與 A-07 都寫「scripts/tests/tauri-work-cancel.py 存在但 docs/releases/v0.8.0-* 找不到本版執行紀錄 → 本列不標 native-desktop」，懷疑者也照抄。實際上 v0.8.0 的原生證據就在 repo 內：docs/releases/evidence/2026-09-06-convergence/final/native-final-checkpoint/runs.json 記錄 work-clean（exit 0, 52.9 s）與 work-legacy 兩次 tauri-work-cancel.py 執行，產物在 work-clean/{codex-turn-cancelled-ax.txt, claude-long-work-closed-and-processes-exited-ax.txt, processes.txt, result.json}；docs/releases/evidence-index.json 的 0.8.0 條目把這批標成 tauriWindow: real-window。→ A-05／A-07 的 evidenceLevel 應補 native-desktop（fixture agent），與 A-08／A-08a 引用同一批證據的標準才一致。",
+   "【接線斷點】A-02 宣稱「前端在 http 模式從不 invoke rt() 指令——transport.ts HTTP_MAP 把同名指令改打 /v1/*」，讀起來像完整對映；但 api.ts 的 114 個指令中 agent_session_renew 既不在 transport.ts 的 ROUTES（transport.ts:165-308），也不在 src-tauri 的 generate_handler!。AiPage.tsx:634 的「續租 30 分鐘」因此在三種模式都會失敗（http：no HTTP route for command agent_session_renew；tauri：找不到指令），而 workPage.test.tsx:480/500 是 mock api.agentSessionRenew，e2e 完全沒有 renew 案例。",
+   "【文件宣稱 vs 程式】docs/capability-completion-matrix.md 的 UI-AI-001（Agent 連接、路由、Session 控制）在 Control Center 欄位標 C 並明列「create／approval／interrupt／續租／close」全部完成——與上一條的續租斷線直接衝突。該檔雖自標「v0.4 歷史文件」，仍是 repo 內未撤回的完成度宣稱。",
+   "【文件宣稱 vs 程式】docs/INSTALL.md:79-90 平台表把 Windows x64 CLI 標 ✅ 並把 install.sh 當四平台統一入口，但 scripts/get.sh:69-76 的 case 只認 Darwin/arm64、Darwin/x86_64、Linux/x86_64，其餘一律 exit 1；docs/QUICKSTART.md:36 對 Windows 只寫桌面 .exe。結論：Windows 上沒有任何被文件描述過的 CLI 安裝路徑（A-01 已指出，但應升級為文件缺陷而不只是限制）。",
+   "【已被懷疑者推翻但未回填】A-08a 的 evidence 仍寫「SQLite 無 schema 版本遷移框架跡象（CREATE TABLE IF NOT EXISTS）」，與 crates/interaction-storage/src/lib.rs:18（CURRENT_SCHEMA=8）與 :76-282（PRAGMA user_version 逐階段 migrate）矛盾；同列 limitation 的「WAL 檔與 config 目錄的搬遷／升級沒有工具」若照原文讀會被理解成 SQLite 也無版本管理。應改寫為「SQLite 有版本化 migration（目前 8 階段皆為新增表／索引，未驗證真正欄位遷移）；config YAML 無遷移工具」。",
+   "【列與列互相矛盾】A-05 說成果呈現＝mailbox 的 result 摘要與 artifact 路徑；A-08a 說重啟後狀態與事件都誠實保留。兩者合起來給人「重啟後還看得到成果」的印象，但 mailbox 是記憶體結構（agents.rs:239-243），restore 以空 mailbox 重建（agents.rs:1516-1521），只有 record（含 claim_id、handoff）持久化。實際結果：重啟後 claimed-completed 的工作顯示「對方說已完成」＋「Agent 尚未回報任何結果。」，而且仍可按下「標記為已驗證」（verify 只檢查 claim_id，agents.rs:1111-1173）——沒有任何內容可供人類檢查卻能升級誠實階梯。",
+   "【文件與程式的狀態承諾不一致】A-05a 正確指出沒有 connector 會產生 waiting-for-input，但同一缺口在別處還有兩個未標註的宣稱：docs/DESKTOP-GUIDE.md:181,289 把「等你回答」列為一般狀態；crates/interaction-cli/src/main.rs:428-433 的 `agents send --kind` help 寫「task/question/cancel/…」，而 gateway_deliver（gateway.rs:669-760）對任何 kind 都只是開一個新的 user turn（agent 忙碌時回 409），agents.rs:861 也只對 kind==\"task\" 附 contextBundle。等於「提問／回答」在 CLI help 與使用者指南裡存在、在執行路徑上不存在。",
+   "【重啟語意的覆蓋缺口】A-06 指出待核可請求不持久化（隨子程序消失），A-08a 描述重啟恢復卻沒有涵蓋這一面：重啟後 Activity Inbox／收件匣裡「等你允許」的待決定項會直接消失（session 被標 Expired），使用者不會看到任何「你當時沒回答的那個核可請求怎麼了」的說明。兩列合起來仍缺一句對外語意。needs-investigation：確認 inbox 在該情境的實際輸出。",
+   "【自我矛盾】A-01 的 limitation 寫「repo 內沒有安裝流程的自動化測試，只有 v0.8.0-publication.md 的一次人工 smoke」，但同列 existingTests 已列出 scripts/tests/release-scripts.sh:262-321——它真的執行 scripts/get.sh（stub 掉 curl／gh）並斷言抓不到 .sha256 時 fail-closed 且不把二進位放進 bin-dir。應改為「沒有端到端安裝測試；有腳本層 fail-closed 測試」。",
+   "【誠實標準不一致】A-07a 對 estop 嚴格要求「未確認的動器一律列 unconfirmed，不得宣稱已停」，但同一份桌面程式在 lib.rs:2158-2170 把 autostart enable()/disable() 的 Result 用 `let _ =` 丟掉：偏好寫成「開機自動啟動＝開」並回報成功，OS 端失敗完全靜默。同一份不變量（dispatched≠confirmed）在兩處採用不同標準。"
+  ],
+  "reproCandidates": [
+   {
+    "what": "續租斷線（純靜態、秒級，先做這個）：確認 agent_session_renew 在桌面兩條 transport 都不存在，但 CLI/HTTP 有",
+    "command": "grep -n \"agent_session_renew\" apps/interaction-desktop/src/transport.ts apps/interaction-desktop/src-tauri/src/lib.rs; grep -rn \"agent_session_renew\\|renew_agent_session\" crates/interaction-api/src/routes.rs crates/interaction-runtime/src/agents.rs crates/interaction-cli/src/commands.rs apps/interaction-desktop/src/api.ts apps/interaction-desktop/src/pages/AiPage.tsx",
+    "expected": "前一條 grep 零命中（桌面既無 HTTP route 也無 Tauri command）；後一條命中 routes.rs:1527、agents.rs:826、commands.rs:1033、api.ts:373-374、AiPage.tsx:634 → 證明只有桌面 UI 斷線"
+   },
+   {
+    "what": "指令對映守衛（建議加成常設測試）：api.ts 指令名 vs transport ROUTES vs Tauri generate_handler! 三方差集",
+    "command": "cd /Users/user/Workspace/claude-lab/adaptive-interaction && perl -0777 -ne 'while(/invoke<[^(]*\\(\\s*\"([a-zA-Z_0-9]+)\"/gs){print \"$1\\n\"}' apps/interaction-desktop/src/api.ts | sort -u > /tmp/cmds.txt && grep -oE '^\\s{2}[a-z_0-9]+:' apps/interaction-desktop/src/transport.ts | tr -d ' :' | sort -u > /tmp/routes.txt && perl -0777 -ne 'if(/generate_handler!\\[(.*?)\\]/s){my $b=$1;$b=~s#//[^\\n]*##g; for my $t (split /,/,$b){$t=~s/\\s//g; print \"$t\\n\" if $t=~/^[a-z_0-9]+$/}}' apps/interaction-desktop/src-tauri/src/lib.rs | sort -u > /tmp/tauri.txt && echo 'no-http:' && comm -23 /tmp/cmds.txt /tmp/routes.txt && echo 'no-tauri:' && comm -23 /tmp/cmds.txt /tmp/tauri.txt",
+    "expected": "兩份差集目前都只有 agent_session_renew（114 指令 / 130 routes / 144 handlers）；修好後應為空，可直接變成 vitest 或 architecture-checks 的一條"
+   },
+   {
+    "what": "續租在後端確實可用（證明是 UI 斷線不是能力缺失）：真 daemon＋fixture agent 建 session 後 CLI 續租",
+    "command": "H=/tmp/p0-renew/home; mkdir -p $H/config /tmp/p0-renew/wd; printf 'apiHost: 127.0.0.1\\napiPort: 18991\\n' > $H/config/interaction.yaml; INTERACT_AI_HOME=$H INTERACT_AI_MOBILE_ADVERTISE=0 INTERACT_AI_CLAUDE_BIN=$PWD/crates/interaction-runtime/tests/fixtures/fake_claude.sh ./target/debug/interact-ai serve & sleep 2; T=$(cat $H/state/api-token); SID=$(curl -s -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -X POST 127.0.0.1:18991/v1/agent-sessions -d '{\"agentId\":\"claude-code\",\"workdir\":\"/tmp/p0-renew/wd\",\"ttlMinutes\":20,\"maxMessages\":40}' | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"sessionId\"])'); INTERACT_AI_HOME=$H ./target/debug/interact-ai agents renew $SID --extra-minutes 30",
+    "expected": "exit 0 且回傳 record 的 lease.expiresAt 往後 30 分鐘 → 續租能力存在，只有桌面入口缺線"
+   },
+   {
+    "what": "成果不跨重啟（A-18）：fixture agent 完成一輪後殺掉 daemon 再啟，比對 messages 與 record",
+    "command": "（承上，同一個 $H／port）curl -s -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -X POST 127.0.0.1:18991/v1/agent-sessions/$SID/messages -d '{\"kind\":\"task\",\"body\":{\"task\":\"hello\"}}'; sleep 3; curl -s -H \"Authorization: Bearer $T\" \"127.0.0.1:18991/v1/agent-sessions/$SID/messages?direction=from-session\"; pkill -f 'interact-ai serve'; sleep 1; INTERACT_AI_HOME=$H INTERACT_AI_MOBILE_ADVERTISE=0 ./target/debug/interact-ai serve & sleep 2; curl -s -H \"Authorization: Bearer $T\" \"127.0.0.1:18991/v1/agent-sessions/$SID/messages?direction=from-session\"; curl -s -H \"Authorization: Bearer $T\" 127.0.0.1:18991/v1/agent-sessions/$SID",
+    "expected": "重啟前 from-session 有 kind=result（含 summary）；重啟後同一查詢回空陣列，而 record 仍是 claimed-completed（或 expired）且 claim_id 仍在 → 成果文字不跨重啟；再對同一 session 打 /verify 觀察是否仍能成功（若成功即坐實「無內容可驗卻可驗證」）"
+   },
+   {
+    "what": "waiting-for-input 只有自報路徑（A-05a）：connector 端零命中＋自報可達",
+    "command": "cd /Users/user/Workspace/claude-lab/adaptive-interaction && grep -rn \"TaskWaitingForInput\" crates/interaction-agent-gateway/src/ crates/interaction-runtime/src/ ; # 再用 session capability token 自報：curl -H \"Authorization: Bearer <session token>\" -H 'content-type: application/json' -X POST 127.0.0.1:18991/v1/agent-sessions/$SID/report -d '{\"event\":\"waiting-for-input\",\"payload\":{}}'",
+    "expected": "grep 只命中 gateway crate 的 enum 定義（lib.rs:99）與 runtime 的 pump 分支（gateway.rs:413），claude.rs／codex.rs／codex_exec.rs 零命中；自報 report 會讓 record.state 變 waiting-for-input 且 SSE 出 agent.session.state=waiting-input → 證明只有輪詢型 agent 到得了「等你回答」"
+   },
+   {
+    "what": "模型不可指定（A-05b）：create payload 夾帶 model 觀察是否被忽略",
+    "command": "curl -s -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -X POST 127.0.0.1:18991/v1/agent-sessions -d '{\"agentId\":\"claude-code\",\"workdir\":\"/tmp/p0-renew/wd\",\"model\":\"claude-opus-4\"}' | python3 -m json.tool | grep -i model",
+    "expected": "回傳 2xx 但 record 內完全沒有 model 欄位（多餘鍵被 serde 忽略）；實際使用的模型只能事後從 provider 本機紀錄取得（見 scripts/tests/phase0/README.md 的 provider-local-log 說明）"
+   },
+   {
+    "what": "真 Agent 端到端基線（A-05／A-06／A-07 的 real-agent 缺口）：Claude Code 與 Codex 各一次隔離煙霧",
+    "command": "python3 scripts/tests/phase0/agent_smoke.py --agent claude-code --port 19010 --out /tmp/p0/claude-smoke ; python3 scripts/tests/phase0/agent_smoke.py --agent codex --port 19011 --out /tmp/p0/codex-smoke --approve approve",
+    "expected": "result.json 逐筆記下 state 序列（created→active→claimed-completed 或 waiting-for-consent→…）、mailbox 兩向、audit 與 ps 子程序狀態；Codex 唯讀 sandbox 停在 waiting-for-consent 而未 --approve 屬 correctly-blocked，不是失敗"
+   },
+   {
+    "what": "取消語意的真 Agent 差異（A-07：Claude interrupt 實際是 unknown）",
+    "command": "python3 scripts/tests/phase0/agent_smoke.py --agent claude-code --port 19012 --out /tmp/p0/claude-cancel --task \"請用繁體中文寫一篇約 1500 字的短文…\" --cancel-after 3 --cancel-when-active --cancel-mode interrupt --close-after-cancel 5",
+    "expected": "final.state 落在 unknown（非 cancelled），psAgents 顯示子程序已消失 → 坐實「UI 同一顆中斷鍵在 Claude 與 Codex 給出不同語意」"
+   },
+   {
+    "what": "重啟恢復（A-08a）：工作進行中 SIGKILL daemon 再啟",
+    "command": "python3 scripts/tests/phase0/restart_test.py --agent claude-code --port 19014 --out /tmp/p0/restart --signal KILL",
+    "expected": "重啟後 record.state=expired、detail 含 runtime restarted（或 orphan subprocess group reaped）、SSE taxonomy 出 unknown、ps 無殘留 claude 子程序；同時可觀察 messages 是否清空（與 A-18 repro 互相佐證）"
+   },
+   {
+    "what": "多 session 隔離與同時上限（A-14）",
+    "command": "python3 scripts/tests/phase0/multi_session.py --agents claude-code,codex --port 19013 --out /tmp/p0/multi --cancel-index 0 --approve",
+    "expected": "兩個 session 各自 workdir 的暗號不互相出現；取消其一不影響另一；超過 policy.delegation.max_sessions 時 create 被誠實拒絕"
+   },
+   {
+    "what": "estop latch 跨重啟不自動恢復（A-07a）",
+    "command": "INTERACT_AI_HOME=$H ./target/debug/interact-ai emergency-stop; pkill -f 'interact-ai serve'; sleep 1; INTERACT_AI_HOME=$H INTERACT_AI_MOBILE_ADVERTISE=0 ./target/debug/interact-ai serve & sleep 2; INTERACT_AI_HOME=$H ./target/debug/interact-ai status; curl -s -o /dev/null -w '%{http_code}\\n' -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -X POST 127.0.0.1:18991/v1/agent-sessions -d '{\"agentId\":\"claude-code\",\"workdir\":\"/tmp/p0-renew/wd\"}'",
+    "expected": "status 顯示 estop 仍生效；建立 session 回 4xx（PolicyBlocked）；只有人類 POST /v1/emergency-stop/clear 才解除（legacy agent token 打 clear 應得 403）"
+   },
+   {
+    "what": "SSE 串流與重啟游標（A-12）",
+    "command": "curl -N -H \"Authorization: Bearer $T\" -H 'Last-Event-ID: 0' 127.0.0.1:18991/v1/events & sleep 1; INTERACT_AI_HOME=$H ./target/debug/interact-ai pause --for 5m; INTERACT_AI_HOME=$H ./target/debug/interact-ai resume",
+    "expected": "事件即時到達且帶遞增 id；重啟 daemon 後 /v1/status.startedAt 改變，前端游標邏輯（transport.ts nextStreamCursor）應重置而非沿用舊 lastId"
+   },
+   {
+    "what": "記憶匯出／還原的實際範圍（A-08）：確認沒有 import 路由、export 只回 JSON",
+    "command": "curl -s -o /dev/null -w 'export=%{http_code}\\n' -H \"Authorization: Bearer $T\" 127.0.0.1:18991/v1/memory/export; curl -s -o /dev/null -w 'import=%{http_code}\\n' -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -X POST 127.0.0.1:18991/v1/memory/import -d '{}'",
+    "expected": "export=200 且 body 含 scope/included/notIncluded/limitReached；import=404（或 405）→ 坐實「還原」是前端逐筆 memoryCreate 重放"
+   },
+   {
+    "what": "安裝腳本的 fail-closed 與平台矩陣（A-01／A-25，離線可跑）",
+    "command": "bash scripts/tests/release-scripts.sh; bash scripts/tests/docs-claims.sh",
+    "expected": "release-scripts.sh 以 stub 過的 curl 實際跑 get.sh，抓不到 .sha256 時拒裝且 bin-dir 為空；docs-claims.sh 對帳 INSTALL.md 的誠實宣稱。注意兩者都不會抓到「Windows 無安裝路徑」——這條要另外手動比對 get.sh:69-76 與 INSTALL.md:86"
+   },
+   {
+    "what": "原生桌面走查重跑（A-04／A-05／A-07／A-08 的 native-desktop 證據；需先 build release bundle）",
+    "command": "python3 scripts/tests/tauri-work-cancel.py --app apps/interaction-desktop/src-tauri/target/release/bundle/macos/interaction-control-center.app --out /tmp/p0/native-work; python3 scripts/tests/tauri-settings-walkthrough.py --app apps/interaction-desktop/src-tauri/target/release/bundle/macos/interaction-control-center.app --out /tmp/p0/native-settings; bash scripts/tauri-ax-walkthrough.sh",
+    "expected": "與 docs/releases/evidence/2026-09-06-convergence/final/native-final-checkpoint/runs.json 的 exit 0／秒數可比對；順帶可在真視窗上點「續租 30 分鐘」重現 A-15 的錯誤字串（work 走查目前沒有覆蓋 renew，建議加一步）"
+   },
+   {
+    "what": "CLI 在沒有 daemon 時的行為與單一 Runtime 保證（A-02）",
+    "command": "H2=/tmp/p0-nodaemon; INTERACT_AI_HOME=$H2 ./target/debug/interact-ai status; echo \"exit=$?\"; INTERACT_AI_HOME=$H INTERACT_AI_MOBILE_ADVERTISE=0 ./target/debug/interact-ai serve; echo \"second-serve-exit=$?\"",
+    "expected": "無 daemon 時 exit=3（EXIT_CONNECTION，client.rs:26）且訊息指向 `interact-ai serve`；第二個 serve 在同一 home 應因 state/runtime.lock 失敗（不得出現兩個 Runtime）"
+   },
+   {
+    "what": "開機自啟的靜默失敗（A-11）",
+    "command": "grep -n \"let _ = if updated.launch_at_login\" -A 4 apps/interaction-desktop/src-tauri/src/lib.rs; ls -l ~/Library/LaunchAgents | grep -i interaction || echo 'no LaunchAgent entry'",
+    "expected": "程式碼確認 Result 被丟棄；原生驗證時把偏好切成開，若 LaunchAgents 沒有對應 plist 卻在 UI 顯示已開啟，即為 dispatched≠confirmed 違規"
+   }
+  ]
+ }
+}

@@ -1,0 +1,71 @@
+diff --git a/crates/interaction-runtime/examples/fake_iphone.rs b/crates/interaction-runtime/examples/fake_iphone.rs
+index 1e712de..74e2498 100644
+--- a/crates/interaction-runtime/examples/fake_iphone.rs
++++ b/crates/interaction-runtime/examples/fake_iphone.rs
+@@ -16,6 +16,8 @@
+ //! stdin 讀 JSON 指令，一行一則：
+ //! `{"op":"status","micLevel":true,"permissions":{"microphone":"denied"}}`／
+ //! `{"op":"disconnect"}`／`{"op":"reconnect"}`／`{"op":"ack-stop-all"}`／`{"op":"quit"}`。
++//! `reconnect` 連不上（例如核心離線）時印 `{"event":"reconnect-failed","error":…}`
++//! 並保持程序存活等下一個指令；token 被撤銷則是 `{"event":"auth-fail","reason":…}`。
+ //!
+ //! AIP Character Session（`docs/aip/README.md` §9.1）的 op：
+ //! `{"op":"aip-capability"}`（協商：intents／inputs／role remote-renderer）、
+@@ -156,7 +158,9 @@ fn parse_args() -> Args {
+     }
+ }
+ 
+-async fn connect(port: u16, fingerprint: &str) -> Ws {
++/// 連線到 daemon。**不會**自己結束程序：連不上是呼叫端要處理的狀態
++/// （初次配對＝致命，重連失敗＝可回報並繼續等下一個 stdin 指令）。
++async fn connect(port: u16, fingerprint: &str) -> Result<Ws, String> {
+     let _ = rustls::crypto::ring::default_provider().install_default();
+     let config = rustls::ClientConfig::builder()
+         .dangerous()
+@@ -173,8 +177,8 @@ async fn connect(port: u16, fingerprint: &str) -> Ws {
+     )
+     .await
+     {
+-        Ok((ws, _)) => ws,
+-        Err(e) => die(&format!("連不上 wss://127.0.0.1:{port}/：{e}")),
++        Ok((ws, _)) => Ok(ws),
++        Err(e) => Err(format!("連不上 wss://127.0.0.1:{port}/：{e}")),
+     }
+ }
+ 
+@@ -248,9 +252,13 @@ struct Phone {
+ }
+ 
+ impl Phone {
+-    /// 完成一次配對（第一次連線）。
++    /// 完成一次配對（第一次連線）。連不上＝啟動前提就不成立（下游還在等
++    /// `{"deviceId":…}` 那一行），照原本語意直接結束程序。
+     async fn pair(args: Args) -> (Self, WsWrite, WsRead) {
+-        let mut ws = connect(args.port, &args.fingerprint).await;
++        let mut ws = match connect(args.port, &args.fingerprint).await {
++            Ok(ws) => ws,
++            Err(e) => die(&e),
++        };
+         let request = json!({
+             "type": "pair-request",
+             "deviceName": args.name,
+@@ -293,9 +301,17 @@ impl Phone {
+         (phone, write, read)
+     }
+ 
+-    /// 重新連線（用配對時拿到的 token）。被撤銷時會收到 `auth-fail`。
++    /// 重新連線（用配對時拿到的 token）。被撤銷時會收到 `auth-fail`；
++    /// 核心離線（連不上）時印 `reconnect-failed` 並讓程序**繼續活著**，
++    /// 這樣「核心離線→重啟→同一個 process 用同 token 重連」才測得到。
+     async fn reconnect(&self) -> Option<(WsWrite, WsRead)> {
+-        let mut ws = connect(self.args.port, &self.args.fingerprint).await;
++        let mut ws = match connect(self.args.port, &self.args.fingerprint).await {
++            Ok(ws) => ws,
++            Err(error) => {
++                emit(json!({"event":"reconnect-failed","error": error}));
++                return None;
++            }
++        };
+         let auth = json!({"type":"auth","deviceId": self.device_id, "token": self.token});
+         if let Err(e) = ws.send(Message::Text(auth.to_string())).await {
+             emit(json!({"event":"reconnect-failed","error": e.to_string()}));

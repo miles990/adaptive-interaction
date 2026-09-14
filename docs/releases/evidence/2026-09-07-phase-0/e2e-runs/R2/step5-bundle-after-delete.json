@@ -1,0 +1,2 @@
+{"agentId":"claude-code","domains":[],"excluded":{"needsReview":[],"notVisibleToAgent":1,"outsideGrantedDomains":0,"overCapacity":0,"sensitive":0,"unreviewedCandidates":0},"generatedAt":"2026-09-07T09:06:10.895311Z","includes":[],"limits":{"maxBytes":49152,"maxItems":24,"scanLimit":1000,"scanLimitReached":false},"note":"確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。","task":"使用者最喜歡的顏色是什麼？","truncated":false}
+HTTP_STATUS:200

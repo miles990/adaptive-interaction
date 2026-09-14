@@ -1,0 +1,490 @@
+[
+  {
+    "event": "paired",
+    "deviceId": "iphone-d56dbf97"
+  },
+  {
+    "event": "status",
+    "micLevel": false
+  },
+  {
+    "event": "connected"
+  },
+  {
+    "event": "aip-sent",
+    "messageId": "fx-cap-1",
+    "messageType": "capability"
+  },
+  {
+    "envelope": {
+      "messageId": "aip-1-1788773835325-10",
+      "messageType": "capability",
+      "name": "character.session.capability",
+      "occurredAt": "2026-09-07T09:37:15.325884Z",
+      "payload": {
+        "inputs": [
+          "character.interaction.touch"
+        ],
+        "intents": {
+          "celebrate": "exact",
+          "idle": "exact",
+          "react-happily-to-touch": "exact",
+          "settle": "unsupported"
+        },
+        "limits": {
+          "maxMessageBytes": 65536
+        },
+        "newerMinor": false,
+        "role": "remote-renderer",
+        "specVersion": "aip/1.0",
+        "syncClass": "semantic",
+        "unsupportedInputs": []
+      },
+      "sessionId": "session.home",
+      "source": {
+        "id": "runtime",
+        "kind": "runtime"
+      },
+      "specVersion": "aip/1.0",
+      "target": {
+        "id": "iphone-d56dbf97",
+        "kind": "device"
+      }
+    },
+    "event": "aip"
+  },
+  {
+    "envelope": {
+      "messageId": "aip-1-1788773835325-11",
+      "messageType": "state",
+      "name": "character.session.snapshot",
+      "occurredAt": "2026-09-07T09:37:15.325884Z",
+      "payload": {
+        "hash": "284793bbce3982b0681fe3ca93ee84f43ee7d63dd81f3e16003590bd516b61d4",
+        "kind": "snapshot",
+        "revision": 4,
+        "sequence": 9,
+        "sessionEpoch": 1,
+        "state": {
+          "activity": "idle",
+          "attention": {
+            "kind": "none"
+          },
+          "characterId": "character",
+          "members": [
+            {
+              "lastSeenAt": "2026-09-07T09:36:58.632050Z",
+              "party": {
+                "id": "desktop",
+                "kind": "human-surface"
+              },
+              "presence": "offline",
+              "role": "host-renderer",
+              "unsupportedIntents": []
+            },
+            {
+              "lastSeenAt": "2026-09-07T09:37:15.325884Z",
+              "party": {
+                "id": "iphone-d56dbf97",
+                "kind": "device"
+              },
+              "presence": "online",
+              "role": "remote-renderer",
+              "unsupportedIntents": [
+                "settle"
+              ]
+            }
+          ],
+          "mood": {
+            "intensity": 0.0,
+            "kind": "neutral"
+          },
+          "reducedMotion": false,
+          "truth": {
+            "state": "none"
+          }
+        }
+      },
+      "sequence": 9,
+      "sessionId": "session.home",
+      "source": {
+        "id": "runtime",
+        "kind": "runtime"
+      },
+      "specVersion": "aip/1.0",
+      "target": {
+        "id": "iphone-d56dbf97",
+        "kind": "device"
+      }
+    },
+    "event": "aip"
+  },
+  {
+    "event": "aip-sent",
+    "messageId": "native-fixture-touch",
+    "messageType": "event"
+  },
+  {
+    "envelope": {
+      "baseRevision": 4,
+      "messageId": "aip-1-1788773842837-15",
+      "messageType": "state",
+      "name": "character.session.patch",
+      "occurredAt": "2026-09-07T09:37:22.837656Z",
+      "payload": {
+        "hash": "09e7143ec227af0f6bb787f8ffe340b3b18e437baa237d7550d5e9fe9cb86a15",
+        "kind": "patch",
+        "patch": {
+          "activity": "reacting",
+          "attention": {
+            "id": "device:iphone-d56dbf97",
+            "kind": "member"
+          },
+          "lastInteraction": {
+            "at": "2026-09-07T09:37:22.837656Z",
+            "kind": "tap",
+            "name": "character.interaction.touch",
+            "source": "device:iphone-d56dbf97"
+          },
+          "mood": {
+            "intensity": 0.5,
+            "kind": "happy"
+          }
+        },
+        "revision": 5,
+        "sessionEpoch": 1
+      },
+      "sequence": 13,
+      "sessionId": "session.home",
+      "source": {
+        "id": "runtime",
+        "kind": "runtime"
+      },
+      "specVersion": "aip/1.0"
+    },
+    "event": "aip"
+  },
+  {
+    "envelope": {
+      "correlationId": "native-fixture-touch",
+      "expiresAt": "2026-09-07T09:37:32.837656Z",
+      "messageId": "aip-1-1788773842837-16",
+      "messageType": "command",
+      "name": "character.behavior.request",
+      "occurredAt": "2026-09-07T09:37:22.837656Z",
+      "payload": {
+        "hints": {
+          "haptic": "light",
+          "touchKind": "tap"
+        },
+        "intensity": 0.5,
+        "intent": "react-happily-to-touch",
+        "interruptible": true,
+        "origin": "interaction"
+      },
+      "sequence": 14,
+      "sessionId": "session.home",
+      "source": {
+        "id": "runtime",
+        "kind": "runtime"
+      },
+      "specVersion": "aip/1.0",
+      "target": {
+        "id": "iphone-d56dbf97",
+        "kind": "device"
+      }
+    },
+    "event": "aip"
+  },
+  {
+    "envelope": {
+      "causationId": "native-fixture-touch",
+      "messageId": "aip-1-1788773842837-17",
+      "messageType": "result",
+      "name": "character.interaction.touch",
+      "occurredAt": "2026-09-07T09:37:22.837656Z",
+      "payload": {
+        "status": "applied"
+      },
+      "sessionId": "session.home",
+      "source": {
+        "id": "runtime",
+        "kind": "runtime"
+      },
+      "specVersion": "aip/1.0"
+    },
+    "event": "aip"
+  },
+  {
+    "envelope": {
+      "baseRevision": 5,
+      "messageId": "aip-1-1788773846631-19",
+      "messageType": "state",
+      "name": "character.session.patch",
+      "occurredAt": "2026-09-07T09:37:26.631913Z",
+      "payload": {
+        "hash": "8f4fccbdc1855b8c1d63648fbac9aed90e4041e348c9c3d3938f0669d4de0a93",
+        "kind": "patch",
+        "patch": {
+          "activity": "idle"
+        },
+        "revision": 6,
+        "sessionEpoch": 1
+      },
+      "sequence": 16,
+      "sessionId": "session.home",
+      "source": {
+        "id": "runtime",
+        "kind": "runtime"
+      },
+      "specVersion": "aip/1.0"
+    },
+    "event": "aip"
+  },
+  {
+    "event": "disconnected",
+    "reason": "requested"
+  },
+  {
+    "event": "status",
+    "micLevel": false
+  },
+  {
+    "event": "connected"
+  },
+  {
+    "envelope": {
+      "baseRevision": 7,
+      "messageId": "aip-1-1788773887554-22",
+      "messageType": "state",
+      "name": "character.session.patch",
+      "occurredAt": "2026-09-07T09:38:07.554863Z",
+      "payload": {
+        "hash": "f807dfc132bcb5dbf6479e6e8305f6bdf8d3ff076fbd01557e36df58aa73e499",
+        "kind": "patch",
+        "patch": {
+          "members": [
+            {
+              "lastSeenAt": "2026-09-07T09:36:58.632050Z",
+              "party": {
+                "id": "desktop",
+                "kind": "human-surface"
+              },
+              "presence": "offline",
+              "role": "host-renderer",
+              "unsupportedIntents": []
+            },
+            {
+              "lastSeenAt": "2026-09-07T09:38:07.554863Z",
+              "party": {
+                "id": "iphone-d56dbf97",
+                "kind": "device"
+              },
+              "presence": "online",
+              "role": "remote-renderer",
+              "unsupportedIntents": [
+                "settle"
+              ]
+            }
+          ]
+        },
+        "revision": 8,
+        "sessionEpoch": 1
+      },
+      "sequence": 19,
+      "sessionId": "session.home",
+      "source": {
+        "id": "runtime",
+        "kind": "runtime"
+      },
+      "specVersion": "aip/1.0"
+    },
+    "event": "aip"
+  },
+  {
+    "event": "aip-sent",
+    "messageId": "fx-cap-3",
+    "messageType": "capability"
+  },
+  {
+    "envelope": {
+      "messageId": "aip-1-1788773887707-24",
+      "messageType": "capability",
+      "name": "character.session.capability",
+      "occurredAt": "2026-09-07T09:38:07.707237Z",
+      "payload": {
+        "inputs": [
+          "character.interaction.touch"
+        ],
+        "intents": {
+          "celebrate": "exact",
+          "idle": "exact",
+          "react-happily-to-touch": "exact",
+          "settle": "unsupported"
+        },
+        "limits": {
+          "maxMessageBytes": 65536
+        },
+        "newerMinor": false,
+        "role": "remote-renderer",
+        "specVersion": "aip/1.0",
+        "syncClass": "semantic",
+        "unsupportedInputs": []
+      },
+      "sessionId": "session.home",
+      "source": {
+        "id": "runtime",
+        "kind": "runtime"
+      },
+      "specVersion": "aip/1.0",
+      "target": {
+        "id": "iphone-d56dbf97",
+        "kind": "device"
+      }
+    },
+    "event": "aip"
+  },
+  {
+    "envelope": {
+      "messageId": "aip-1-1788773887707-25",
+      "messageType": "state",
+      "name": "character.session.snapshot",
+      "occurredAt": "2026-09-07T09:38:07.707237Z",
+      "payload": {
+        "hash": "f807dfc132bcb5dbf6479e6e8305f6bdf8d3ff076fbd01557e36df58aa73e499",
+        "kind": "snapshot",
+        "revision": 8,
+        "sequence": 21,
+        "sessionEpoch": 1,
+        "state": {
+          "activity": "idle",
+          "attention": {
+            "id": "device:iphone-d56dbf97",
+            "kind": "member"
+          },
+          "characterId": "character",
+          "lastInteraction": {
+            "at": "2026-09-07T09:37:22.837656Z",
+            "kind": "tap",
+            "name": "character.interaction.touch",
+            "source": "device:iphone-d56dbf97"
+          },
+          "members": [
+            {
+              "lastSeenAt": "2026-09-07T09:36:58.632050Z",
+              "party": {
+                "id": "desktop",
+                "kind": "human-surface"
+              },
+              "presence": "offline",
+              "role": "host-renderer",
+              "unsupportedIntents": []
+            },
+            {
+              "lastSeenAt": "2026-09-07T09:38:07.554863Z",
+              "party": {
+                "id": "iphone-d56dbf97",
+                "kind": "device"
+              },
+              "presence": "online",
+              "role": "remote-renderer",
+              "unsupportedIntents": [
+                "settle"
+              ]
+            }
+          ],
+          "mood": {
+            "intensity": 0.5,
+            "kind": "happy"
+          },
+          "reducedMotion": false,
+          "truth": {
+            "state": "none"
+          }
+        }
+      },
+      "sequence": 21,
+      "sessionId": "session.home",
+      "source": {
+        "id": "runtime",
+        "kind": "runtime"
+      },
+      "specVersion": "aip/1.0",
+      "target": {
+        "id": "iphone-d56dbf97",
+        "kind": "device"
+      }
+    },
+    "event": "aip"
+  },
+  {
+    "envelope": {
+      "causationId": "fx-cap-3",
+      "messageId": "aip-1-1788773887707-26",
+      "messageType": "result",
+      "name": "character.session.capability",
+      "occurredAt": "2026-09-07T09:38:07.707237Z",
+      "payload": {
+        "status": "applied"
+      },
+      "sessionId": "session.home",
+      "source": {
+        "id": "runtime",
+        "kind": "runtime"
+      },
+      "specVersion": "aip/1.0"
+    },
+    "event": "aip"
+  },
+  {
+    "envelope": {
+      "baseRevision": 8,
+      "messageId": "aip-1-1788773909631-27",
+      "messageType": "state",
+      "name": "character.session.patch",
+      "occurredAt": "2026-09-07T09:38:29.631703Z",
+      "payload": {
+        "hash": "7bfb14586e68fc819b5bbb601197db448cd18bda28421632b2600c181eddfaa5",
+        "kind": "patch",
+        "patch": {
+          "members": [
+            {
+              "lastSeenAt": "2026-09-07T09:38:07.554863Z",
+              "party": {
+                "id": "iphone-d56dbf97",
+                "kind": "device"
+              },
+              "presence": "online",
+              "role": "remote-renderer",
+              "unsupportedIntents": [
+                "settle"
+              ]
+            }
+          ]
+        },
+        "revision": 9,
+        "sessionEpoch": 1
+      },
+      "sequence": 22,
+      "sessionId": "session.home",
+      "source": {
+        "id": "runtime",
+        "kind": "runtime"
+      },
+      "specVersion": "aip/1.0"
+    },
+    "event": "aip"
+  },
+  {
+    "event": "auth-fail",
+    "reason": "revoked"
+  },
+  {
+    "event": "disconnected",
+    "reason": "IO error: peer closed connection without sending TLS close_notify: https://docs.rs/rustls/latest/rustls/manual/_03_howto/index.html#unexpected-eof"
+  },
+  {
+    "event": "auth-fail",
+    "reason": "unknown device or bad token (possibly revoked)"
+  }
+]

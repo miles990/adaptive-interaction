@@ -1,0 +1,764 @@
+{
+ "key": "H",
+ "found": {
+  "dimension": "H",
+  "markdown": "# 階段 0 · 維度 H：架構依賴與資料流\n\nRepo `/Users/user/Workspace/claude-lab/adaptive-interaction`，branch `phase-0/state-recovery-baseline`，HEAD `78dcda1`。\n本檔只做靜態盤點（Read/Grep/Bash 讀檔），**未執行任何 cargo／pnpm／測試**；所有證據層級一律標\n`static-inspection`，除非該事實在 repo 內有已存在的測試檔可指名（那時標該測試的層級，但**不代表本輪跑過**）。\n文件宣稱一律以程式碼覆核；文件說有、程式沒接線的都在 §7 逐條列出。\n\n---\n\n## 1. 模組依賴圖（crate 層級，依各 Cargo.toml `[dependencies]` 實際邊）\n\n來源：`Cargo.toml`（workspace）、`crates/*/Cargo.toml`、`adapters/*/Cargo.toml`、\n`apps/interaction-desktop/src-tauri/Cargo.toml`、`tests/e2e/Cargo.toml`。只畫 workspace 內部邊，\n`dev-dependencies` 不畫（測試工具不進成品，與 `dependency_boundaries.rs` 的判準一致）。\n\n```mermaid\ngraph TD\n  subgraph pure[\"純領域（無 I/O、無 transport）\"]\n    AIP[\"interaction-aip<br/>AIP 1.0 envelope／limits／schema<br/><b>PURE_CRATES</b>\"]\n    CHAR[\"interaction-character<br/>CPP 1.0 manifest／協商／gateway 狀態機<br/><b>純（僅遞移受釘）</b>\"]\n    SESS[\"interaction-session<br/>SemanticState／decide_receive／snapshot／ports<br/><b>PURE_CRATES</b>\"]\n    SHU[\"interaction-character-shu<br/>小樞 rig／migrator\"]\n  end\n\n  subgraph core[\"領域核心（dependency-light，但未被邊界測試釘住）\"]\n    CORE[\"interaction-core<br/>observation／action／policy 預設／event 型別\"]\n  end\n\n  subgraph support[\"支援層\"]\n    EV[\"interaction-events<br/>有界 bus＋replay\"]\n    REG[\"interaction-registry\"]\n    POL[\"interaction-policy<br/>Governor\"]\n    REC[\"interaction-recipe\"]\n    STO[\"interaction-storage<br/>SQLite\"]\n    TS[\"interaction-tool-schema\"]\n    SDK[\"interaction-adapter-sdk\"]\n  end\n\n  subgraph adapters[\"Adapter／Transport\"]\n    BUILT[\"adapters-builtin\"]\n    MEDIA[\"adapters-media<br/>(cpal, feature-gated)\"]\n    DECL[\"interaction-adapter-declarative<br/>serial／mqtt／ble／http＋protocol.rs v1.x<br/>＋state_applied（aip.applied/1）\"]\n    GW[\"interaction-agent-gateway<br/>claude / codex / codex_exec<br/><b>零 workspace 內部依賴</b>\"]\n  end\n\n  subgraph app[\"應用服務與對外介面\"]\n    RT[\"interaction-runtime<br/>orchestrator／executor／agents／gateway／character／<br/>character_session／mobile／sensors／memory／knowledge\"]\n    API[\"interaction-api<br/>axum ＋ SSE ＋ character_ws\"]\n    CLI[\"interaction-cli<br/>interact-ai\"]\n    TAURI[\"interaction-desktop (src-tauri)<br/><i>workspace exclude</i>\"]\n    E2E[\"interaction-e2e (tests/e2e)\"]\n  end\n\n  SESS --> AIP\n  SESS --> CHAR\n  SHU --> CHAR\n\n  EV --> CORE\n  REG --> CORE\n  REG --> EV\n  POL --> CORE\n  REC --> CORE\n  STO --> CORE\n  TS --> CORE\n  SDK --> CORE\n  BUILT --> CORE\n  BUILT --> SDK\n  MEDIA --> CORE\n  MEDIA --> SDK\n  DECL --> CORE\n  DECL --> SDK\n\n  RT --> CORE\n  RT --> REG\n  RT --> POL\n  RT --> REC\n  RT --> EV\n  RT --> STO\n  RT --> SDK\n  RT --> BUILT\n  RT --> MEDIA\n  RT --> DECL\n  RT --> GW\n  RT --> AIP\n  RT --> SESS\n  RT --> CHAR\n  RT --> SHU\n  RT --> TS\n\n  API --> RT\n  API --> CORE\n  API --> REC\n  API --> REG\n  API --> POL\n  API --> TS\n  API --> CHAR\n\n  CLI --> RT\n  CLI --> API\n  CLI --> CORE\n  CLI --> REC\n  CLI --> TS\n\n  TAURI --> RT\n  TAURI --> API\n  TAURI --> CORE\n  TAURI --> REC\n  TAURI --> REG\n  TAURI --> POL\n  TAURI --> TS\n  TAURI --> CHAR\n\n  E2E --> TS\n  E2E --> REC\n  E2E --> CHAR\n  E2E --> SESS\n  E2E --> AIP\n```\n\n桌面／iOS 主要模組（不是 crate，但同屬依賴圖）：\n\n```mermaid\ngraph TD\n  subgraph desktop[\"apps/interaction-desktop/src（TypeScript）\"]\n    MAIN[\"main.tsx<br/>?window=control|companion|overlay\"]\n    APP[\"App.tsx（控制中心）\"]\n    COMP[\"companion/CompanionApp.tsx（角色視窗）\"]\n    TRANS[\"transport.ts<br/>call() → Tauri invoke ｜ HTTP ROUTES\"]\n    APIC[\"api.ts（型別化 API 表面）\"]\n    CGW[\"character/gateway.ts<br/>in-process CPP Gateway（1590 行）\"]\n    CPROTO[\"character/protocol.ts（CPP 常數手寫鏡射）\"]\n    CMAN[\"character/manifest.ts（CPP manifest 驗證鏡射）\"]\n    CADP[\"character/adapters/{shu,sprite,text,shape}\"]\n    SESSC[\"aip/sessionClient.ts＋receive 決策表\"]\n    GEN[\"aip/generated.ts ＋ aip/semanticStateGenerated.ts<br/><i>codegen 產物</i>\"]\n    PROJ[\"statusProjection/*（workState／inbox／characterSync／unresolvedStops）\"]\n    WIRE[\"companion/gatewayWiring.ts\"]\n  end\n  subgraph ios[\"apps/interaction-ios（Swift）\"]\n    SOCK[\"Services/SocketTransport.swift（wss）\"]\n    CONN[\"Services/ConnectionManager.swift（frame 派送）\"]\n    SC[\"Services/SessionClient.swift（AIP 成員）\"]\n    SREC[\"Services/SessionReceive.swift（決策表）\"]\n    MDL[\"Models/AIPEnvelope.swift ＋ CharacterSemantic.swift\"]\n    SGEN[\"Models/AIPGenerated.swift ＋ SemanticStateGenerated.swift<br/><i>codegen 產物</i>\"]\n  end\n  MAIN --> APP\n  MAIN --> COMP\n  APP --> APIC\n  COMP --> APIC\n  APIC --> TRANS\n  COMP --> WIRE\n  WIRE --> CGW\n  CGW --> CPROTO\n  CGW --> CADP\n  CMAN --> CPROTO\n  APP --> PROJ\n  COMP --> SESSC\n  SESSC --> GEN\n  SC --> MDL\n  SC --> SGEN\n  CONN --> SOCK\n  CONN --> SC\n  SC --> SREC\n```\n\n要點：\n\n- `interaction-agent-gateway` **一個 workspace 內部依賴都沒有**（`crates/interaction-agent-gateway/Cargo.toml:8-16`）\n  ——連 `interaction-core` 都不依賴。真 Agent 子程序的正規化完全靠自有型別（`GatewayEvent`／`SessionSpec`），\n  轉成領域語彙發生在 `crates/interaction-runtime/src/gateway.rs`。這條邊界是全 repo 最乾淨的一段。\n- `interaction-desktop`（Tauri）在 workspace `exclude` 內（`Cargo.toml:27`），所以\n  `cargo test --workspace` **不會**編它；CI 用獨立 job 補（`.github/workflows/ci.yml:60-62`\n  `cargo clippy --manifest-path … -- -D warnings` ＋ `cargo test --manifest-path …`）。\n- `interaction-runtime` 是唯一的匯流點：16 條 workspace 內部邊。這是應用服務層的正常形狀，\n  不構成拆分理由。\n\n---\n\n## 2. 資料流：人類 → 核心 → Agent → 成果（含 file:line 與狀態值）\n\n**依賴方向與資料流刻意分開畫**：上面的圖是「誰可以 use 誰」，下面是「一筆工作實際怎麼走」。\n\n```mermaid\nsequenceDiagram\n    autonumber\n    actor H as 人類\n    participant UI as 桌面 React<br/>pages/AiPage.tsx · pages/work/TaskComposer.tsx\n    participant T as transport.ts:332 call()\n    participant API as interaction-api<br/>lib.rs:217 / routes.rs:1389\n    participant AG as runtime/agents.rs\n    participant GWR as runtime/gateway.rs\n    participant CON as agent-gateway<br/>claude.rs / codex.rs\n    participant P as 子程序<br/>claude -p ｜ codex app-server\n    participant BUS as interaction-events<br/>lib.rs:40 publish\n    participant OUT as SSE sse.rs ｜ Tauri lib.rs:3414-3422\n    participant PJ as statusProjection/workState.ts:110\n\n    H->>UI: 建立工作（工作資料夾／範圍／預算）\n    UI->>T: call(\"agent_session_create\", …)\n    alt Tauri 內嵌\n        T->>API: invoke（同程序 application service）\n    else 外部 daemon\n        T->>API: POST /v1/agent-sessions（Bearer human token）\n    end\n    API->>AG: create_agent_session(CreateAgentSession)<br/>agents.rs:247 / :387\n    Note over AG: state = created；lease／consent／budget 落地<br/>（allow_write 只由人類 payload 決定）\n    AG->>GWR: attach（gateway agent 才走）\n    GWR->>GWR: SessionSpec::{read_only_in|write_enabled_in}<br/>gateway.rs:330-332；spec.model 永遠 None\n    GWR->>CON: connector.start_session(spec)<br/>gateway.rs:343\n    CON->>P: Command::new + spawn_grouped<br/>claude.rs:160-170 / codex.rs:166-174\n    P-->>CON: SessionStarted{provider_session_id}\n    CON-->>GWR: GatewayEvent（pump：gateway.rs:375 spawn_gateway_pump）\n\n    H->>UI: 交代任務\n    UI->>API: POST /v1/agent-sessions/{id}/messages\n    API->>AG: mailbox_send(ToSession,\"task\")<br/>agents.rs:852\n    Note over AG: ContextBundle 在此**重算**（agents.rs:863-887）<br/>呼叫端帶來的 contextBundle 一律覆蓋；<br/>收據 hash 存進 record.context_bundles\n    AG->>GWR: gateway_deliver(id,&message)<br/>agents.rs:955 → gateway.rs:669\n    GWR->>P: stdin write+flush（claude.rs:324-339）\n    Note over AG: 只有真的寫進 stdin 才蓋 delivered_at；<br/>否則回沒有戳記的訊息＝「已放進信箱，未送達」\n\n    P-->>CON: stream-json / JSON-RPC\n    CON-->>GWR: GatewayEvent::TaskAccepted / TaskProgress /<br/>TaskWaitingForConsent / TaskClaimedCompleted / …\n    GWR->>AG: report_agent_session(id,event,payload)<br/>gateway.rs:389+ → agents.rs:1174\n    AG->>AG: taxonomy 對照 agents.rs:1247-1251<br/>\"task-started\"|\"progress\"→working；<br/>\"waiting-for-input\"→waiting-input；其餘原值\n    AG->>BUS: emit_agent_session_state（agents.rs:1254）\n    AG->>AG: ingest(\"agent.session\", facts, inferences, **0.5**)<br/>agents.rs:1258：事實=有回報；宣稱本身不是事實\n    BUS->>OUT: RuntimeEvent（EventType::AgentSessionState）\n    OUT->>PJ: projectWorkState(raw)\n    Note over PJ: claimed-completed → 「對方說已完成」<br/>badge=warn、needsDecision=true、<br/>honesty=\"對方的說法，尚未檢查\"（workState.ts:128-135）\n    PJ->>H: 一般模式人話（沒有綠勾）\n    H->>API: POST /v1/agent-sessions/{id}/verify（**human token 專屬**）\n    API->>AG: verify_agent_session（routes.rs:1435 → agents.rs:1111）\n    AG->>BUS: state = verified\n    BUS->>PJ: verified → 「已由你確認」badge=ok（workState.ts:137-143）\n```\n\n同一條事實另外投影到角色層（Character Presentation Protocol）：\n\n- `crates/interaction-runtime/src/character.rs:467 session_projection`：\n  `created|queued→(Wait, Queued)`、`fetched→(Think, Working)`、`working|active→(Work, Working)`、\n  `waiting-input→(Ask, WaitingInput)`、`waiting-consent→(RequestConsent, WaitingConsent)`、\n  **`claimed-completed→(ClaimCompleted, Claimed)`**、`verified→(VerifiedSuccess, Verified)`、\n  `failed→(Failed, Failed)`、`timed-out→(Failed, TimedOut)`、`unknown→(Unknown, Unknown)`、\n  `cancelled→(Cancelled, Cancelled)`、`closed→(Idle, None)`、`expired→(Unknown, Expired)`、\n  其餘 `None`（不猜）。\n- `character.rs:488 action_projection`：`ActionCompleted→(ClaimCompleted, Claimed)`、\n  `ActionObserved→(VerifiedSuccess, Verified)`——**動器回 completed 只到 claimed**，\n  要看到 observed（真的觀察到效果）才是 verified。這條映射是誠實階梯在 Rust 端的權威落點。\n\n已核對的誠實性質（全部 static-inspection）：\n\n| 檢查 | 結果 | 證據 |\n|---|---|---|\n| queued≠completed | 通過 | `workState.ts:110-118`（created/queued→「正在準備」pending） |\n| acknowledged≠completed | 通過 | `appstate.tsx:195`「裝置或程式已確認收到／無法確認實際效果」；`appstate.tsx:219`「已收到（效果未確認）」 |\n| completed≠verified | 通過 | `workState.ts:128-143`；`character.rs:490-491`；Swift `CharacterSemantic.swift:496`「宣稱完成（尚未驗證）」 |\n| 送達≠完成 | 通過 | `apps/interaction-desktop/src/work/delivery.ts:41`「送達不是完成，所以沒有任何一態用成功綠」 |\n| UI 自行推測成功 | **未發現** | 見 §6 |\n\n---\n\n## 3. 資料流：電腦 ↔ iPhone\n\n```mermaid\nsequenceDiagram\n    autonumber\n    participant RT as Runtime<br/>runtime/mobile.rs\n    participant WS as TLS wss listener<br/>mobile.rs:3784 frame dispatch\n    participant iOS as iOS SocketTransport.swift<br/>+ ConnectionManager.swift\n    participant SCL as iOS SessionClient.swift\n    participant CS as runtime/character_session.rs<br/>（權威 Session Host）\n\n    Note over RT,iOS: 一、配對（每機獨立 token）\n    iOS->>WS: {\"type\":\"pair-request\", deviceName, model}（Protocol.swift:302）\n    WS-->>iOS: {\"type\":\"pair-challenge\", nonce}（mobile.rs:3799）\n    iOS->>WS: {\"type\":\"pair-response\", hmac=HMAC-SHA256(code, nonce)}（Protocol.swift:304）\n    WS-->>iOS: {\"type\":\"paired\", deviceId, deviceToken}（mobile.rs:3913）<br/>或 pair-fail{reason}（:3794/:3805/:3817/:3838）\n\n    Note over RT,iOS: 二、認證\n    iOS->>WS: {\"type\":\"auth\", deviceId, token}\n    WS-->>iOS: {\"type\":\"auth-ok\"}（mobile.rs:3963）｜ auth-fail{revoked|unknown}（:3681/:3946）\n\n    Note over RT,iOS: 三、一般動作／感測（AIP 之外的舊路徑，v0.5 起）\n    RT->>iOS: {\"type\":\"act\", id, name, params}（mobile.rs:1513）\n    iOS-->>RT: {\"type\":\"ack\", id, applied{…}}（Protocol.swift:313）\n    Note over RT: receipt.note(\"deviceApplied\", applied)（mobile.rs:1953-1954）<br/>＝**對方的回報**，不是獨立驗證\n    iOS-->>RT: {\"type\":\"observation\", receptor, facts}\n    RT->>iOS: {\"type\":\"stop-all\", sensors, reason}（mobile.rs:1652/1716）\n    iOS-->>RT: {\"type\":\"ack\", stopAll:true, sensors}（ConnectionManager.swift:298）\n\n    Note over RT,iOS: 四、AIP Character Session（v0.6 起；未協商過 capability 的舊 App 永遠收不到）\n    iOS->>WS: {\"type\":\"aip\",\"envelope\":{messageType:\"capability\",…}}\n    WS->>CS: character_session_device_frame(deviceId,<br/>DeviceOrigin{transport:\"iphone\",<br/>identity_strength: IDENTITY_STRENGTH_PAIRED_TOKEN})<br/>mobile.rs:4011-4021 → character_session.rs:1566\n    CS-->>WS: outcome.replies（AIP envelope）\n    WS->>WS: mobile_aip_reply_frame：再 parse → validate() → encode()<br/>超過 MOBILE_WS_MAX_MESSAGE_BYTES(128KB) 就丟棄並稽核（mobile.rs:2035-2043）\n    WS-->>iOS: {\"type\":\"aip\",\"envelope\":…}（mobile.rs:1436）\n    iOS->>SCL: handleFrame(envelope, rawFrame, arrivedOnGeneration)<br/>SessionClient.swift:750\n    Note over SCL: 規則 0 世代不符先丟（:757）→ validate（:762）<br/>→ source.kind 必須是 runtime|session（:768）<br/>→ 點對點 target 比對（:774）→ decide_receive\n\n    Note over RT,iOS: 五、applied 回執（協商 profile aip.applied/1）\n    iOS->>WS: {\"type\":\"aip-applied\",\"receipt\":{profile,token,generation,<br/>sessionId,epoch,revision,hash,messageId}}（Protocol.swift:329-334）\n    WS->>WS: StateAppliedTracker::acknowledge(receipt, conn_id, monotonic_ms)<br/>mobile.rs:3984-4004\n    WS->>WS: audit \"aip.state-applied\" {accepted, **\"evidence\":\"peer-report\"**}<br/>mobile.rs:4008-4010\n```\n\n要點：\n\n- `state_applied` 這個 AIP profile（`aip.applied/1`）的權威實作住在\n  `crates/interaction-adapter-declarative/src/state_applied.rs`（模組頭已寫明「two production consumers\n  (DeviceLink and MobileBridge)」），由 `runtime/mobile.rs:29` 與\n  `runtime/character_session.rs:179`／`:1118`、`runtime/declarative_session.rs:158` 消費。\n  `docs/MAINTAINERS-MAP.md:62` 已把 owner 指到那裡，**不是隱藏耦合**；代價是「一個 AIP 層概念住在\n  serial／MQTT／BLE 裝置 crate 裡」，讀契約的人要跳一次。`interaction-runtime` 本來就依賴該 crate，\n  沒有新增依賴邊——不建議為此拆檔。\n- 回執一律標 `evidence: \"peer-report\"`（mobile.rs:4009），符合「acknowledged≠completed」。\n- iOS 端 frame 型別集中在 `apps/interaction-ios/InteractionCompanion/Models/Protocol.swift:302-503`\n  （`DeviceMsg` 出站 / `HostMsg` 入站兩個 enum），與 Rust 端字面字串手動對齊；**沒有**跨語言 frame fixture\n  （AIP envelope 有，wss 外殼沒有）。\n\n---\n\n## 4. 逐項核對\n\n### 4.1 核心是否依賴平台／特定角色／transport\n\n| 問題 | 答案 | 證據 |\n|---|---|---|\n| `interaction-aip`／`interaction-session` 依賴 transport？ | **否**，且由可執行測試釘住（宣告層＋遞移層＋反向控制組三個測試） | `tests/e2e/tests/dependency_boundaries.rs:19-31`（FORBIDDEN 9 個：tokio/axum/tauri/tungstenite/rumqttc/serialport/btleplug/reqwest/hyper）、`:75`、`:170`、`:190` |\n| `interaction-character` 有被釘住嗎？ | **遞移涵蓋**：`PURE_CRATES` 只有 aip/session（`:31`），但 `interaction-session → interaction-character`（`crates/interaction-session/Cargo.toml:10`），所以 character 長出 tokio 會讓 session 那條遞移測試失敗 | `dependency_boundaries.rs:145-183` `reachable_packages` 走 normal 邊 |\n| `interaction-core` 有被釘住嗎？ | **沒有。** core 不在 `PURE_CRATES`，也不是 aip/session 的（遞移）依賴（session 只依賴 aip＋character），所以邊界測試走不到它。目前實際乾淨（Cargo.toml 只有 serde/schemars/thiserror/uuid/chrono/async-trait/futures/tracing），`lib.rs:3` 也自述「no Tokio runtime, no HTTP」，但**這句話沒有可執行的守門** | `crates/interaction-core/Cargo.toml:8-17`、`crates/interaction-core/src/lib.rs:3-5`、`dependency_boundaries.rs:31` |\n| 核心綁特定角色？ | **否**（`rg -wi 'shu\\|maid'` 在 `crates/interaction-core/src` 零命中） | grep 結果 |\n| 核心綁特定呈現面？ | **是（一處）**：`PolicyConfig::default()` 的 allowlist 逐項列出 `companion.*` 7 個受器＋7 個動器，channel 含 `desktop-pet` | `crates/interaction-core/src/policy.rs:148-172`、`:182` |\n| 核心綁特定裝置（iPhone）？ | **否**：`iphone.*`／`provider.mobile.*` 在 `crates/interaction-runtime/src` 除 `mobile.rs` 外只出現在註解（`sensor_source.rs:248`／`:514`、`character_session.rs:167`）與測試（`character_session.rs:2755`），符合 `docs/aip/architecture-boundaries.md` §4.1 的驗收條件 | grep 結果 |\n\n關於 `companion.*` 進 core 的實際影響：`interaction-policy` 對不在 allowlist 的動器直接 blocked\n（`crates/interaction-policy/src/lib.rs:135-141`），而 repo 內**沒有**任何 production code 會在配對新\nprovider 時把它的動器加進 allowlist（`actuator_allowlist` 的寫入點只有 `interaction-policy/src/lib.rs:598`／`:711`，兩處都在測試裡）。\n所以 `iphone.*` 動器預設被 Governor 擋下、要使用者自己 PATCH `/v1/policy`。這一點**已經被記錄成既有行為**\n（`docs/acceptance-evidence.md:698-699` 明寫「policy allowlist 未含 `iphone.*` → `blocked(actuator.allowlist)`」），\n與「外部副作用動器預設關閉」的不變量一致 → 不是缺陷，是**設計上的預設關閉**。真正的架構味道是：\n「哪一家呈現面是內建的」這件事寫死在領域核心的預設值裡，新增第二個 host 呈現面家族需要改 `interaction-core`。\n\n### 4.2 各契約的版本責任與常數位置（每個只有一個產生點）\n\n| 契約 | 版本常數 | 位置 | 三端如何取得 |\n|---|---|---|---|\n| AIP | `SPEC_VERSION = \"aip/1.0\"` | `crates/interaction-aip/src/lib.rs:48` | Rust 直接用；schema `schemas/aip-1.0.schema.json`（`schema.rs:69` 寫入）；TS `AIP_SPEC_VERSION`（`aip-codegen.mjs:255` → `src/aip/generated.ts`）；Swift 同 codegen |\n| CPP | `PROTOCOL_VERSION = \"1.0\"`＋`PROTOCOL_MAJOR/MINOR` | `crates/interaction-character/src/lib.rs:46` | Rust 權威；golden `schemas/character-protocol.schema.json`（`character/schema.rs:80`）；TS **手寫鏡射** `src/character/protocol.ts:11-13` |\n| Semantic State | `SEMANTIC_STATE_PROFILE = \"semantic-state/1.0\"` | `crates/interaction-session/src/semantic_contract.rs:8` | schema `schemas/semantic-state-1.0.schema.json`；TS/Swift 由 `scripts/semantic-state-codegen.mjs` 產生 |\n| Session snapshot | `SNAPSHOT_FORMAT: u32 = 1` | `crates/interaction-session/src/types.rs:197` | 只有 Rust 讀寫（`JsonSessionStore`），format>1 → parked 不覆寫（`ports.rs:24-31`） |\n| 裝置線協定 | `PROTO_VERSION: u32 = 1`（v1.0→v1.1 `aip`→v1.2 `aip-frag` 都是追加訊息，`proto` 不 bump） | `crates/interaction-adapter-declarative/src/protocol.rs:34` | 韌體 `firmware/esp32-companion`；ledger §3.1／§3.2 |\n| applied 回執 | `APPLIED_PROFILE = \"aip.applied/1\"` | `crates/interaction-adapter-declarative/src/state_applied.rs:20` | DeviceLink ＋ MobileBridge |\n| sensor journal | `FORMAT: u32 = 1`、`SENSOR_JOURNAL_KEY` | `crates/interaction-runtime/src/sensor_journal.rs:10-11` | 只有 Runtime；SQLite meta |\n| 陪伴預設 marker | `companion_preset_revision`（DesktopPrefs 欄位，預設 `\"0\"`） | `apps/interaction-desktop/src-tauri/src/supervisor.rs:325`（default）；比對在 `preset_service.rs:197` | 只有 Tauri host |\n| mobile wss | 沒有數字版本常數；用 frame `type` 字串＋能力協商 | `crates/interaction-runtime/src/mobile.rs:3784`、`apps/interaction-ios/.../Protocol.swift:302-503` | 手動對齊（見 §5） |\n\n**結論**：每個契約都只有一個常數產生點，沒有發現同一版本號在兩個地方各寫一份的情況。\n唯一例外是 CPP 的 `PROTOCOL_VERSION`／`PROTOCOL_MAJOR`／`PROTOCOL_MINOR` 在 TS 端是手打的字面值\n（`protocol.ts:11-13`），不是 codegen。\n\n### 4.3 schema／codegen 與三端 consumer\n\n```mermaid\ngraph LR\n  RA[\"crates/interaction-aip（Rust 型別）\"] -->|\"golden.rs::golden_aip_schema\"| S1[\"schemas/aip-1.0.schema.json\"]\n  RS[\"crates/interaction-session（semantic_contract）\"] -->|\"golden.rs::golden_semantic_state_schema\"| S2[\"schemas/semantic-state-1.0.schema.json\"]\n  RC[\"crates/interaction-character\"] -->|\"golden.rs::golden_character_protocol_schema\"| S3[\"schemas/character-protocol.schema.json\"]\n  P[\"schemas/semantic-state-consumers.json（每個欄位的 consumer 處置）\"] --> CG\n  S1 --> CG[\"scripts/aip-codegen.mjs<br/>（import semantic-state-codegen.mjs）\"]\n  S2 --> CG\n  FX[\"crates/interaction-aip/tests/fixtures/*<br/>（manifest.json 索引）\"] --> CG\n  CG --> T1[\"apps/interaction-desktop/src/aip/generated.ts\"]\n  CG --> T2[\"apps/interaction-desktop/src/aip/semanticStateGenerated.ts\"]\n  CG --> W1[\"apps/interaction-ios/…/Models/AIPGenerated.swift\"]\n  CG --> W2[\"apps/interaction-ios/…/Models/SemanticStateGenerated.swift\"]\n  CG --> W3[\"apps/interaction-ios/…Tests/AIPFixtures.swift（fixture 內嵌）\"]\n  S3 -.->|\"手寫鏡射，非 codegen\"| T3[\"apps/interaction-desktop/src/character/protocol.ts\"]\n```\n\n- 產出檔（`aip-codegen.mjs:25-34`、`semantic-state-codegen.mjs:97-99`）：TS 2 檔、Swift 3 檔。\n- consumer：`src/api.ts:7`、`companion/sessionTouch.ts:17`、`aip/semanticState.ts:4`、\n  `aip/sessionClient.ts`；Swift `Models/AIPEnvelope.swift:5`（自述「型別在 AIPGenerated.swift」）、\n  `Services/SessionReceive.swift:9`、四個 XCTest 檔。\n- drift gate：`.github/workflows/ci.yml:81-84` 跑 `pnpm aip:check`\n  （＝`node scripts/aip-codegen.mjs --check`，`apps/interaction-desktop/package.json:17`）；\n  發布流程 `scripts/release-prepare.sh:73-74` 重生、`scripts/release-verify.sh:94-95` 再驗一次。\n- **CPP 不在 codegen 範圍**：`schemas/character-protocol.schema.json` 是 golden 產物，但\n  `src/character/protocol.ts` 是人手鏡射（檔頭自述「Rust（interaction-character）是權威實作，\n  這裡只鏡射同一份契約」），只有一項欄位（`AssetDecl.required` 含 `mediaType`）被 TS 測試對 golden 逐字比對\n  （`src/test/regressions-v06-round2-desktop.test.ts:329-335`）。\n\n跨語言 conformance fixture（三端讀同一份）：`crates/interaction-aip/tests/fixtures/manifest.json`，\n段別 `envelopes / generated / negotiations / identity / offlinePolicy / outcomeTransitions /\noutcomeProfiles / nameScope / stateHashes / stateHashDoublePaths / receiveDecisions /\ncanonicalVectors / semanticStates`。三端消費者：\nRust `crates/interaction-aip/tests/conformance.rs`、`crates/interaction-session/tests/{receive_decision_fixtures,receive_decisions_from_json}.rs`；\nTS `src/test/{aip-conformance,canonical-hash,canonical-vectors,receive-decision-fixtures,semantic-state-contract,session-client}.test.ts`；\nSwift `InteractionCompanionTests/{AIPConformanceTests,ReceiveDecisionConformanceTests,StateHashConformanceTests}.swift`\n（fixture 由 codegen 內嵌成 `AIPFixtures.swift`，因為 XCTest 讀不到 repo 檔）。\n**這是本 repo 最強的一段架構保證。**\n\n### 4.4 Ports（`crates/interaction-session/src/ports.rs`）：誰有 production consumer\n\n| Port | production impl | 消費者 | 狀態 |\n|---|---|---|---|\n| `SessionStore`（`ports.rs:73`） | **有**：`JsonSessionStore`（`runtime/character_session.rs:331`／`impl` at `:558`） | `character_session.rs:672` `CharacterSessionHost::open` | implemented-and-connected |\n| `SaveOutcome`／`PortError`（含 `FutureFormat`） | — | `character_session.rs:1545`／`:2189`／`:787` | implemented-and-connected |\n| `Clock`（`ports.rs:47`） | 只有 `FixedClock`（`ports.rs:142`，測試用） | **零**——`CharacterSession` 的每個方法都直接吃 `now: Timestamp` 參數（`session.rs:289/342/474/575/…`），host 沒有經 `Clock` 注入 | **defined-only** |\n| `IdentityVerifier`（`ports.rs:82`） | 只有 `StrictIdentityVerifier`（`ports.rs:117`） | **零**（`rg IdentityVerifier` 在 ports.rs 之外零命中） | **defined-only** |\n| `ConsentVerifier`（`ports.rs:99`） | 只有 `DenyAllConsent`（`ports.rs:126`） | **零**；只在註解出現（`session.rs:1026`、`lib.rs:43`）。ports.rs 自己的 doc 已誠實寫明「1.0 沒有接進 gate，而且刻意如此」 | **defined-only（已自陳）** |\n| `RendererPort`（`ports.rs:108`） | 零 | 零 | **defined-only（ledger §1.3 已登記）** |\n| `DevicePort`（`ports.rs:113`） | 零 | 零 | **defined-only（ledger §1.3 已登記）** |\n| `EventLog` | — | — | **文件寫錯**：`docs/aip/architecture-boundaries.md:31` 把它列成 `interaction-session::EventLog` port，但它是 `session.rs:1966` 的**私有 struct**（沒有 `pub`），也不在 `lib.rs:65-91` 的 re-export 清單裡 |\n\n`MemoryStore`（`ports.rs:159`）只在 `crates/interaction-session/tests/session.rs:1230` 用；\n但它守著與 production store 同一條 `(epoch, revision)` guard（`ports.rs:194-200` ＋測試 `:262-289`），\n所以測試替身不會掩蓋真實 store 才會出現的亂序覆寫——這個做法是對的，值得保留。\n\n### 4.5 相同規則是否重複實作\n\n| 規則 | 實作份數 | 是否共用 fixture／golden |\n|---|---|---|\n| AIP envelope 驗證、limits、canonical hash、身分綁定、outcome 轉移、offline policy、receive 決策表 | 3（Rust／TS／Swift） | **是**——`crates/interaction-aip/tests/fixtures/manifest.json`，三端各有讀同一份檔的測試 |\n| SemanticState 驗證＋投影 | 3 | **是**——`semanticStates` 段＋`schemas/semantic-state-consumers.json` 逐欄位處置 |\n| CPP intent → 候選能力表 | 2（Rust `interaction-character` ／ TS `character/protocol.ts::INTENT_CAPABILITIES`） | **是（僅此一項）**——`crates/interaction-character/tests/golden/intent-capabilities.json`，TS 端逐項斷言（`src/test/character-protocol.test.ts:545-583`） |\n| CPP §4–§7 gateway 狀態機（priority 下限、去重環 256、pending 上限 64、channel mixer／搶佔、回執合法性、`acknowledged→uncertain`、cancel 冪等、crash→uncertain＋世代+1、輸入事件正規化） | **2**：`crates/interaction-character/src/gateway.rs`（1580 行，Runtime 端／外部 WS adapter）＋`apps/interaction-desktop/src/character/gateway.ts`（1590 行，視窗內 in-process） | **否**——除 intent→能力表外沒有任何共用 fixture |\n| CPP manifest 驗證 | **2**：`crates/interaction-character/src/manifest.rs`（1830 行）＋`src/character/manifest.ts`（1212 行） | **幾乎沒有**——只有 `AssetDecl.required` 一欄對 golden 比對（`regressions-v06-round2-desktop.test.ts:329-335`） |\n| `TruthState` 15 個值 | 5 份（Rust `intent.rs:177/197` 權威／golden schema／TS `protocol.ts:241` 手寫／TS `semanticStateGenerated.ts:289` 產生／Swift `CharacterSemantic.swift:461` 手寫） | 手寫的兩份都**沒有**對值比對；TS 只斷言長度 15（`character-protocol.test.ts:107`） |\n| 誠實階梯人話（claimed 的說法） | 3 份獨立字串表：Rust `interaction-character/src/gateway.rs:250`「AI 宣稱已完成（尚未驗證）。」／TS `statusProjection/workState.ts:130`「對方說已完成」＋honesty「對方的說法，尚未檢查」／Swift `CharacterSemantic.swift:496`「宣稱完成（尚未驗證）」 | **否**——三份都誠實，但沒有共用 fixture 保證第四個實作也誠實 |\n| 桌面兩種傳輸的指令表 | 2（Tauri `generate_handler!` 144 個 `#[tauri::command]` ／ `transport.ts` `ROUTES` 表） | **否**（無 parity 測試）；缺項在 http 模式會擲 `no HTTP route for command X`（`transport.ts:341`）——誠實失敗，但只在執行期才知道。實際缺的都是 host 專屬指令（`desktop_prefs_*`／`companion_*`／`character_import`／`overlay_attach`／`supervisor_info`／`full_quit`），沒有 runtime 語意漏接 |\n| `interaction.yaml` 的 apiHost/apiPort | 2（Rust `runtime/config.rs:80` 讀 serde_yaml ／ Tauri `supervisor.rs:415-425` 自己再 parse 一次） | 只讀、格式極簡，風險低 |\n\n**判讀**：AIP／Session 層做得非常好（共用 fixture 是唯一正解，而且做到三端）。CPP 層是相反的極端：\n約 3400 行 TypeScript 與 Rust 各自實作同一份契約，只有一張表被跨語言釘住。這是本 repo 最大的\n「同一條規則兩份實作」風險，而且它落在**呈現層的安全語意**上（priority 下限、安全 intent 不得被 fallback 換掉、\n回執不得偽造 verified）。\n\n### 4.6 設定與狀態 owner 是否唯一\n\n| store | 落地位置 | owner（權威寫入點） | 讀者 | 重疊？ |\n|---|---|---|---|---|\n| RuntimeConfig | `config/interaction.yaml` | `crates/interaction-runtime/src/config.rs:27-55/80` | runtime；Tauri `supervisor.rs:415`（唯讀重複解析 apiHost/apiPort） | 讀重疊（低風險） |\n| PolicyConfig | `config/policies/policy.yaml` | 預設值 `interaction-core/src/policy.rs:132-195`；強制 `interaction-policy`；入口 `PATCH /v1/policy` | executor／governor | 無 |\n| UiPreferences | SQLite meta `ui_prefs` | `crates/interaction-runtime/src/human.rs:107-153`（`update_ui_preferences` `:568`；onboarding commit `:900`） | 控制中心 `App.tsx:229`、`SettingsPage.tsx:63` | **`reduce_motion` 與角色視窗的 OS media query 重疊 → 見 §6 缺陷** |\n| Onboarding draft／完成標記 | SQLite meta `onboarding` / `onboarding_draft` | `human.rs:31-32`、`:644/:651/:675` | `pages/Onboarding.tsx` | 無 |\n| Proactive dialogue（頻率／quiet_until／DND） | SQLite meta `PROACTIVE_META_KEY` | `crates/interaction-runtime/src/proactive.rs:288-289`（`quiet_for`）、`:544` `proactive_dialogue_quiet`、`:594` `persist_proactive` | `/v1/proactive-dialogue*`；Tauri `lib.rs:1223` | **與 DesktopPrefs 的 `companion_do_not_disturb`／`companion_proactive_quiet_until` 概念重疊**（見下） |\n| Policy quietHours | policy.yaml | `interaction-core::PolicyConfig.quiet_hours` | `proactive.rs:571`／`:627` 判定後傳進 gate | 三個「安靜」來源（policy quietHours ／ runtime quiet_until ／ desktop DND）由不同 owner 持有 |\n| DesktopPrefs | `state/desktop.json`（0600 原子寫） | `apps/interaction-desktop/src-tauri/src/supervisor.rs:349-353`（`prefs_path`／`load_prefs`／`save_prefs`／`save_prefs_at:365`） | 角色視窗＋角色頁；`src/desktop.ts` 型別 | 見上 |\n| 陪伴預設 marker／revision | DesktopPrefs 內的 `companion_pending_preset_op`／`companion_preset_revision`／`companion_last_preset_op` | `src-tauri/src/preset_service.rs`（`:140` run、`:197` revision 比對、`:358` complete） | `companion/applyPresetPlan.ts` | 契約 `docs/aip/settings-recovery.md`；ledger §6.5 已登記 |\n| Character Session snapshot | `state/character-session.json`＋`.epoch` | `runtime/character_session.rs:90-93`、`JsonSessionStore:331` | Session Host | 無 |\n| 已配對 iPhone | `state/mobile-devices.json` | `runtime/mobile.rs:2174` | mobile bridge | 無 |\n| Sensor stop journal | SQLite meta `sensor_stop_journal` | `runtime/sensor_journal.rs:10-11` | `sensors.rs`／`statusProjection/unresolvedStops.ts`／`host_safety.rs` | 無 |\n| 匯入角色 | `state/characters/` | `src-tauri/src/character_store.rs:134` | 角色頁 | 無 |\n| 宣告式 adapter spec | `config/adapters/*.yaml` | `runtime/providers.rs:702`＋`runtime/hardware.rs:257` 各自讀同一個目錄 | providers／hardware scan | 讀重疊（低風險） |\n| API token | `state/api-token`／`api-agent-token`（0600） | `runtime/config.rs:98-101` | CLI／Tauri `supervisor.rs:452` | 無 |\n\n**「安靜／勿擾」三個 owner**：`policy.quiet_hours`（時段，Governor 壓制侵擾頻道）、\nruntime `ProactiveDialogueState.quiet_until`（一次性「今天安靜一點」，SQLite）、\nDesktopPrefs `companion_do_not_disturb` ＋ `companion_proactive_quiet_until`（角色視窗本地，desktop.json）。\n桌面 UI 把後兩者當成不同層次（`CompanionPage.tsx:579-613` 同時讀 local 與 runtime 的值），\n`companion/presets.ts:6` 也註明「`companionDoNotDisturb`（桌面偏好；不主動靠近、不主動說話）」——\n**是刻意的兩層（呈現層 vs 內容產生層）**，不是重複 owner。可維護性成本是：使用者看到的一個「安靜」概念，\n需要同時看三處才知道現在到底安不安靜。這是設計取捨，不建議合併。\n\n### 4.7 UI 是否自行推測成功\n\n在 `apps/interaction-desktop/src`（排除 `src/test/`）**沒有找到**把 exit code／ack／claimed 升級成\ncompleted／verified 的地方。反向證據：\n\n- `statusProjection/workState.ts:128-135`：`claimed-completed` → badge `warn`、`needsDecision: true`、\n  `honesty: \"對方的說法，尚未檢查\"`；`verified` 才是 badge `ok`（`:137-143`）。\n- `workState.ts:179-183` `UNRECOGNIZED`：介面不認得的原始值 → 「結果不確定」＋`known: false`，\n  **不回傳原始字串當標籤**（`projectWorkState:186-189`）。\n- `appstate.tsx:189-206` `confirmationLabel`：每一層都同時給「可以說什麼」與「不能說什麼」。\n- `appstate.tsx:208` 註解 `NEVER upgrades`，對照表 `:210-236` 逐項符合。\n- `work/delivery.ts:41`：「送達不是完成，所以沒有任何一態用成功綠（`ok`）」。\n- `character/spriteIntents.ts:58`：「success→claim-completed，永不升級成 verified」。\n- `companion/rig/timeline.ts:173`：`wanted = frameSlice ? \"success-claimed\" : \"success-verified\"`——\n  綠勾只由 Runtime 給的 truthState 決定，adapter 不能自己選。\n- `character/adapters/shuTables.ts:256`：`truthState === \"verified\"` 才播完整 success。\n\n唯一需要留意的不是「升級」而是**接受層**：`ui.tsx:12-16` 把 `completed` 歸為 `ok` 綠色。\n這在 receipt／action 語彙裡是對的（`ActionCompleted` 是動器回報，不是 verified），但同一個\n`statusBadgeKind` 也會被角色／工作以外的地方共用；`appstate.tsx:198`「已實際完成」的措辭\n（`completed` 的 `can`）在動器語境下比 `actionStatusLabel` 的「已完成」更強。這是措辭層面的細節，\n不是狀態升級，列為觀察不列為缺陷。\n\n### 4.8 deprecated／experimental 標示是否正確\n\n`docs/aip/deprecation-ledger.md` 登記 18 條。抽查：\n\n| ledger 條目 | 程式現況 | 一致？ |\n|---|---|---|\n| §1.1 `migrate_legacy_pack` 唯一有 `#[deprecated]` | `crates/interaction-character/src/manifest.rs` 確有 `#[deprecated(since=\"0.6.0\")]` | ✅ |\n| §1.3 `RendererPort`／`DevicePort` 零 impl，experimental | 確認零命中（ports.rs 之外） | ✅ **且誠實**（ledger 自己寫「在此之前不得因為『介面存在』就宣稱這條擴充點可用」） |\n| §2.1 snapshot `format: 0 → 1` | `SNAPSHOT_FORMAT=1`（`types.rs:197`）；備份／遷移在 `character_session.rs` | ✅ |\n| §2.2 未來格式不覆寫 | `PortError::FutureFormat`（`ports.rs:24-31`）＋`SaveOutcome::SkippedParked`（`character_session.rs:575/588`） | ✅ |\n| §3.1／§3.2 裝置線 `aip`／`aip-frag` 追加訊息 | `protocol.rs:34 PROTO_VERSION=1` 不 bump | ✅ |\n| §4.1 `INTERACT_AI_CHARACTER_SESSION` | `character_session.rs::character_session_enabled_from_env` | ✅ |\n| §4.3 sensor journal format 1 | `sensor_journal.rs:10-11` | ✅ |\n\n**未登記但同樣是零 production consumer 的 port**：`Clock`、`IdentityVerifier`、`ConsentVerifier`\n（§4.4）。`ConsentVerifier` 在 `ports.rs:92-98` 的 doc comment 已誠實自陳，\n`Clock`／`IdentityVerifier` 兩個則沒有任何標示——`architecture-boundaries.md:29-30` 把它們列在\n穩定 port 表裡，讀者會以為可以拿來擴充。ledger §1.3 的判準（「有第一個 production 實作者才轉正，\n否則刪掉並修文件」）應該一體適用。\n\n---\n\n## 5. 依賴方向 vs 資料流：兩張圖的落差\n\n| 事實 | 說明 |\n|---|---|\n| 依賴只朝核心，但**資料是雙向**的 | `interaction-runtime` 依賴 `interaction-session`（單向），但 session 要把 Output 回送 host：靠回傳值（`Vec<Output>`）而非 callback，所以沒有反向依賴。這是對的做法。 |\n| `interaction-agent-gateway` 不依賴任何 workspace crate，但資料要進 `RuntimeEvent` | 轉換點集中在 `runtime/gateway.rs:379+` 的事件泵（`GatewayEvent` → `report_agent_session`），單一翻譯層。 |\n| CPP 有**兩條**資料路徑進 renderer | 外部 adapter：`/v1/character/ws`（`crates/interaction-api/src/character_ws.rs`）→ Rust `Gateway`（`character.rs:597`）。視窗內建 adapter：`companion/gatewayWiring.ts` → TS `character/gateway.ts`。兩條各自跑一套 CPP 狀態機（見 §4.5）。 |\n| iOS 只有 wss 一條 | iOS 不打 HTTP API；所有東西走 `mobile.rs` 的 frame（`Protocol.swift:302-503`）。 |\n| SSE 與 Tauri event 是同一個 bus 的兩個出口 | `interaction-events::EventBus::subscribe`（`lib.rs:60`）→ `interaction-api/src/sse.rs`（路由 `crates/interaction-api/src/lib.rs:317`） ｜ `src-tauri/src/lib.rs:3414-3422`（`runtime-event` ＋ `runtime-event-raw`）。SSE 端另有 token scope 過濾（`sse.rs:22-52`），Tauri 端沒有——因為 Tauri 視窗本來就是 human 主體。 |\n\n---\n\n## 6. 缺陷（可指出具體錯誤路徑）\n\n### H-DEF-1 `UiPreferences.reduce_motion` 從來沒有到達角色視窗、CPP 協商與權威 SemanticState\n\n- 設定頁的開關寫著「減少非必要動畫（**會與作業系統 Reduced Motion 一併生效**）」\n  （`apps/interaction-desktop/src/pages/SettingsPage.tsx:62-66`），寫進\n  `UiPreferences.reduce_motion`（`crates/interaction-runtime/src/human.rs:116`，\n  doc 自述「Explicitly reduce non-essential motion **in addition to** the OS setting」）。\n- 這個值在整個 desktop 前端**只有一個消費者**：`App.tsx:229`\n  `document.documentElement.classList.toggle(\"reduce-motion\", prefs.reduceMotion === true)`。\n- 但 `App` 只掛在控制中心視窗；角色視窗掛的是 `CompanionApp`\n  （`src/main.tsx:19-30`：`windowKind === \"companion\"` → `<CompanionApp />`），\n  所以那行 class toggle 在角色視窗根本不會執行。\n- 角色視窗的 reduced motion **只**來自 OS media query：\n  `CompanionApp.tsx:925-928` `window.matchMedia(\"(prefers-reduced-motion: reduce)\")` →\n  `gateway.reconfigure(PRIMARY_INSTANCE_ID, { reducedMotion })` → `renderer.setReducedMotion()`；\n  `:934-945` 監聽 change 事件同樣只讀 media query。\n- 這個值再往上送成 CPP hello（`companion/gatewayWiring.ts:581/590`）→\n  `POST /v1/character/hello` → `runtime/character.rs:1051`\n  `character_session_join_desktop(input.reduced_motion)` →\n  `runtime/character_session.rs:1453/1473` 寫進 features 與\n  `RuntimeFact::ReducedMotion`，最後成為權威 SemanticState 的 `reducedMotion` 欄位。\n- **錯誤路徑**：使用者在設定頁打開「減少非必要動畫」，OS 沒開 Reduced Motion →\n  控制中心的 CSS 過場停掉了，**角色仍然全動**，CPP 協商仍以 `reducedMotion: false` 進行\n  （不會走 `reducedMotionBehavior` 降級），iPhone／外部 adapter 收到的 SemanticState\n  `reducedMotion` 也是 `false`。介面文字宣稱「一併生效」，實際只生效一半。\n- 現有測試不會抓到：`apps/interaction-desktop/e2e/a11y.spec.ts:92-115` 只驗控制中心的\n  `<html class=\"reduce-motion\">` 與 `.app` 的 transitionDuration，然後在 `:117-120` 另外用\n  `page.emulateMedia({ reducedMotion: \"reduce\" })` 驗 media query——**兩條路各自綠燈，交叉那格沒人看**。\n- 分類：`confirmed-defect`｜證據層級：`static-inspection`（既有 browser 測試只覆蓋到控制中心那一半）。\n- 修法（最小）：`CompanionApp` 取 `prefs`（runtime UiPreferences，不是 DesktopPrefs）並與 media query\n  取 OR，或由 Tauri host 把 `reduce_motion` 併進送給角色視窗的 hello 輸入。無論哪一種，\n  **權威來源必須只有一個**——目前是兩個都自認權威。\n\n### H-DEF-2（文件缺陷）`architecture-boundaries.md` §2 把私有 struct 列成 port\n\n`docs/aip/architecture-boundaries.md:31` 寫 `EventLog | interaction-session::EventLog（有界環，內建實作）`，\n但 `crates/interaction-session/src/session.rs:1966` 是 `struct EventLog`（無 `pub`），\n且不在 `lib.rs:65-91` 的 re-export 清單。任何依這張表寫 adapter 的人會發現這個 port 不存在。\n分類：`defined-only`（文件宣稱 vs 程式）｜證據層級：`static-inspection`。\n\n### H-DEF-3 `SessionSpec.model` 在 production 是死欄位，且 Codex 主路徑根本不讀它\n\n- 欄位定義 `crates/interaction-agent-gateway/src/lib.rs:167`。\n- 兩個建構子都設 `None`（`lib.rs:187`、`lib.rs:200-205` 走 `..Self::read_only_in`）。\n- `crates/interaction-runtime/src/gateway.rs:330-342` 建 spec 後只設\n  `disable_tools`／`resume_provider_session`／`max_cost_usd`／`session_capability_token`／`runtime_api_base`\n  ——**沒有一行寫 `spec.model`**（`rg '\\.model' crates/interaction-runtime/src` 只命中 `mobile.rs:2687` 的無關欄位）。\n- 讀取端：`claude.rs:103-104`（`--model`）、`codex_exec.rs:87-88`／`:105-106`（fallback 才用）。\n  **`codex.rs`（app-server JSON-RPC，Codex 的主路徑）完全沒有 `model` 字樣**。\n- `CreateAgentSession`（`crates/interaction-runtime/src/agents.rs:247-278`）也沒有 `model` 欄位，\n  所以 HTTP create payload 傳不進來。\n- 結論：`SessionSpec.model` = `defined-only`。任務書提到的「API create payload 是否能傳 model 未確認」\n  → **確認為不能**。就算日後補上 payload 欄位，Codex 主路徑仍會靜默忽略——那時必須誠實拒絕\n  （像 `gateway.rs:311-316` 對 `intent-only` + codex 的做法），不能假裝限制成立。\n\n---\n\n## 7. 文件說有、程式沒接線 / 反向\n\n| 文件宣稱 | 程式現況 | 判定 |\n|---|---|---|\n| `architecture-boundaries.md:29` `Clock` 是穩定 port | 零 production 消費者；session 直接吃 `now: Timestamp` | defined-only（未登記） |\n| `architecture-boundaries.md:30` `IdentityVerifier` 是穩定 port | 零消費者 | defined-only（未登記） |\n| `architecture-boundaries.md:31` `ConsentVerifier` | 零消費者；`ports.rs:92-98` 已自陳 1.0 未接線 | defined-only（已自陳，未進 ledger） |\n| `architecture-boundaries.md:31` `EventLog` port | 私有 struct，未 export | **文件錯誤** |\n| `architecture-boundaries.md:24-25` `RendererPort`／`DevicePort` | 零 impl | defined-only（ledger §1.3 **有**登記，一致） |\n| `SettingsPage.tsx:65`「會與作業系統 Reduced Motion 一併生效」 | 角色視窗不讀這個偏好 | **confirmed-defect（H-DEF-1）** |\n| `docs/MAINTAINERS-MAP.md` 10 個能力歸屬 | 未涵蓋 Policy Governor／consent、UiPreferences／onboarding、memory／knowledge／curator、recipe、tool-schema | 涵蓋不全（該檔 `## 加一列的時機` 有說明擴充方式，非錯誤） |\n| `interaction-core/src/lib.rs:3`「no Tokio runtime, no HTTP」 | 目前為真，但**沒有可執行的守門**（不在 `PURE_CRATES`，也不在 aip/session 的遞移可達集合） | 宣稱正確、保證缺席 |\n| `docs/aip/architecture-boundaries.md` §4.1 驗收「`rg '\"iphone[.-]\\|provider\\.mobile\\.' crates/interaction-runtime/src --glob '!mobile.rs'` 為 0」 | 現況 4 個命中，全部在**註解與測試**（`sensor_source.rs:248/514`、`character_session.rs:167` 註解；`character_session.rs:2755` 測試） | production 意義上仍成立；驗收指令本身會誤報 |\n\n---\n\n## 8. 建議（只列實際造成維護或正確性問題的）\n\n依「有沒有具體錯誤路徑 / 有沒有真實維護成本」排序，不因檔案大或名稱相似而建議拆合。\n\n1. **修 H-DEF-1**：把「reduced motion 的權威值」收成一個來源。目前是 UiPreferences 與 OS media query\n   兩個各自認為自己是權威，而 UI 文字承諾兩者一併生效。這條同時是正確性問題（設定沒作用）\n   與誠實性問題（SemanticState 對三端說 `reducedMotion: false`）。\n2. **把 CPP §4–§7 的行為釘成跨語言 fixture**（做法就是 AIP 那一套，不用發明新東西）。\n   目前 Rust `interaction-character/src/gateway.rs` 與 TS `character/gateway.ts` 各約 1580/1590 行，\n   共用的只有一張 intent→能力表。優先釘：priority 下限與安全 intent 不得被 fallback 換掉、\n   去重環行為、`acknowledged→uncertain` 逾時、crash→uncertain＋世代 +1、回執 resolution 只能變差。\n   這些都是純函式輸入→輸出，可以直接進 `crates/interaction-aip/tests/fixtures` 那個模式。\n3. **`TRUTH_STATES` 與 `CHARACTER_INTENTS` 對 golden schema 逐值比對**，不要只斷言長度。\n   一行測試（讀 `schemas/character-protocol.schema.json` 的 `$defs.TruthState.enum` 與\n   `$defs.CharacterIntent`，與 TS 常數 `toEqual`）就能把「長度對但值錯」這一格關掉。\n   Swift 端同理可加進 `AIPFixtures` 的內嵌 fixture。\n4. **把 `Clock`／`IdentityVerifier`（必要時 `ConsentVerifier`）比照 ledger §1.3 登記為 experimental，\n   或刪掉並修 `architecture-boundaries.md` §2**；同時修掉 `EventLog` 那一列。\n   ledger 已經替 RendererPort／DevicePort 立了正確的判準，套用即可。\n5. **`interaction-core` 加進依賴邊界測試的守護範圍**。它自述「no Tokio runtime, no HTTP」，\n   但那句話目前沒有測試。`dependency_boundaries.rs` 已經有現成的走圖＋反向控制組，\n   把 `interaction-core` 加進 `PURE_CRATES`（或另開一組較寬的 FORBIDDEN）成本極低。\n6. **（可選，低優先）`transport.ts` 的 ROUTES 與 Tauri command 清單加 parity 測試**：\n   把「這些指令是 host 專屬、不該有 HTTP 路由」寫成一份明確清單，其餘必須有 route。\n   目前缺項會在執行期誠實失敗，所以不是正確性缺陷，只是「只有走到才知道」。\n\n**明確不建議動的**：\n`state_applied` 住在 `interaction-adapter-declarative`（已由 MAINTAINERS-MAP §4 指名 owner，\nruntime 本來就依賴該 crate，沒有新增依賴邊）；`interaction-runtime` 的 16 條內部依賴邊\n（應用服務匯流點的正常形狀）；三個「安靜」概念的分層（呈現層 vs 內容產生層，是刻意取捨）。\n\n---\n\n## 9. 未追到 / 需要別的維度接手\n\n- Tauri IPC 那 144 個 `#[tauri::command]` 我只做了與 HTTP 的名稱比對，沒有逐一追到\n  application service；「Tauri 專屬指令有沒有繞過 Governor」屬於安全維度。\n- `docs/aip/transport-bindings.md`／`character-session.md`／`semantic-state.md` 我只交叉引用，\n  沒有逐條對契約文字核對（本輪重點是依賴與資料流）。\n- iOS 端只讀了 frame 型別、`SessionClient.handleFrame` 與 `CharacterSemantic`；\n  `BleGateway.swift`／`SensorCenter.swift`／`ActuatorCenter.swift` 的資料流未追。\n- `interaction-recipe`／`interaction-tool-schema`／`knowledge`／`curator`／`memory` 的內部資料流\n  本輪未展開（它們在依賴圖上位置明確，但沒有畫 sequence）。\n",
+  "claims": [
+   {
+    "id": "H-01",
+    "claim": "純領域 crate 的依賴邊界有可執行守門，且含反向控制組：interaction-aip / interaction-session 既不宣告也不遞移拉進 tokio/axum/tauri/tungstenite/rumqttc/serialport/btleplug/reqwest/hyper。狀態 implemented-and-connected；證據層級 static-inspection（測試檔存在，本輪未執行）。",
+    "evidence": [
+     "tests/e2e/tests/dependency_boundaries.rs:19",
+     "tests/e2e/tests/dependency_boundaries.rs:31",
+     "tests/e2e/tests/dependency_boundaries.rs:75",
+     "tests/e2e/tests/dependency_boundaries.rs:170",
+     "tests/e2e/tests/dependency_boundaries.rs:190",
+     "crates/interaction-aip/Cargo.toml:8",
+     "crates/interaction-session/Cargo.toml:9"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-02",
+    "claim": "interaction-character（CPP 權威）雖不在 PURE_CRATES 清單，但因 interaction-session 對它有 path 依賴，遞移走圖測試會涵蓋它；反之 interaction-core 完全不在守護範圍內（不是 aip/session 的可達節點），其 lib.rs 自述『no Tokio runtime, no HTTP』沒有任何可執行保證。",
+    "evidence": [
+     "crates/interaction-session/Cargo.toml:10",
+     "tests/e2e/tests/dependency_boundaries.rs:31",
+     "tests/e2e/tests/dependency_boundaries.rs:145",
+     "crates/interaction-core/src/lib.rs:3",
+     "crates/interaction-core/Cargo.toml:8"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-03",
+    "claim": "interaction-agent-gateway 沒有任何 workspace 內部依賴（連 interaction-core 都沒有），真 Agent 子程序層與領域模型完全解耦；GatewayEvent→領域語彙的翻譯集中在 runtime/gateway.rs 的事件泵一處。",
+    "evidence": [
+     "crates/interaction-agent-gateway/Cargo.toml:8",
+     "crates/interaction-runtime/src/gateway.rs:375",
+     "crates/interaction-runtime/src/gateway.rs:389"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-04",
+    "claim": "領域核心對『特定呈現面家族』有硬編耦合：interaction-core 的 PolicyConfig::default() 逐項列出 companion.* 的 7 個受器與 7 個動器，以及 desktop-pet channel。iPhone 動器（iphone.*）不在預設 allowlist，會被 Governor 以 actuator.allowlist 擋下——這一點已被既有文件記錄為預期行為（外部副作用動器預設關閉），不是缺陷，但『哪一家呈現面是內建的』確實寫在領域核心裡。",
+    "evidence": [
+     "crates/interaction-core/src/policy.rs:148",
+     "crates/interaction-core/src/policy.rs:166",
+     "crates/interaction-core/src/policy.rs:182",
+     "crates/interaction-policy/src/lib.rs:135",
+     "crates/interaction-runtime/src/mobile.rs:222",
+     "docs/acceptance-evidence.md:698"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-05",
+    "claim": "ports.rs 七個 port 中只有 SessionStore 有 production 實作與消費者（JsonSessionStore ← CharacterSessionHost::open）。Clock / IdentityVerifier / ConsentVerifier / RendererPort / DevicePort 皆為 defined-only：repo 內除 ports.rs 自身（含測試替身）外零命中。狀態 defined-only；證據層級 static-inspection。",
+    "evidence": [
+     "crates/interaction-session/src/ports.rs:73",
+     "crates/interaction-session/src/ports.rs:47",
+     "crates/interaction-session/src/ports.rs:82",
+     "crates/interaction-session/src/ports.rs:99",
+     "crates/interaction-session/src/ports.rs:108",
+     "crates/interaction-session/src/ports.rs:113",
+     "crates/interaction-runtime/src/character_session.rs:331",
+     "crates/interaction-runtime/src/character_session.rs:558",
+     "crates/interaction-runtime/src/character_session.rs:672"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-06",
+    "claim": "docs/aip/architecture-boundaries.md §2 的 ports 表把 EventLog 列成 interaction-session::EventLog 穩定介面，但它是 session.rs 內的私有 struct（無 pub），也不在 lib.rs 的 re-export 清單——文件宣稱的擴充點不存在。狀態 absent（作為 port）。",
+    "evidence": [
+     "docs/aip/architecture-boundaries.md:31",
+     "crates/interaction-session/src/session.rs:1966",
+     "crates/interaction-session/src/lib.rs:65"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-07",
+    "claim": "deprecation-ledger §1.3 已誠實登記 RendererPort/DevicePort 為零 impl 的 experimental，但同樣零 production 消費者的 Clock 與 IdentityVerifier 沒有任何標示，仍列在 architecture-boundaries §2 的穩定 port 表；ConsentVerifier 只有 ports.rs doc comment 自陳、未進 ledger。",
+    "evidence": [
+     "docs/aip/deprecation-ledger.md（§1.3『ports.rs 的 RendererPort／DevicePort：零實作者（experimental）』）",
+     "docs/aip/architecture-boundaries.md:29",
+     "docs/aip/architecture-boundaries.md:30",
+     "crates/interaction-session/src/ports.rs:92"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-08",
+    "claim": "SessionSpec.model 是 production 死欄位：兩個建構子都設 None，runtime/gateway.rs 建 spec 後從未指派（rg '\\.model' 在 runtime 只命中 mobile.rs 的無關欄位），CreateAgentSession payload 也沒有 model 欄位。且 Codex 主路徑 codex.rs（app-server JSON-RPC）完全沒有 model 字樣，只有 claude.rs 與 codex_exec.rs fallback 會讀。任務書『API create payload 是否能傳 model 未確認』→ 確認為不能。狀態 defined-only。",
+    "evidence": [
+     "crates/interaction-agent-gateway/src/lib.rs:167",
+     "crates/interaction-agent-gateway/src/lib.rs:187",
+     "crates/interaction-runtime/src/gateway.rs:330",
+     "crates/interaction-runtime/src/gateway.rs:335",
+     "crates/interaction-runtime/src/agents.rs:247",
+     "crates/interaction-agent-gateway/src/claude.rs:103",
+     "crates/interaction-agent-gateway/src/codex_exec.rs:87"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-09",
+    "claim": "每個契約的版本常數都只有一個產生點：AIP SPEC_VERSION（aip/lib.rs:48）、CPP PROTOCOL_VERSION（character/lib.rs:46）、Semantic State profile（session/semantic_contract.rs:8）、Session SNAPSHOT_FORMAT（session/types.rs:197）、裝置線 PROTO_VERSION（adapter-declarative/protocol.rs:34）、applied profile（state_applied.rs:20）、sensor journal FORMAT（sensor_journal.rs:11）。唯一手打字面值的例外是 TS 端 CPP 的 PROTOCOL_VERSION/MAJOR/MINOR。",
+    "evidence": [
+     "crates/interaction-aip/src/lib.rs:48",
+     "crates/interaction-character/src/lib.rs:46",
+     "crates/interaction-session/src/semantic_contract.rs:8",
+     "crates/interaction-session/src/types.rs:197",
+     "crates/interaction-adapter-declarative/src/protocol.rs:34",
+     "crates/interaction-adapter-declarative/src/state_applied.rs:20",
+     "crates/interaction-runtime/src/sensor_journal.rs:11",
+     "apps/interaction-desktop/src/character/protocol.ts:11"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-10",
+    "claim": "AIP/Semantic State 的 codegen 是單一來源→三端：schemas/aip-1.0.schema.json + semantic-state-1.0.schema.json → scripts/aip-codegen.mjs 產生 TS 2 檔＋Swift 3 檔（含把 fixture 內嵌成 AIPFixtures.swift，因為 XCTest 讀不到 repo 檔）；drift gate 在 CI（pnpm aip:check）與發布腳本兩處。狀態 implemented-and-connected。",
+    "evidence": [
+     "scripts/aip-codegen.mjs:25",
+     "scripts/aip-codegen.mjs:28",
+     "scripts/aip-codegen.mjs:32",
+     "scripts/semantic-state-codegen.mjs:97",
+     ".github/workflows/ci.yml:81",
+     "scripts/release-verify.sh:94",
+     "apps/interaction-desktop/src/api.ts:7",
+     "apps/interaction-ios/InteractionCompanion/Models/AIPEnvelope.swift:5"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-11",
+    "claim": "AIP／Session 層的跨語言一致性由同一份 fixture 索引保證（13 段：envelopes/generated/negotiations/identity/offlinePolicy/outcomeTransitions/outcomeProfiles/nameScope/stateHashes/stateHashDoublePaths/receiveDecisions/canonicalVectors/semanticStates），Rust、TypeScript、Swift 三端各有直接讀該檔的測試。這是本 repo 最強的架構保證。",
+    "evidence": [
+     "crates/interaction-aip/tests/fixtures/manifest.json",
+     "crates/interaction-aip/tests/conformance.rs",
+     "crates/interaction-session/tests/receive_decisions_from_json.rs",
+     "apps/interaction-desktop/src/test/aip-conformance.test.ts:33",
+     "apps/interaction-desktop/src/test/receive-decision-fixtures.test.ts:44",
+     "apps/interaction-ios/InteractionCompanionTests/AIPConformanceTests.swift:23",
+     "apps/interaction-ios/InteractionCompanionTests/ReceiveDecisionConformanceTests.swift:27"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-12",
+    "claim": "CPP §4–§7 的 gateway 狀態機被實作兩次：Rust crates/interaction-character/src/gateway.rs（1580 行，服務 Runtime 端與外部 WebSocket adapter）與 TS apps/interaction-desktop/src/character/gateway.ts（1590 行，服務視窗內建 adapter）；manifest 驗證也是兩份（1830 行 vs 1212 行）。跨語言只有一張 golden 被逐項比對（intent→候選能力表 intent-capabilities.json），priority 下限、去重環、搶佔、回執合法性、acknowledged→uncertain、crash→uncertain 都沒有共用 fixture。",
+    "evidence": [
+     "crates/interaction-character/src/gateway.rs:1",
+     "apps/interaction-desktop/src/character/gateway.ts:1",
+     "crates/interaction-character/src/manifest.rs:1",
+     "apps/interaction-desktop/src/character/manifest.ts:1",
+     "crates/interaction-character/tests/golden/intent-capabilities.json",
+     "apps/interaction-desktop/src/test/character-protocol.test.ts:545",
+     "crates/interaction-runtime/src/character.rs:597",
+     "apps/interaction-desktop/src/companion/gatewayWiring.ts:21"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-13",
+    "claim": "TruthState 的 15 個值存在 5 份（Rust intent.rs 權威、golden schema、TS protocol.ts 手寫、TS semanticStateGenerated.ts 產生、Swift CharacterSemantic.swift 手寫）。TS 端只斷言長度 15，沒有對 golden schema 的 $defs.TruthState.enum 逐值比對；Swift 端沒有任何對照。",
+    "evidence": [
+     "crates/interaction-character/src/intent.rs:177",
+     "crates/interaction-character/src/intent.rs:197",
+     "schemas/character-protocol.schema.json（$defs.TruthState.enum，15 值）",
+     "apps/interaction-desktop/src/character/protocol.ts:241",
+     "apps/interaction-desktop/src/test/character-protocol.test.ts:107",
+     "apps/interaction-ios/InteractionCompanion/Models/CharacterSemantic.swift:461"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-14",
+    "claim": "誠實階梯的人話文案有三份互相獨立的表（Rust gateway.rs:250『AI 宣稱已完成（尚未驗證）。』／TS workState.ts:130『對方說已完成』＋honesty『對方的說法，尚未檢查』／Swift CharacterSemantic.swift:496『宣稱完成（尚未驗證）』）。三份目前都誠實、都不升級，但沒有共用 fixture 保證未來第四個實作也誠實。",
+    "evidence": [
+     "crates/interaction-character/src/gateway.rs:250",
+     "apps/interaction-desktop/src/statusProjection/workState.ts:128",
+     "apps/interaction-ios/InteractionCompanion/Models/CharacterSemantic.swift:496"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-15",
+    "claim": "在 apps/interaction-desktop/src（排除 src/test/）沒有找到把 exit code／ack／claimed 升級成 completed／verified 的地方。反向證據齊全：claimed-completed → badge warn ＋ needsDecision true ＋ honesty 註記；未知原始值 → 『結果不確定』且 known:false 不回傳原字串；送達層沒有任何一態用綠；success 動畫依 truthState 是否 verified 決定是否有綠勾。",
+    "evidence": [
+     "apps/interaction-desktop/src/statusProjection/workState.ts:128",
+     "apps/interaction-desktop/src/statusProjection/workState.ts:179",
+     "apps/interaction-desktop/src/statusProjection/workState.ts:186",
+     "apps/interaction-desktop/src/appstate.tsx:208",
+     "apps/interaction-desktop/src/work/delivery.ts:41",
+     "apps/interaction-desktop/src/character/spriteIntents.ts:58",
+     "apps/interaction-desktop/src/companion/rig/timeline.ts:173",
+     "apps/interaction-desktop/src/character/adapters/shuTables.ts:256"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-16",
+    "claim": "confirmed-defect：UiPreferences.reduce_motion 從來沒有到達角色視窗、CPP 協商與權威 SemanticState。設定頁文案宣稱『會與作業系統 Reduced Motion 一併生效』，但該值在前端唯一消費者是 App.tsx 的 documentElement class toggle，而 App 只掛在控制中心視窗（main.tsx 依 windowKind 分派，companion 視窗掛 CompanionApp）。角色視窗的 reducedMotion 只來自 window.matchMedia('(prefers-reduced-motion: reduce)')，再經 gatewayWiring hello → runtime character_session_join_desktop → RuntimeFact::ReducedMotion 成為 SemanticState。錯誤路徑：使用者只在設定頁打開開關、OS 未開 → 角色仍全動、CPP 不走 reducedMotionBehavior 降級、三端收到的 SemanticState reducedMotion 為 false。既有 e2e 只驗控制中心那一半，交叉格未覆蓋。",
+    "evidence": [
+     "apps/interaction-desktop/src/pages/SettingsPage.tsx:62",
+     "crates/interaction-runtime/src/human.rs:116",
+     "apps/interaction-desktop/src/App.tsx:229",
+     "apps/interaction-desktop/src/main.tsx:19",
+     "apps/interaction-desktop/src/companion/CompanionApp.tsx:925",
+     "apps/interaction-desktop/src/companion/gatewayWiring.ts:581",
+     "crates/interaction-runtime/src/character.rs:1051",
+     "crates/interaction-runtime/src/character_session.rs:1453",
+     "crates/interaction-runtime/src/character_session.rs:1473",
+     "apps/interaction-desktop/e2e/a11y.spec.ts:92"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-17",
+    "claim": "設定與狀態 store 共 13 處，各有單一權威寫入點：interaction.yaml（runtime config.rs）、policy.yaml（core 預設＋policy 強制）、SQLite meta ui_prefs / onboarding / onboarding_draft / proactive_pause / PROACTIVE_META_KEY / sensor_stop_journal（runtime）、desktop.json（Tauri supervisor.rs，含陪伴預設 marker/revision）、character-session.json（+.epoch）、mobile-devices.json、state/characters/、config/adapters/*.yaml、api-token/api-agent-token。沒有發現兩個 owner 寫同一個欄位。",
+    "evidence": [
+     "crates/interaction-runtime/src/config.rs:80",
+     "crates/interaction-runtime/src/config.rs:88",
+     "crates/interaction-runtime/src/human.rs:29",
+     "crates/interaction-runtime/src/human.rs:568",
+     "crates/interaction-runtime/src/proactive.rs:594",
+     "crates/interaction-runtime/src/sensor_journal.rs:10",
+     "crates/interaction-runtime/src/character_session.rs:90",
+     "crates/interaction-runtime/src/mobile.rs:2174",
+     "apps/interaction-desktop/src-tauri/src/supervisor.rs:349",
+     "apps/interaction-desktop/src-tauri/src/preset_service.rs:197",
+     "apps/interaction-desktop/src-tauri/src/character_store.rs:134"
+    ],
+    "confidence": "medium"
+   },
+   {
+    "id": "H-18",
+    "claim": "『安靜／勿擾』有三個不同層次的 owner：policy.quiet_hours（時段，Governor 壓制侵擾頻道）、runtime ProactiveDialogueState.quiet_until（一次性，SQLite meta，持久化失敗會在回傳裡誠實標 persistError）、DesktopPrefs companion_do_not_disturb + companion_proactive_quiet_until（角色視窗本地，desktop.json）。程式註解與 UI 都把它們當成不同層（呈現層 vs 內容產生層），屬刻意分層而非重複 owner。",
+    "evidence": [
+     "crates/interaction-core/src/policy.rs:184",
+     "crates/interaction-runtime/src/proactive.rs:288",
+     "crates/interaction-runtime/src/proactive.rs:544",
+     "crates/interaction-runtime/src/proactive.rs:571",
+     "apps/interaction-desktop/src/companion/presets.ts:6",
+     "apps/interaction-desktop/src/pages/CompanionPage.tsx:579",
+     "apps/interaction-desktop/src-tauri/src/lib.rs:2057"
+    ],
+    "confidence": "medium"
+   },
+   {
+    "id": "H-19",
+    "claim": "桌面兩種傳輸的指令表是手工鏡射：144 個 #[tauri::command] vs transport.ts 的 ROUTES 表，缺項在 http 模式會擲 'no HTTP route for command X'（誠實失敗但只在執行期才知道），且沒有 parity 測試。實際缺的都是 host 專屬指令（desktop_prefs_*／companion_*／character_import／character_asset／overlay_attach／supervisor_info／full_quit／close_decision／hit_regions），沒有 runtime 語意漏接。",
+    "evidence": [
+     "apps/interaction-desktop/src/transport.ts:101",
+     "apps/interaction-desktop/src/transport.ts:332",
+     "apps/interaction-desktop/src/transport.ts:341",
+     "apps/interaction-desktop/src-tauri/src/lib.rs:3604",
+     "apps/interaction-desktop/src/test/transport.test.ts:4"
+    ],
+    "confidence": "medium"
+   },
+   {
+    "id": "H-20",
+    "claim": "電腦↔iPhone 只有一條 wss 通道（iOS 不打 HTTP API）：配對（pair-request/challenge/response/paired）→ 認證（auth/auth-ok/auth-fail）→ act/ack/err、observation、stop-all、ble.*，AIP frame 另走 {type:'aip',envelope} 並在出站前再 parse+validate+encode（超過 128KB 丟棄並稽核）。applied 回執經 StateAppliedTracker::acknowledge 後一律以 evidence:'peer-report' 稽核——回執是對方的說法而非獨立驗證。iOS 端 frame 型別集中在 Protocol.swift 的 DeviceMsg/HostMsg 兩個 enum，與 Rust 端字面字串手動對齊，wss 外殼沒有跨語言 fixture（AIP envelope 有）。",
+    "evidence": [
+     "crates/interaction-runtime/src/mobile.rs:3784",
+     "crates/interaction-runtime/src/mobile.rs:3913",
+     "crates/interaction-runtime/src/mobile.rs:3963",
+     "crates/interaction-runtime/src/mobile.rs:1513",
+     "crates/interaction-runtime/src/mobile.rs:1436",
+     "crates/interaction-runtime/src/mobile.rs:2035",
+     "crates/interaction-runtime/src/mobile.rs:3984",
+     "crates/interaction-runtime/src/mobile.rs:4008",
+     "crates/interaction-runtime/src/character_session.rs:1566",
+     "apps/interaction-ios/InteractionCompanion/Models/Protocol.swift:302",
+     "apps/interaction-ios/InteractionCompanion/Services/SessionClient.swift:750"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-21",
+    "claim": "ContextBundle 在派送時重算，呼叫端帶進來的 contextBundle 一律被覆蓋，收據以 SHA-256 內容雜湊存進 record.context_bundles（有界）；mailbox_send 只有真的寫進子程序 stdin 才蓋 delivered_at，未送達回傳沒有戳記的訊息，且 session 狀態不因未送達而改寫。這是誠實階梯在 agent 資料流上的落點。",
+    "evidence": [
+     "crates/interaction-runtime/src/agents.rs:852",
+     "crates/interaction-runtime/src/agents.rs:863",
+     "crates/interaction-runtime/src/agents.rs:929",
+     "crates/interaction-runtime/src/agents.rs:946",
+     "crates/interaction-runtime/src/agents.rs:955",
+     "crates/interaction-runtime/src/gateway.rs:669",
+     "crates/interaction-agent-gateway/src/claude.rs:324"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-22",
+    "claim": "agent 回報進來時，事實與宣稱被分開記帳：taxonomy 對照表把 task-started/progress 併成 working、waiting-for-input 併成 waiting-input，其餘原值；狀態事件先發出（不受受器停用影響），再以 confidence 0.5 ingest——『有一份回報』是事實，『回報裡的宣稱』不是。character.rs 的兩張投影表也守同一條線：ActionCompleted 只到 Claimed，ActionObserved 才是 Verified。",
+    "evidence": [
+     "crates/interaction-runtime/src/agents.rs:1247",
+     "crates/interaction-runtime/src/agents.rs:1254",
+     "crates/interaction-runtime/src/agents.rs:1258",
+     "crates/interaction-runtime/src/character.rs:467",
+     "crates/interaction-runtime/src/character.rs:490"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-23",
+    "claim": "AIP profile aip.applied/1 的權威實作住在 interaction-adapter-declarative（serial/MQTT/BLE 裝置 crate）的 state_applied.rs，由 mobile.rs（iPhone）與 character_session.rs / declarative_session.rs 共同消費；MAINTAINERS-MAP 已指名該 crate 為 owner，且 interaction-runtime 本來就依賴它，沒有新增依賴邊。屬於可讀性成本而非正確性問題，不建議拆檔。",
+    "evidence": [
+     "crates/interaction-adapter-declarative/src/state_applied.rs:1",
+     "crates/interaction-adapter-declarative/src/state_applied.rs:20",
+     "crates/interaction-runtime/src/mobile.rs:29",
+     "crates/interaction-runtime/src/character_session.rs:179",
+     "crates/interaction-runtime/src/declarative_session.rs:158",
+     "docs/MAINTAINERS-MAP.md:62",
+     "crates/interaction-runtime/Cargo.toml:13"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-24",
+    "claim": "Tauri crate 在 workspace exclude 內，因此 cargo test --workspace / cargo build --workspace 不會編它（8481 行 Rust，含 host_safety / character_store / preset_service）；CI 用獨立 job 補齊 clippy -D warnings 與 cargo test。這個排除有被涵蓋，不是覆蓋缺口。",
+    "evidence": [
+     "Cargo.toml:27",
+     ".github/workflows/ci.yml:35",
+     ".github/workflows/ci.yml:60",
+     ".github/workflows/ci.yml:62"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-25",
+    "claim": "SSE 與 Tauri event 是同一個有界 EventBus 的兩個出口；SSE 端額外做 token scope 過濾（agent token 收不到 AgentSessionState / Knowledge / Consent / Policy / Sensor* / Presentation* / Character* / AiAssist*），Tauri 端沒有過濾（視窗即 human 主體）。桌面另有 runtime-event-raw 通道保留原始 JSON 文字以維持 hash 所需的 f64 字面。",
+    "evidence": [
+     "crates/interaction-events/src/lib.rs:40",
+     "crates/interaction-events/src/lib.rs:60",
+     "crates/interaction-api/src/sse.rs:22",
+     "crates/interaction-api/src/lib.rs:317",
+     "apps/interaction-desktop/src-tauri/src/lib.rs:3414",
+     "apps/interaction-desktop/src-tauri/src/lib.rs:3420",
+     "apps/interaction-desktop/src/transport.ts:334"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "H-26",
+    "claim": "architecture-boundaries.md §4.1 的驗收指令（rg 對 crates/interaction-runtime/src 排除 mobile.rs 應為 0 命中）現況有 4 個命中，但全部在註解與測試（sensor_source.rs 兩處註解、character_session.rs 一處註解與一處測試），production 意義上邊界仍成立——驗收指令本身會誤報。",
+    "evidence": [
+     "docs/aip/architecture-boundaries.md（§4.1 驗收行）",
+     "crates/interaction-runtime/src/sensor_source.rs:248",
+     "crates/interaction-runtime/src/sensor_source.rs:514",
+     "crates/interaction-runtime/src/character_session.rs:167",
+     "crates/interaction-runtime/src/character_session.rs:2755"
+    ],
+    "confidence": "medium"
+   },
+   {
+    "id": "H-27",
+    "claim": "docs/MAINTAINERS-MAP.md 的能力歸屬表涵蓋 10 個領域（角色/renderer/session/裝置/transport/SensorSource/agent/設定/儲存/發布），未涵蓋 Policy Governor 與 consent、UiPreferences 與 onboarding、memory/knowledge/curator/proactive、recipe、tool-schema。該檔有『加一列的時機』說明，屬涵蓋不全而非錯誤。",
+    "evidence": [
+     "docs/MAINTAINERS-MAP.md:22",
+     "docs/MAINTAINERS-MAP.md:106",
+     "docs/MAINTAINERS-MAP.md:144",
+     "crates/interaction-runtime/src/human.rs:107",
+     "crates/interaction-policy/src/lib.rs:135"
+    ],
+    "confidence": "medium"
+   }
+  ],
+  "openQuestions": [
+   "Tauri 144 個 #[tauri::command] 是否每一個都經過 Policy Governor／consent？本輪只做了與 HTTP 路由的名稱比對，沒有逐一追到 application service（屬安全維度）。",
+   "iOS 端 BleGateway.swift / SensorCenter.swift / ActuatorCenter.swift 的資料流未追；本輪只覆蓋 Protocol.swift 的 frame 型別、SessionClient.handleFrame 與 CharacterSemantic。",
+   "H-DEF-1（reduce_motion）修法要選哪一個權威來源：把 UiPreferences 併進角色視窗的 media query（OR），還是由 Tauri host 把值注入 hello？兩者對『誰是 SemanticState.reducedMotion 的 owner』有不同後果。",
+   "CPP 兩份 gateway 實作是否有實際行為分歧？本輪只確認『沒有共用 fixture』，沒有逐條 diff 兩邊的 priority／去重／搶佔規則——需要一輪針對性比對才能說有沒有已經漂掉。",
+   "interaction-recipe / interaction-tool-schema / memory / knowledge / curator 的內部資料流本輪未展開（依賴圖位置明確，但沒有 sequence 級別的追蹤）。",
+   "docs/aip/transport-bindings.md / character-session.md / semantic-state.md 的契約文字未逐條對程式核對（本輪重點是依賴與資料流）。"
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "H-01",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "tests/e2e/tests/dependency_boundaries.rs confirmed to exist exactly as described: FORBIDDEN[9] list, PURE_CRATES=[interaction-aip, interaction-session], direct-dependency test, cargo-metadata-based transitive test (panics rather than skips on failure), and a reverse control-group test on interaction-api that verifies the walk actually catches tokio/axum/hyper. tests/e2e is a workspace member and ci.yml runs `cargo test --workspace --no-fail-fast`, so this gate is wired into an executable CI path — implemented-and-connected holds. Not executed this round, so static-inspection is the correct (and claimed) evidence level.",
+   "evidence": [
+    "tests/e2e/tests/dependency_boundaries.rs:13-22",
+    "tests/e2e/tests/dependency_boundaries.rs:27",
+    "tests/e2e/tests/dependency_boundaries.rs:70-89",
+    "tests/e2e/tests/dependency_boundaries.rs:182-199",
+    "tests/e2e/tests/dependency_boundaries.rs:201-220",
+    "Cargo.toml:23",
+    ".github/workflows/ci.yml:35"
+   ]
+  },
+  {
+   "id": "H-02",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "crates/interaction-session/Cargo.toml:10 confirms a path dependency on interaction-character, which the transitive dependency-boundary test would therefore also walk. interaction-core has zero mentions anywhere in dependency_boundaries.rs and is not a dependency of interaction-aip or interaction-session, so it sits entirely outside the guarded reachability graph; its lib.rs header comment claiming 'no Tokio runtime, no HTTP' is unenforced prose.",
+   "evidence": [
+    "crates/interaction-session/Cargo.toml:10",
+    "tests/e2e/tests/dependency_boundaries.rs (grep interaction-core: 0 hits)",
+    "crates/interaction-core/src/lib.rs:3-6",
+    "crates/interaction-core/Cargo.toml:8-16"
+   ]
+  },
+  {
+   "id": "H-03",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "interaction-agent-gateway/Cargo.toml [dependencies] (L8-15) has zero interaction-* workspace deps. GatewayEvent handling (grep across repo excluding gateway.rs itself) occurs only inside runtime/gateway.rs, centralized in the spawn_gateway_pump function (doc comment L378, function starts ~L379) via a single match over all 16 GatewayEvent variants (L395-631). Evidence line numbers in the original claim (375, 389) land slightly off (inside the surrounding function / pump signature) but point at the same single site.",
+   "evidence": [
+    "crates/interaction-agent-gateway/Cargo.toml:8-15",
+    "crates/interaction-runtime/src/gateway.rs:378-395",
+    "crates/interaction-runtime/src/gateway.rs:395-631",
+    "grep GatewayEvent repo-wide: only crates/interaction-runtime/src/gateway.rs"
+   ]
+  },
+  {
+   "id": "H-04",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "policy.rs confirms exactly 7 companion.* receptors (L148-154), 7 companion.* actuators (L166-172), and desktop-pet channel (L182). interaction-policy/src/lib.rs:~135 implements the actuator-allowlist gate. mobile.rs:220-227 MOBILE_ACTUATORS are all iphone.*-prefixed and none appear in PolicyConfig::default()'s actuator_allowlist. docs/acceptance-evidence.md:696-698 already documents 'policy allowlist 未含 iphone.*' as an expected pre-gate (opened via --grant-consent), matching the claim's own characterization as coupling-not-defect.",
+   "evidence": [
+    "crates/interaction-core/src/policy.rs:148-154",
+    "crates/interaction-core/src/policy.rs:166-172",
+    "crates/interaction-core/src/policy.rs:182",
+    "crates/interaction-policy/src/lib.rs:134-140",
+    "crates/interaction-runtime/src/mobile.rs:220-227",
+    "docs/acceptance-evidence.md:696-698"
+   ]
+  },
+  {
+   "id": "H-05",
+   "refuted": true,
+   "correctedStatus": "holds-with-correction: ports.rs defines only 6 traits, not 7. The core classification (SessionStore is the sole implemented-and-connected port; the other 5 are defined-only) still holds.",
+   "reason": "The '7 ports' count is wrong. `grep '^pub trait'` on ports.rs yields exactly 6: Clock(L47), SessionStore(L59), IdentityVerifier(L65), ConsentVerifier(L79), RendererPort(L84), DevicePort(L90) — reading the full 308-line file confirms no 7th trait. The cited evidence lines (73/82/99/108/113) don't even land on trait definitions (L73 is a doc-comment sentence, L82/108 are blank, L99/113 are impl-block boundaries for test stand-ins). The '7th port' appears to come from conflating docs/aip/architecture-boundaries.md's 7-row ports table (which adds EventLog) with the ports.rs file itself — but that doc entry already points at `interaction-session::EventLog` (crate root), not `ports.rs`, and per H-06, EventLog is in fact a non-pub struct in session.rs, never exported. So ports.rs genuinely has only 6 traits; there was never a 7th one in that file. The substantive claim survives fully: repo-wide grep for `impl (Clock|IdentityVerifier|ConsentVerifier|RendererPort|DevicePort) for` hits only ports.rs itself (L99/109/142 — test stand-ins StrictIdentityVerifier/DenyAllConsent/FixedClock, zero external consumers), while `impl SessionStore for` hits only character_session.rs:558 (JsonSessionStore), consumed by CharacterSessionHost::open at L672. RendererPort/DevicePort have no implementations anywhere, not even test stand-ins.",
+   "evidence": [
+    "crates/interaction-session/src/ports.rs:47,59,65,79,84,90 (only 6 pub trait definitions)",
+    "crates/interaction-session/src/ports.rs:73,82,99,108,113 (original citations are not trait-definition lines)",
+    "docs/aip/architecture-boundaries.md:12,35 (doc's 7-row table adds EventLog at crate root, not in ports.rs)",
+    "crates/interaction-session/src/session.rs:1966 (EventLog struct, no pub)",
+    "crates/interaction-session/src/lib.rs:62,70-73 (mod session is private; pub use list omits EventLog)",
+    "grep repo-wide impl (Clock|IdentityVerifier|ConsentVerifier|RendererPort|DevicePort) for: only ports.rs L99/109/142",
+    "crates/interaction-runtime/src/character_session.rs:331,558,672 (JsonSessionStore def/impl/consumer — sole production port)"
+   ]
+  },
+  {
+   "id": "H-06",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "Fully confirmed. docs/aip/architecture-boundaries.md:35 lists `interaction-session::EventLog` as a stable port. But session.rs:1966 `struct EventLog {` carries no `pub`, its impl block (L1971) is likewise non-pub, the containing module is declared as private `mod session;` at lib.rs:62, and lib.rs's `pub use session::{...}` export list (L70-73) omits EventLog entirely. Repo-wide grep for EventLog finds only 5 hits, all inside session.rs (struct def, impl, two internal field usages inside CharacterSession) — no external crate or test can name `interaction_session::EventLog` because the path doesn't exist publicly. The documented 'stable interface' is in fact an unexported private implementation detail; status should read absent (as a port), not the implied stable/available.",
+   "evidence": [
+    "docs/aip/architecture-boundaries.md:35",
+    "crates/interaction-session/src/session.rs:1966",
+    "crates/interaction-session/src/session.rs:1971",
+    "crates/interaction-session/src/lib.rs:62",
+    "crates/interaction-session/src/lib.rs:70-73",
+    "grep repo-wide EventLog: 5 hits, all within session.rs"
+   ]
+  },
+  {
+   "id": "H-07",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "確認：deprecation-ledger.md §1.3 只登記 RendererPort/DevicePort 為零實作 experimental；Clock 與 IdentityVerifier trait 在全 repo 也各只有一個 impl（FixedClock／StrictIdentityVerifier），且唯一使用點都在 ports.rs 的 #[test] 函式內——零 production 消費者，但 ledger.md 全文對 Clock/IdentityVerifier/ConsentVerifier 三者零命中，architecture-boundaries.md §2 表把它們跟其他穩定 port 並列且無任何狀態標記（對照 SessionStore 那列明確寫了 production 實作）。ConsentVerifier 的『1.0 未接進 gate』限制只存在 ports.rs doc comment，未進 ledger。",
+   "evidence": [
+    "docs/aip/deprecation-ledger.md:56",
+    "docs/aip/architecture-boundaries.md:29-30",
+    "crates/interaction-session/src/ports.rs:47-49,65,79,97,99,109,142",
+    "crates/interaction-session/src/ports.rs:286-300（唯一使用點皆在 #[test] 內）",
+    "rg 'Clock|IdentityVerifier|ConsentVerifier' docs/aip/deprecation-ledger.md → 零命中"
+   ]
+  },
+  {
+   "id": "H-08",
+   "refuted": false,
+   "correctedStatus": "holds — defined-only；『未確認』已確認為『不能』",
+   "reason": "lib.rs:167 定義 model 欄位，187/200-206 兩個建構子都設 None；runtime/gateway.rs 是唯一建構 SessionSpec 處（330/332 行），335 行是 if/else 收尾，336-339 行逐欄手動賦值但無 .model =（全檔 rg 'model' 零命中）；CreateAgentSession（agents.rs:245-273）完整欄位列表無 model；codex.rs 全檔零命中 'model'；claude.rs:103／codex_exec.rs:87,105 雖讀 spec.model，但因恆為 None 而不可達，屬死碼路徑。mobile.rs:2687 的 d.model 是無關的裝置型號欄位。全 repo rg '\\.model\\s*=\\s*Some' 零命中。",
+   "evidence": [
+    "crates/interaction-agent-gateway/src/lib.rs:167,187,200-206",
+    "crates/interaction-runtime/src/gateway.rs:329-339（全檔 rg 'model' 零命中）",
+    "crates/interaction-runtime/src/agents.rs:245-273（CreateAgentSession 無 model 欄位）",
+    "crates/interaction-agent-gateway/src/codex.rs（rg 'model' 零命中）",
+    "crates/interaction-agent-gateway/src/claude.rs:103",
+    "crates/interaction-agent-gateway/src/codex_exec.rs:87,105"
+   ]
+  },
+  {
+   "id": "H-09",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "七個 Rust 版本常數逐一核對皆為單一 pub const 定義點（aip/lib.rs:48/50/52、character/lib.rs:46/48/50、session/semantic_contract.rs:8、session/types.rs:197、adapter-declarative/protocol.rs:34、adapter-declarative/state_applied.rs:20、runtime/sensor_journal.rs:11）。TS protocol.ts:11-12 確認手打字面值，檔頭自陳『1:1 對應…這裡只鏡射』，非 codegen。apps 目錄搜尋 AIP 版本常數（SPEC_VERSION 等）零命中，確認沒有第二個手打例外。",
+   "evidence": [
+    "crates/interaction-aip/src/lib.rs:48,50,52",
+    "crates/interaction-character/src/lib.rs:46,48,50",
+    "crates/interaction-session/src/semantic_contract.rs:8",
+    "crates/interaction-session/src/types.rs:197",
+    "crates/interaction-adapter-declarative/src/protocol.rs:34",
+    "crates/interaction-adapter-declarative/src/state_applied.rs:20",
+    "crates/interaction-runtime/src/sensor_journal.rs:11",
+    "apps/interaction-desktop/src/character/protocol.ts:1-12"
+   ]
+  },
+  {
+   "id": "H-10",
+   "refuted": false,
+   "correctedStatus": "holds — implemented-and-connected",
+   "reason": "aip-codegen.mjs:1-30 自陳單一來源→TS(generated.ts)＋Swift(AIPGenerated.swift)＋Swift fixtures(AIPFixtures.swift)，帶 GENERATED 檔頭與 --check drift gate；semantic-state-codegen.mjs:97-105 另產生 semanticStateGenerated.ts/swift，加總確為 TS 2 檔＋Swift 3 檔。CI ci.yml:80-83 與 release-verify.sh:94-95 皆有 drift gate。api.ts:7 與 AIPEnvelope.swift:5-6 確認消費端讀取 codegen 產物。",
+   "evidence": [
+    "scripts/aip-codegen.mjs:1-30",
+    "scripts/semantic-state-codegen.mjs:97-105",
+    ".github/workflows/ci.yml:80-83",
+    "scripts/release-verify.sh:94-95",
+    "apps/interaction-desktop/src/api.ts:7",
+    "apps/interaction-ios/InteractionCompanion/Models/AIPEnvelope.swift:5-6"
+   ]
+  },
+  {
+   "id": "H-11",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "manifest.json 頂層鍵確認恰為 13 個資料段（envelopes/generated/negotiations/identity/offlinePolicy/outcomeTransitions/outcomeProfiles/nameScope/stateHashes/stateHashDoublePaths/receiveDecisions/canonicalVectors/semanticStates）加 3 個 metadata 鍵。四端測試皆直接讀取同一檔案：Rust conformance.rs:23-27 與 receive_decisions_from_json.rs:18-27；TS aip-conformance.test.ts:33-37 與 receive-decision-fixtures.test.ts:95-98 用 import.meta.url 直讀 Rust 目錄下原始檔；Swift 兩測試檔透過 codegen 內嵌的 AIPFixtures.manifest 讀同一內容。",
+   "evidence": [
+    "crates/interaction-aip/tests/fixtures/manifest.json（13 資料段確認）",
+    "crates/interaction-aip/tests/conformance.rs:23-27",
+    "crates/interaction-session/tests/receive_decisions_from_json.rs:18-27,116-120",
+    "apps/interaction-desktop/src/test/aip-conformance.test.ts:33-37",
+    "apps/interaction-desktop/src/test/receive-decision-fixtures.test.ts:8-13,95-98",
+    "apps/interaction-ios/InteractionCompanionTests/AIPConformanceTests.swift:23",
+    "apps/interaction-ios/InteractionCompanionTests/ReceiveDecisionConformanceTests.swift:18-27"
+   ]
+  },
+  {
+   "id": "H-12",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "行數逐字核對：gateway.rs 1580、gateway.ts 1590、manifest.rs 1830、manifest.ts 1212，與宣稱完全一致。golden 目錄確認只有 intent-capabilities.json 一檔；character-protocol.test.ts:546 是 TS 唯一直接讀 crates/interaction-character 路徑的測試。priority/dedup/preempt/acknowledged+uncertain/crash 在兩端各自獨立出現多處，但除 intent-capabilities 外沒有任何共用 fixture 路徑（TS 其餘測試檔 rg 'crates/interaction-character' 零命中）。",
+   "evidence": [
+    "wc -l 確認 gateway.rs=1580, gateway.ts=1590, manifest.rs=1830, manifest.ts=1212",
+    "crates/interaction-character/tests/golden/（僅 intent-capabilities.json）",
+    "apps/interaction-desktop/src/test/character-protocol.test.ts:546",
+    "rg 'crates/interaction-character' apps/interaction-desktop/src/test/character-gateway.test.ts apps/interaction-desktop/src/test/adapter-contract.test.ts → 零命中"
+   ]
+  },
+  {
+   "id": "H-13",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "逐點核實：golden schema 由 schemars 從 Rust intent.rs 產生（schema.rs:32），非獨立來源。TS protocol.ts:TRUTH_STATES 15 值與 golden 完全一致，但 character-protocol.test.ts:107 只有 toHaveLength(15)，遍查 apps/interaction-desktop/src/test/*.test.ts 找不到逐值比對。Swift CharacterSemantic.swift:460-505 手寫 CharacterTruth，grep 全部 iOS 測試檔對 'TruthState' 字串命中為 0，證實零對照。額外發現宣稱漏列的第 6/7 份生成副本（aip/semanticStateGenerated.ts 與 iOS 的 SemanticStateGenerated.swift，各自內嵌另一份 schema 的 TruthState x-knownValues）——這只會加強而非削弱宣稱。",
+   "evidence": [
+    "crates/interaction-character/src/intent.rs:177-193,197-212",
+    "crates/interaction-character/src/schema.rs:32",
+    "schemas/character-protocol.schema.json $defs.TruthState.enum（15 值）",
+    "apps/interaction-desktop/src/character/protocol.ts:241-256",
+    "apps/interaction-desktop/src/test/character-protocol.test.ts:107",
+    "apps/interaction-ios/InteractionCompanion/Models/CharacterSemantic.swift:460-505",
+    "apps/interaction-ios/InteractionCompanionTests/{SemanticStateConformanceTests,SessionClientTests}.swift（grep 'TruthState' 0 命中）",
+    "apps/interaction-desktop/src/aip/semanticStateGenerated.ts:289-318",
+    "apps/interaction-ios/InteractionCompanion/Models/SemanticStateGenerated.swift"
+   ]
+  },
+  {
+   "id": "H-14",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "三份文案逐字核對相符且各自獨立。唯一涉及 ClaimCompleted 的跨語言測試（conformance.rs:188-189）只驗證結構性能力解析，未涵蓋人話文案字串同步，故『無共用 fixture 保證未來實作誠實』成立。",
+   "evidence": [
+    "crates/interaction-character/src/gateway.rs:250",
+    "apps/interaction-desktop/src/statusProjection/workState.ts:128-134",
+    "apps/interaction-ios/InteractionCompanion/Models/CharacterSemantic.swift:496",
+    "crates/interaction-character/tests/conformance.rs:188-189"
+   ]
+  },
+  {
+   "id": "H-15",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "8 個引用點全部核實吻合。額外查核 aip/envelope.ts:582 的 [\"claimed-completed\",\"verified\"] 只是合法轉移表定義（canTransitionOutcome），在非 test 原始碼中查無任何呼叫端，不構成自動升級路徑；badge:'ok' 的其餘出現處（inbox.ts／provider.ts／TaskComposer.tsx）皆屬不同網域，與送達/完成語意升級無關。",
+   "evidence": [
+    "apps/interaction-desktop/src/statusProjection/workState.ts:128-139,179-186",
+    "apps/interaction-desktop/src/appstate.tsx:208-224",
+    "apps/interaction-desktop/src/work/delivery.ts:31-47",
+    "apps/interaction-desktop/src/character/spriteIntents.ts:58",
+    "apps/interaction-desktop/src/companion/rig/timeline.ts:166-182",
+    "apps/interaction-desktop/src/character/adapters/shuTables.ts:252-258",
+    "apps/interaction-desktop/src/aip/envelope.ts:565-587（canTransitionOutcome 無生產路徑呼叫端）"
+   ]
+  },
+  {
+   "id": "H-16",
+   "refuted": false,
+   "correctedStatus": "holds（confirmed-defect 成立，已端到端追蹤驗證）",
+   "reason": "完整資料流核實：SettingsPage 開關 → human.rs:116 UiPreferences.reduce_motion → 唯一消費處 App.tsx:229 的 documentElement class toggle → 但 App 只在非 companion/overlay 視窗掛載（main.tsx:19-33），companion 視窗掛 CompanionApp。CompanionApp.tsx 全檔 grep 'reduceMotion'/'reducedMotion' 顯示 reducedMotionRef 僅由 window.matchMedia 賦值（922-937），從未讀取 prefsSnapshot 或後端 UiPreferences；gatewayWiring.ts:581 helloFor 把此 OS-only 值送進 CPP hello；character.rs:1042-1051 與 character_session.rs:1448-1473（註解『Reduced Motion 的主人是視窗回報的值；session 只轉錄』）證實權威 SemanticState.reducedMotion 完全不含後端 UiPreferences 值。既有 e2e（a11y.spec.ts:92-124、character-session.spec.ts:390-410、general-mode-tasks.spec.ts:1579-1591）分別只測控制中心 class 或 OS emulateMedia，從未交叉測『PATCH 偏好＋角色視窗協商結果』。",
+   "evidence": [
+    "apps/interaction-desktop/src/pages/SettingsPage.tsx:62-65",
+    "crates/interaction-runtime/src/human.rs:116",
+    "apps/interaction-desktop/src/App.tsx:229",
+    "apps/interaction-desktop/src/main.tsx:19-33",
+    "apps/interaction-desktop/src/companion/CompanionApp.tsx:922-937",
+    "apps/interaction-desktop/src/companion/gatewayWiring.ts:578-591",
+    "crates/interaction-runtime/src/character.rs:1042-1051",
+    "crates/interaction-runtime/src/character_session.rs:1448-1473",
+    "apps/interaction-desktop/e2e/a11y.spec.ts:92-124",
+    "apps/interaction-desktop/e2e/character-session.spec.ts:390-410",
+    "apps/interaction-desktop/e2e/general-mode-tasks.spec.ts:1579-1591"
+   ]
+  },
+  {
+   "id": "H-17",
+   "refuted": false,
+   "correctedStatus": "holds（『共 13 處』計數與其自身條列項目數不符——展開 SQLite meta 子項為 14、合併為 1 項則 9，屬列舉表述誤差，不影響『每 store 單一權威寫入點』的實質論點）",
+   "reason": "抽查全部 11 個引用點命中且符合。proactive_pause（human.rs）與 PROACTIVE_META_KEY=\"proactive_dialogue\"（proactive.rs）證實為不同 key，非重複 owner。desktop.json 雖被 5 個檔案引用，但全部透過 supervisor::save_prefs／save_prefs_at 這個唯一函式間接寫入，符合單一權威寫入點定義。未發現任何兩個 owner 寫同一欄位的反例，但也未窮舉全部 13/14 項，confidence=medium 合理。",
+   "evidence": [
+    "crates/interaction-runtime/src/config.rs:78-93",
+    "crates/interaction-runtime/src/human.rs:29-32,568-571",
+    "crates/interaction-runtime/src/proactive.rs:14,594-603",
+    "crates/interaction-runtime/src/character_session.rs:85-90",
+    "crates/interaction-runtime/src/mobile.rs:2172-2174",
+    "apps/interaction-desktop/src-tauri/src/supervisor.rs:348-350",
+    "apps/interaction-desktop/src-tauri/src/{preset_service.rs,settings_recovery_review.rs,character_package_drill.rs}（desktop.json 寫入皆間接經 supervisor::save_prefs_at）",
+    "apps/interaction-desktop/src-tauri/src/character_store.rs:133-134"
+   ]
+  },
+  {
+   "id": "H-18",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "三層各自的程式與註解都明確支持『刻意分層而非重複 owner』。proactive.rs:562-580 的註解直接自陳分工：governor quiet-hours 只壓侵擾頻道，對話類勿擾另由本閘門強制。CompanionPage.tsx:578-586 把三層數值並列獨立顯示，未合併覆寫。lib.rs:2056-2060 對本機 companion_proactive_quiet_until 做獨立有界驗證，與後端 proactive_dialogue.quiet_until 生命週期互不相涉。",
+   "evidence": [
+    "crates/interaction-core/src/policy.rs:175-193",
+    "crates/interaction-runtime/src/proactive.rs:543-553,562-580",
+    "apps/interaction-desktop/src/companion/presets.ts:22,29,58-65,103",
+    "apps/interaction-desktop/src/pages/CompanionPage.tsx:578-586",
+    "apps/interaction-desktop/src-tauri/src/lib.rs:2056-2060"
+   ]
+  },
+  {
+   "id": "H-19",
+   "refuted": true,
+   "correctedStatus": "Count/category is right (144 #[tauri::command] vs transport.ts, 22 missing are all host-only, and 'no runtime semantic gap' + 'no parity test' hold) — but the claimed FAILURE MECHANISM is wrong. None of the 22 ROUTES-missing commands is ever reachable through transport.ts's call() dispatcher, so transport.ts:341's 'no HTTP route for command X' can never actually fire for them. They are invoked exclusively via a second, deliberately separate bridge, apps/interaction-desktop/src/desktop.ts, whose own header comment says it is 'always Tauri IPC, even when the runtime traffic itself flows over HTTP.' In real production HTTP mode (Tauri shell + external daemon) these still work via plain Tauri IPC; in pure-browser mode every call site is isTauri-guarded (either inside desktop.ts itself for character_import/character_list_imported/character_asset/character_remove, or at the React call site for the rest, e.g. CompanionApp.tsx:575/1149/1285). The error path is unreachable dead code for this set, not an 'honest failure only discovered at runtime.' The enumerated list is also incomplete: character_list_imported and character_remove are missing too, and there are two distinct missing hit-test commands (companion_hit_rect and companion_hit_regions), not just 'hit_regions.'",
+   "reason": "Diffed the 144 tauri::command names against ROUTES keys, then traced every one of the 22 gap commands to their sole call sites, all in desktop.ts (direct @tauri-apps/api/core invoke, never transport.ts's call()). grep for call(\"<cmd>\") across src/ for all 22 names returned zero hits, confirming the generic HTTP-route-missing throw has no path to them.",
+   "evidence": [
+    "apps/interaction-desktop/src/transport.ts:341",
+    "apps/interaction-desktop/src/api.ts:18",
+    "apps/interaction-desktop/src/desktop.ts:1-4",
+    "apps/interaction-desktop/src/desktop.ts:131,139,144,149",
+    "apps/interaction-desktop/src/desktop.ts:145-158",
+    "apps/interaction-desktop/src/companion/CompanionApp.tsx:575,1149,1268,1285",
+    "apps/interaction-desktop/src/pages/SettingsPage.tsx:109",
+    "apps/interaction-desktop/src-tauri/src/lib.rs:1933,1954 (character_list_imported, character_remove missing from claim's list)",
+    "apps/interaction-desktop/src/test/transport.test.ts (39 lines, no parity test)"
+   ]
+  },
+  {
+   "id": "H-20",
+   "refuted": false,
+   "correctedStatus": "holds, with one naming correction: Protocol.swift's two frame-type enums are `ClientMessage` and `ServerMessage`, not `DeviceMsg`/`HostMsg` as stated. Every other mechanism in the claim is verified accurate: single wss channel with pairing/auth/act-ack-err/observation/stop-all/ble.*; separate `{type:'aip',envelope}` frame with its own outbound re-parse+validate+encode gate, 128KB drop, and audit; StateAppliedTracker::acknowledge feeding an audit event explicitly tagged evidence:'peer-report'; and no shared cross-language fixture for the wss shell (both languages hand-duplicate the same literal strings in their own test suites) versus the AIP envelope, which does have a real shared fixture chain (manifest.json canonicalVectors → codegen → AIPFixtures.swift → CanonicalVectorsTests.swift).",
+   "reason": "Read the pairing/auth state machine, the AIP outbound gate and its 128KB constant, the acknowledge()→peer-report audit call, and both Rust and Swift test suites for fixture parity. Only the enum names in the claim's prose are incorrect; the file:line citations and every mechanism described match the code.",
+   "evidence": [
+    "crates/interaction-runtime/src/mobile.rs:3784,3913,3963-3964",
+    "crates/interaction-runtime/src/mobile.rs:1427-1436, 97 (MOBILE_WS_MAX_MESSAGE_BYTES=128*1024)",
+    "crates/interaction-runtime/src/mobile.rs:2035-2041 (mobile_aip_reply_frame)",
+    "crates/interaction-runtime/src/mobile.rs:3990-4009 (evidence:\"peer-report\")",
+    "crates/interaction-adapter-declarative/src/state_applied.rs:195-220",
+    "apps/interaction-ios/InteractionCompanion/Models/Protocol.swift:301 (enum ClientMessage), :479 (enum ServerMessage) — not DeviceMsg/HostMsg",
+    "crates/interaction-runtime/tests/mobile_loop.rs:176-753 vs apps/interaction-ios/InteractionCompanionTests/ProtocolTests.swift:24,213,217 (hand-duplicated literals, no shared fixture)",
+    "apps/interaction-ios/InteractionCompanionTests/CanonicalVectorsTests.swift:5-14 (shared AIP fixture chain)"
+   ]
+  },
+  {
+   "id": "H-21",
+   "refuted": false,
+   "correctedStatus": "holds — verified essentially verbatim, including matching in-code comments.",
+   "reason": "mailbox_send recomputes and overwrites the Context Bundle for ToSession task messages, hashes it (SHA-256) into a bounded AgentContextBundleReceipt list (CONTEXT_BUNDLE_RECEIPT_CAP, oldest evicted), and delivered_at is stamped only after gateway_deliver() actually succeeds; the surrounding comments state the exact 'undelivered ≠ failed, session state unchanged' semantics the claim describes.",
+   "evidence": [
+    "crates/interaction-runtime/src/agents.rs:852-866",
+    "crates/interaction-runtime/src/agents.rs:929-938",
+    "crates/interaction-runtime/src/agents.rs:946-966",
+    "crates/interaction-runtime/src/gateway.rs:658-669",
+    "crates/interaction-agent-gateway/src/claude.rs:322-335"
+   ]
+  },
+  {
+   "id": "H-22",
+   "refuted": false,
+   "correctedStatus": "holds — verified verbatim.",
+   "reason": "report_agent_session's taxonomy match collapses task-started/progress→working and waiting-for-input→waiting-input (others pass through), emits the status event before the confidence-0.5 ingest, and character.rs's two projection tables draw the same completed-vs-verified line (ActionCompleted→Claimed, ActionObserved→Verified).",
+   "evidence": [
+    "crates/interaction-runtime/src/agents.rs:1247-1258",
+    "crates/interaction-runtime/src/character.rs:467-473",
+    "crates/interaction-runtime/src/character.rs:490-493"
+   ]
+  },
+  {
+   "id": "H-23",
+   "refuted": false,
+   "correctedStatus": "holds — fully verified.",
+   "reason": "state_applied.rs's own doc comment names DeviceLink and MobileBridge as its two production consumers; MAINTAINERS-MAP.md §4 names interaction-adapter-declarative (specifically state_applied.rs::StateAppliedTracker) as owner shared with MobileBridge; mobile.rs/character_session.rs/declarative_session.rs all import from it; and interaction-runtime already depends on interaction-adapter-declarative, so no new dependency edge is introduced.",
+   "evidence": [
+    "crates/interaction-adapter-declarative/src/state_applied.rs:1-4,20",
+    "crates/interaction-runtime/src/mobile.rs:29-31",
+    "crates/interaction-runtime/src/character_session.rs:179-183",
+    "crates/interaction-runtime/src/declarative_session.rs:156-159",
+    "docs/MAINTAINERS-MAP.md:62",
+    "crates/interaction-runtime/Cargo.toml:15"
+   ]
+  },
+  {
+   "id": "H-24",
+   "refuted": false,
+   "correctedStatus": "holds — fully verified, all line citations exact including the 8481-line total.",
+   "reason": "Cargo.toml excludes apps/interaction-desktop/src-tauri from the workspace (with a comment explaining it's still built by CI/tauri), and CI's separate desktop-backend job runs clippy -D warnings and cargo test against that crate's own manifest, so the exclusion is covered, not a coverage gap.",
+   "evidence": [
+    "Cargo.toml:22-27",
+    ".github/workflows/ci.yml:35",
+    ".github/workflows/ci.yml:60",
+    ".github/workflows/ci.yml:62",
+    "apps/interaction-desktop/src-tauri/src/*.rs totals 8481 lines"
+   ]
+  },
+  {
+   "id": "H-25",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "全部核對通過：單一有界 EventBus（tokio broadcast + ring buffer）是唯一寫入點/唯一訂閱點；SSE 出口在 auth_middleware 之後由 event_allowed() 對非 Human principal 過濾掉 AgentSessionState/KnowledgeUpdated/ConsentChanged/PolicyChanged/Sensor{Started,Stopped,StopUncertain}/Presentation{Command,State}/AiAssist{Requested,Resolved}/Character{Intent,Receipt,Instance,SessionState,SystemText} 共 15 種事件類型；Tauri 出口對同一個 subscribe() 收到的事件無條件 emit 兩份（'runtime-event' 結構化＋'runtime-event-raw' 原始 JSON 文字），沒有任何 principal/scope 過濾。桌面 transport.ts 的 onEvent() 在非 HTTP 模式走 runtime-event-raw，用 parseJsonWithNumberSources() 解析，與『保留 f64 字面以滿足 hash 契約』的說法一致。",
+   "evidence": [
+    "crates/interaction-events/src/lib.rs:15-24,39,59-61",
+    "crates/interaction-api/src/sse.rs:22-49",
+    "crates/interaction-api/src/lib.rs:317",
+    "apps/interaction-desktop/src-tauri/src/lib.rs:3411-3424",
+    "apps/interaction-desktop/src/transport.ts:1,336,471,517-518"
+   ]
+  },
+  {
+   "id": "H-26",
+   "refuted": false,
+   "correctedStatus": "holds（更精確：驗收指令本身會誤報，但 production 邊界仍成立——已用宣稱指定的確切 rg 指令重跑確認為 4 個命中，逐一核對均為註解或測試 fixture）",
+   "reason": "實跑 §4.1 原文指令 `rg -n '\"iphone[.-]|provider\\.mobile\\.' crates/interaction-runtime/src --glob '!mobile.rs'` 得到 4 個命中，與宣稱列出的 file:line 完全吻合：character_session.rs:167、sensor_source.rs:248、514 皆為 doc comment（解釋命名規則，非可執行程式碼）；character_session.rs:2755 的 Party::device(\"iphone-legacy\") 位於 #[cfg(test)] mod tests（起於 2209 行）內的測試 fixture 函式 legacy_format0_body()。故『驗收指令會誤報（連註解/測試都算命中）、但 production 程式碼層面 runtime 核心仍無 iPhone 專屬耦合』的判斷正確。",
+   "evidence": [
+    "docs/aip/architecture-boundaries.md:99",
+    "crates/interaction-runtime/src/character_session.rs:167",
+    "crates/interaction-runtime/src/character_session.rs:2209-2210,2755",
+    "crates/interaction-runtime/src/sensor_source.rs:245-248,512-515"
+   ]
+  },
+  {
+   "id": "H-27",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "逐節核對 MAINTAINERS-MAP.md 確有 10 節（角色/Renderer/Session/裝置/Transport/SensorSource/Agent/設定/儲存/發布），全文 grep -i 對 onboarding/uiprefer/recipe/tool-schema/tool_schema/memory/knowledge/curator 均零命中；policy/consent 只在第 3、7 節『已知限制』『狀態來源』欄順帶提及（ConsentVerifier 不接進 gate；Policy Governor 確定性強制），並無獨立領域列。line 144 起確有『加一列的時機』段落。額外驗證兩個被指涵蓋不到的具體能力確實存在正式入口而非 defined-only：UiPreferences 結構體與其應用服務方法定義在 crates/interaction-runtime/src/human.rs（非文件誤植位置——是 runtime 層），interaction-policy/src/lib.rs 附近確有 AuthorizationResult 的 actuator allowlist 等 Policy Governor 判定邏輯；兩者都是有實作、有呼叫路徑的能力，卻沒有 MAINTAINERS-MAP 專屬列，坐實『涵蓋不全』的具體對象。",
+   "evidence": [
+    "docs/MAINTAINERS-MAP.md:22,34,46,58,70,82,94,106,118,130（十節標題）",
+    "docs/MAINTAINERS-MAP.md:144-148（加一列的時機）",
+    "docs/MAINTAINERS-MAP.md 全文 grep -i：onboarding/uiprefer/recipe/tool-schema/memory/knowledge/curator 零命中；policy/consent 僅第3、7節順帶提及",
+    "crates/interaction-runtime/src/human.rs:107,559,568（UiPreferences 結構體＋ui_preferences/update_ui_preferences 應用服務方法）",
+    "crates/interaction-policy/src/lib.rs:135 附近（actuator allowlist 等 AuthorizationResult 判定邏輯）"
+   ]
+  }
+ ]
+}

@@ -9,13 +9,49 @@
 
 ## [Unreleased]
 
+### Added
+
+- 階段 0（真實狀態恢復）交付：`docs/releases/phase-0-progress.md`（入口）、`phase-0-repository-state.md`、
+  `phase-0-capability-recovery-matrix.md`（A–G＋K 共 67 列，每列附正式入口／owner／測試／證據層級；懷疑者改判逐列標示）、
+  `phase-0-architecture.md`、`phase-0-test-responsibility.md`（責任矩陣＋精簡處置表，本階段只記錄處置不刪測試）、
+  `phase-0-known-issues-reproducibility.md`（L 維度 71 列＋本輪確認的 D1–D20）、`phase-0-e2e-baseline.md`
+  （E0-01～E0-11，Claude Code／Codex／fixture／原生桌面／真 iPhone 分欄）、`phase-0-docs-vs-reality.md`、
+  `phase-0-roadmap.md`（階段 1–5 與下一個實作切片）。原始證據 `docs/releases/evidence/2026-09-07-phase-0/`
+  （`artifact-manifest.json` 逐檔 sha256；token／SQLite／home 目錄一律不歸檔）。
+- 階段 0 基線 runner 與真 Agent harness `scripts/tests/phase0/`：`baseline.sh`（沿用 repo 既有命令、逐步記錄）、
+  `agent_smoke.py`／`multi_session.py`／`restart_test.py`（真 Claude Code／Codex 走正式 HTTP 路徑，隔離 `INTERACT_AI_HOME`）、
+  `archive-evidence.py`。
+- `docs/releases/evidence-index.json` 新增 `phase-0-state-recovery-baseline` 候選條目；`AGENTS.md` §7 指向階段 0 入口。
+
+### Changed
+
+- 文件對照程式現況的修正（見 `docs/releases/phase-0-docs-vs-reality.md`）：README／`docs/ARCHITECTURE.md`／
+  `docs/FEATURES.md` 補 v0.7.0／v0.8.0 增量；`docs/INSTALL.md` 明說 `install.sh` 沒有 Windows 分支；
+  `docs/USER-GUIDE.md` 新增 `interact-ai agents …` 手冊與狀態誠實階梯；`docs/DESKTOP-GUIDE.md` 標明截圖基準版本。
+  舊能力清單（`docs/capability-completion-matrix.md`、`docs/v05-*.md`、`docs/releases/v0.6.0-recovery-matrix.md`）頂端加指向。
+
 ### Fixed
 
+- 測試設備（不是產品）：`crates/interaction-runtime/examples/fake_iphone.rs` 的 `reconnect` 在核心離線時不再
+  `process::exit(2)`，改印 `reconnect-failed` 並保持存活（階段 0 D17，讓「核心離線→重啟→同 token 重連」能用出貨 fixture 走完）。
+  <!-- phase0-harness-fixes -->
 - 測試維護：rebind整合測試在原有期限內等待完成稽核，避免Available先發布時誤判；保留精確回執與安全斷言，資料庫讀取錯誤明確失敗。只有測試及證據變更，v0.8.0產品與tag不變；見[CI後記](docs/releases/v0.8.0-ci-followup.md)。
 
 ### Known limitations
 
 - 本次是測試完成條件修正，受控重現使用pty模擬器；沒有新增真機／真人驗收，也不能據此定位先前缺少底層log的release-verify失敗。v0.8.0既有平台與安全驗收限制仍保留。
+- 階段 0 以真 Claude Code 2.1.263／Codex 0.153.4 實跑確認、**本輪未修**的產品缺陷（重現命令與證據見
+  `docs/releases/phase-0-known-issues-reproducibility.md` §4）：人類 interrupt 真 Claude Code session 的終態是 `failed`
+  而非 `cancelled`（D1）；close 的 SSE 投影把 failed／timed-out／unknown 壓成 `closed`（D2）；failed 的 session record
+  與 mailbox 沒有原因（D3）；Codex 核可拒絕送出的 wire 值 `"reject"` 不在 codex 0.153.4 的列舉內，拒絕靠 provider
+  端 fail-closed 而非語意上的 decline（D4）；Codex 連接器沒有等價於 Claude 的 MCP／plugin 封鎖，唯讀 session 仍啟動使用者
+  `~/.codex` 設定的 MCP server，任務全文出現在 process argv（D5）；`allowWrite` 的 Codex session 不送 `writable_roots`，
+  實際範圍併入使用者全域設定（D6）；`POST /interrupt` 在兩個 agent 上都是 session 級取消，沒有「停止這一輪但保留 session」（D8）；
+  `waiting-for-input` 沒有任何連接器會自動產生，只能人工 `POST /report`（D11）；模型與推理設定不可經 gateway 指定也不可回報（K-01／K-02／K-03）；
+  Context Bundle 上限 48 KiB 與 mailbox 16 KiB 互相矛盾（D-06／E-04，靜態確認、本輪執行期未觸發）；daemon 只處理 SIGINT，
+  `kill -TERM` 會跳過優雅關閉與 InstanceLock 釋放，下次啟動印 stale-lock 警告（D15，真 agent 執行中實跑確認）。
+- 階段 0 的原生桌面證據綁在 2026-09-06 的 v0.8.0 候選 App（sha256 `1103cda7…`，Info.plist 0.7.0），不是由 HEAD 重建；
+  真 iPhone 因 Xcode 未選 Team 維持 needs-environment；ESP32 仍只有 compile check 與 pty 模擬器。
 
 ## [0.8.0] - 2026-09-06
 

@@ -1,0 +1,2 @@
+{"agentDenylist":[],"agentVisibility":["claude-code"],"confidence":1.0,"content":"使用者最喜歡的顏色改為深紅色（暗號 phase0-mem2-b4f02c）","createdAt":"2026-09-07T09:05:25.526757Z","createdBy":{"kind":"human"},"kind":"preference","layer":"user-memory","memoryId":"mem-6ee8d6fa-09b6-40dd-944b-9b29e5d9d24c","provenance":[],"retention":{"reviewAfter":"2026-10-07T09:05:25.526727Z"},"schemaVersion":"1.0","tags":["color-preference"],"title":"偏好顏色","updatedAt":"2026-09-07T09:05:25.526757Z"}
+HTTP_STATUS:200

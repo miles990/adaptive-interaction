@@ -106,7 +106,7 @@ v0.4 的 Capability Matrix（**25/25 complete**）衡量的是治理平台的完
 [`docs/capability-completion-matrix.md`](docs/capability-completion-matrix.md) 與
 [`docs/v04-final-machine-evidence.md`](docs/v04-final-machine-evidence.md)。
 
-## v0.5（角色・硬體・AI 三核心重定位）——**v0.5.1 已發布；v0.6.0 Foundation 已於 2026-09-05 發布（tag `v0.6.0`）；v0.7.0 已於 2026-09-06 發布（tag `v0.7.0`，見 `docs/releases/v0.7.0-final-report.md`）**
+## v0.5（角色・硬體・AI 三核心重定位）——**v0.5.1 已發布；v0.6.0 Foundation 已於 2026-09-05 發布（tag `v0.6.0`）；v0.7.0 已於 2026-09-06 發布（tag `v0.7.0`，見 `docs/releases/v0.7.0-final-report.md`）；v0.8.0 已於 2026-09-06 發布（tag `v0.8.0`，見 `docs/releases/v0.8.0-final-report.md`）**
 
 **v0.5.0 已於 2026-09-03 發布**（tag `v0.5.0`）；`main`／`release/v0.5.1-product-hardening` 上的
 **v0.5.1 修補版本已於 2026-09-04 發布（tag `v0.5.1`）**。**v0.6.0 Foundation 已於 2026-09-05 發布
@@ -145,7 +145,7 @@ Phase 7 的逐條恢復矩陣在 [`docs/v05-recovery-matrix.md`](docs/v05-recove
   [`v0.5.1-final-report.md`](docs/releases/v0.5.1-final-report.md)、
   [`v0.5.1-iphone-device-evidence.md`](docs/releases/v0.5.1-iphone-device-evidence.md)。
 
-## AIP 1.0 與 Character Session（v0.6.0 Foundation，已發布）
+## AIP 1.0 與 Character Session（v0.6.0 Foundation → v0.8.0，已發布）
 
 **Adaptive Interaction Protocol（AIP）1.0** 是唯一的跨裝置語意訊息契約：新 crate
 `crates/interaction-aip`（純函式、無 tokio／I/O）定義 versioned envelope、十二種 message type、
@@ -164,6 +164,20 @@ iPhone wire、HTTP、SSE、Tauri IPC 四種 transport。小樞同步作為 **Str
 [`docs/aip/character-session.md`](docs/aip/character-session.md)、
 [`docs/aip/general-mode-ux.md`](docs/aip/general-mode-ux.md)、
 [`docs/releases/v0.6.0-test-matrix.md`](docs/releases/v0.6.0-test-matrix.md)。
+
+**v0.7.0（2026-09-06，tag `v0.7.0`）** 在此基礎上補上：跨平台接收決策表（三端同一份
+`receiveDecisions`／`canonicalVectors` fixtures）、裝置線 v1.2 分片與成員 `syncProfile`、宣告式裝置
+免重啟 rebind 與未解決停止三層 UI、陪伴預設交易化恢復、一般模式任務分類與真 Tauri 走查、AI 可維護性
+入口（`AGENTS.md`／`docs/MAINTAINERS-MAP.md`）。逐項見 [`CHANGELOG.md`](CHANGELOG.md) `[0.7.0]`、
+[`docs/releases/v0.7.0-final-report.md`](docs/releases/v0.7.0-final-report.md)。
+
+**v0.8.0（2026-09-06，tag `v0.8.0`）** 新增：SemanticState 獨立 schema＋TS／Swift codegen（production
+consumer 原子套用前驗證）、可協商 `aip.applied/1`（Serial／Mobile 有界回執 tracker，同步卡分別呈現能力／
+傳送／對端套用自報，**回執不代表畫面或物理效果已驗證**）、跨程序 SQLite sensor journal（未知停止摘要、
+bounded overflow 可見）、Tauri application service 擁有的陪伴預設恢復。MQTT 既有 broker 模擬器 rebind 測試，
+MQTT／BLE 專屬 `aip.applied` 閉環尚未驗；真 iPhone／ESP32 真板仍未取得本輪驗收。逐項見
+[`CHANGELOG.md`](CHANGELOG.md) `[0.8.0]`、[`docs/releases/v0.8.0-final-report.md`](docs/releases/v0.8.0-final-report.md)、
+[`docs/releases/v0.8.0-known-limitations.md`](docs/releases/v0.8.0-known-limitations.md)。
 
 ## 安裝（3 分鐘）
 

@@ -1,0 +1,22 @@
+{
+    "agents": [
+        {
+            "binaryPath": "claude",
+            "detail": "2.1.263 (Claude Code)\uff08\u5df2\u767b\u5165\uff09",
+            "found": true,
+            "kind": "claude-code",
+            "loggedIn": true,
+            "protocolSupported": true,
+            "version": "2.1.263 (Claude Code)"
+        },
+        {
+            "binaryPath": "codex",
+            "detail": "codex-cli 0.153.4\uff08\u5df2\u767b\u5165\uff0capp-server \u53ef\u7528\uff09",
+            "found": true,
+            "kind": "codex",
+            "loggedIn": true,
+            "protocolSupported": true,
+            "version": "codex-cli 0.153.4"
+        }
+    ]
+}

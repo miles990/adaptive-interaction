@@ -1,0 +1,7 @@
+group	status	note
+docs	SKIP	未指定 --docs
+ts	SKIP	未指定 --ts
+rust	SKIP	未指定 --rust
+drill-lint	SKIP	未指定 --drill-lint
+swift	SKIP	未指定 --swift；不以測試檔存在當成通過
+drills	PASS	四個 runner 實跑，覆蓋五項 N5 演練；per-run 日誌與資料保留結果在 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/baseline/arch-drills-evidence

@@ -1,0 +1,8 @@
+{"t": "2026-09-07T09:05:47.129Z", "mono": 0.006, "k": "daemon-ready"}
+{"t": "2026-09-07T09:05:47.932Z", "mono": 0.809, "k": "create", "status": 200, "state": "created", "id": "asession-757f2ecf-f498-4149-9a99-3d9aab3feaaf", "error": null}
+{"t": "2026-09-07T09:05:47.935Z", "mono": 0.812, "k": "task-sent", "status": 200, "resp": {"id": null, "kind": "task", "direction": "to-session", "contextBundle": null}}
+{"t": "2026-09-07T09:05:47.936Z", "mono": 0.813, "k": "state", "state": "created", "delegation": null}
+{"t": "2026-09-07T09:05:54.033Z", "mono": 6.91, "k": "state", "state": "active", "delegation": null}
+{"t": "2026-09-07T09:05:55.564Z", "mono": 8.441, "k": "state", "state": "claimed-completed", "delegation": null}
+{"t": "2026-09-07T09:05:57.077Z", "mono": 9.954, "k": "final", "state": "claimed-completed"}
+RESULT {"agent": "claude-code", "final": "claimed-completed", "sid": "asession-757f2ecf-f498-4149-9a99-3d9aab3feaaf", "wall": 10.05}

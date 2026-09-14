@@ -1,0 +1,614 @@
+{
+ "key": "E",
+ "found": {
+  "dimension": "E",
+  "rows": [
+   {
+    "id": "E-01",
+    "need": "記憶、知識節點、素材、角色記憶的實際關係（memory.rs 層級、knowledge.rs 節點／邊、assets CAS、角色記憶是否存在）",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration"
+    ],
+    "owner": "crates/interaction-runtime/src/{memory,knowledge,curator}.rs；crates/interaction-core/src/{memory,knowledge}.rs；apps/interaction-desktop/src/companion/interactionMemory.ts",
+    "entryPath": "HTTP /v1/memory* → routes.rs:2082-2181 → Runtime::memory_*（memory.rs:36-391）；HTTP /v1/knowledge/*、/v1/assets/* → routes.rs:2184-2434 → knowledge.rs／curator.rs；agent 只能經 canonical tools interaction.knowledge_*（routes.rs:772-943）；CLI commands.rs:508-720；Tauri lib.rs:1317-1563（embedded 直呼 Runtime）；桌面頁 MemoryKnowledgePage.tsx",
+    "contract": "記憶＝MemoryItem 10 層（core memory.rs:17-38）＋kind fact/inference/preference/know-how/candidate（:43-50）；知識＝KnowledgeNode（entity/claim/source）＋KnowledgeEdge 12 種 relation＋狀態機 candidate→active→stale/disputed→superseded/archived（core knowledge.rs:111-230）；素材＝SHA-256 CAS write-once（knowledge.rs:196-260）；bundle 只含記憶＋domain pack，不含知識節點（memory.rs:246-277）",
+    "stateOwner": "SQLite memory_items／knowledge_nodes／knowledge_edges／knowledge_fts／assets／asset_derivatives／knowledge_receipts（storage lib.rs:187-263）；素材 blob 在 <home>/state/assets/<hh>/<hash>（knowledge.rs:196-203）；角色互動記憶在 Tauri DesktopPrefs（src-tauri/src/supervisor.rs:135,226）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/memory_loop.rs::crud_layers_and_status（:62）、::handoff_lands_in_memory_with_30d_retention（:593）、::builtin_domain_packs_are_complete_scoped_removable_and_persisted（:641）",
+     "crates/interaction-runtime/tests/knowledge_loop.rs::assets_are_content_addressed_and_write_once（:55）、::agent_proposals_are_candidates_until_a_human_approves（:82）、::deleting_an_asset_disputes_knowledge_and_cascades_derivatives（:227）",
+     "crates/interaction-runtime/tests/curator_loop.rs::user_correction_is_deletable_memory_and_unpublished_candidate（:342）",
+     "crates/interaction-core/src/memory.rs tests（:319-577）；crates/interaction-core/src/knowledge.rs tests（:324-）",
+     "scripts/v03-cli-e2e.sh:282-338（真 daemon：memory add/bundle/delete、assets import、knowledge propose/review/search）",
+     "apps/interaction-desktop/src/test/regressions-review2-memory.test.tsx、regressions-review3-memory.test.tsx、backupSection.test.tsx（vitest，api 以 mock 替身）"
+    ],
+    "evidence": [
+     "core memory.rs:17-38 定義 10 層（含 PersonaCore／CharacterMemory／UserMemory／…／AgentHandoff）；:76-109 各層預設保存期限；memory.rs:36-53 memory_create 套 apply_actor_rules＋validate 後 persist 到 memory_items（storage lib.rs:1013-1031）",
+     "知識：knowledge.rs:1003-1077 propose node（agent 一律 Candidate：core knowledge.rs:318-322）、:1079-1148 propose edge、:1150-1264 review、:1329-1360 graph；storage lib.rs:214-233 knowledge_nodes/edges/fts 表",
+     "素材：knowledge.rs:196-260 asset_import 寫 blob 到 <home>/state/assets/<hash[..2]>/<hash>（write-once）＋assets 表（storage lib.rs:1156-1178 INSERT OR IGNORE）；衍生物 knowledge.rs:427-849 asset_derive → asset_derivatives 表",
+     "記憶↔素材：僅 retention.delete_with_parent 字串（core memory.rs:70-72）；asset_delete 級聯刪除（knowledge.rs:358-368，storage :1113-1133）。生產碼沒有任何寫入 delete_with_parent 的路徑（grep 只見讀取端；memory_from_input :456-462 允許人類自帶 retention JSON）",
+     "記憶↔知識：record_user_correction 建 UserMemory＋Candidate node，evidence.url=`adaptive-interaction://memory/<id>`（curator.rs:302-347）——純字串，無 FK；approve 只重驗 asset_hash 不驗 url（knowledge.rs:1180-1189），刪掉該記憶後 evidence 懸空不會被偵測",
+     "知識不進 bundle：memory_context_bundle 只掃 memory_items（memory.rs:246）＋domain pack（:267-277）；知識只經 interaction.knowledge_* 工具給 agent（routes.rs:772-943；tool-schema lib.rs:204-260）",
+     "角色記憶：MemoryLayer::CharacterMemory 只有 enum＋預設 180 天（core memory.rs:21,100-103）與 UI 標籤（MemoryKnowledgePage.tsx:14,31,290）；crates 內沒有任何寫入者。真正的『角色互動記憶』是桌面端純前端資料（interactionMemory.ts:1-12「不 import 任何 api／knowledge／runtime 模組」；supervisor.rs:226 CompanionInteractionMemory；清除按鈕 character/adapters/shuPlayControls.tsx:151-152），不在 Runtime 記憶庫，memory_export 明列 notIncluded（memory.rs:217-222）",
+     "匯出只有記憶：/v1/memory/export（memory.rs:192-232）；知識節點／素材／收據沒有任何匯出端點（lib.rs:145-204 路由表）"
+    ],
+    "limitation": "四種資料之間沒有資料庫層關聯（無 FK、無反向指標）；記憶→知識只靠 evidence.url 字串；CharacterMemory 層是死 enum，角色互動記憶完全在桌面 prefs、不受 Runtime retention／export／agent visibility 規則管轄；知識節點不在 Context Bundle 內、只能由 agent 主動用工具查。iOS 端沒有任何記憶／知識入口（apps/interaction-ios 只在 AIP model 檔提到 memory 字串）",
+    "nextAction": "決定 CharacterMemory 層的去留（刪 enum 或把桌面互動記憶落到 Runtime）；為 user-correction 的 memory→knowledge evidence 加刪除級聯或懸空偵測；補知識／素材匯出或在 UI 明說",
+    "reproCommand": "interact-ai memory add --layer character-memory --title x --content y --json && interact-ai memory export --json | jq '.notIncluded'",
+    "confidence": "high"
+   },
+   {
+    "id": "E-02",
+    "need": "SQLite 與檔案儲存的用途（storage crate 表清單、哪些走檔案）",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration"
+    ],
+    "owner": "crates/interaction-storage/src/lib.rs；crates/interaction-runtime/src/{config,runtime,knowledge}.rs",
+    "entryPath": "Runtime::start → Store::open(paths.db_file())（runtime.rs:272-290；config.rs:88-92）；所有 memory／knowledge／asset 服務經 self.store（memory.rs:42,90,106,121,246；knowledge.rs:235-239,1314-1330）",
+    "contract": "schema user_version 1..8 逐版 migrate（storage lib.rs:80-283）；JSON body 欄位＋少量 typed 欄位做索引；FTS5 只給知識；blob 走檔案系統 CAS；向量索引只在記憶體",
+    "stateOwner": "<INTERACT_AI_HOME>/state/interaction.db（config.rs:91-93）；<home>/state/assets/**（knowledge.rs:196-203）；<home>/state/{api-token,api-agent-token,runtime.lock,emergency-stop.requested}（config.rs:94-105）；policy 檔／recipes 目錄（config.rs:82-86）；桌面 DesktopPrefs 由 Tauri 端持有（supervisor.rs:135）",
+    "existingTests": [
+     "crates/interaction-storage/src/lib.rs #[cfg(test)] mod tests（:1590-）",
+     "crates/interaction-runtime/tests/agents_loop.rs::every_task_receives_and_persists_the_exact_session_scoped_context_bundle（:309，含 shutdown→restart 後讀回）",
+     "crates/interaction-runtime/tests/memory_loop.rs::expired_memories_are_pruned_by_sweep（:124）、::clear_session_context_clears_beyond_storage_page_limit（:266）",
+     "crates/interaction-runtime/tests/knowledge_loop.rs::assets_are_content_addressed_and_write_once（:55）、::asset_delete_cascade_and_dispute_are_not_truncated_by_caps（:478）"
+    ],
+    "evidence": [
+     "SQLite 表（storage lib.rs）：v1 receipts／plans／sessions／observations／audit／meta（:87-138）；v2 ai_descriptions（:149-158）；v3 providers／agent_sessions（:168-181）；v4 memory_items（id,layer,kind,expires_at,review_after,updated_at,body；:187-197）；v5 assets／knowledge_nodes／knowledge_edges／knowledge_fts（fts5 node_id UNINDEXED,title,content；:207-233）；v6 knowledge_receipts（:241-246）；v7 asset_derivatives（:254-263）；v8 character_adapters（:273-277）",
+     "檔案系統：素材 blob 與衍生 blob 走 CAS 目錄（knowledge.rs:196-203, 210-218, 862-870）；asset_delete 同時刪 row 與檔案（:340-352）",
+     "記憶／知識／收據／agent session（含 context bundle 回執）都是 JSON body 存 SQLite（storage :1013-1031, 1286-1312, 1530-1538；agents.rs:1470-1476 persist_agent_session 整筆 record 序列化）",
+     "Domain pack 安裝狀態存 meta 表 key（domain_packs.rs:285-301）",
+     "向量索引 LocalSubwordEmbeddingIndex 純記憶體（knowledge.rs:56-58 Mutex<HashMap>），每次啟動由 knowledge_nodes keyset 全掃重建（runtime.rs:467,506；knowledge.rs:1453-1477）",
+     "mailbox 只在記憶體（agents.rs:40 MAILBOX_CAP=200，entry.mailbox VecDeque），不落地；關閉 session 時只保留 delivered（agents.rs:1319-1321）",
+     "沒有 FTS／索引給 memory_items（只有 layer+updated_at、expires_at 索引：storage :196-197）"
+    ],
+    "limitation": "所有實體都是 JSON body，跨表關聯（記憶↔知識↔素材）沒有 FK 或觸發器；向量索引不持久化、啟動時 O(N) 重建；memory_items 沒有全文索引；桌面 prefs（含角色互動記憶）是 Tauri 另一份檔案，不在 interaction.db",
+    "nextAction": "無阻斷；若要跨表一致性（刪除級聯／懸空偵測）需在 storage 層加關聯欄位或 transaction 化的級聯",
+    "reproCommand": "sqlite3 \"$INTERACT_AI_HOME/state/interaction.db\" '.tables' && ls \"$INTERACT_AI_HOME/state/assets\"",
+    "confidence": "high"
+   },
+   {
+    "id": "E-03",
+    "need": "期限、複查、刪除與可見權限（TTL、review、delete、agent 可見範圍）",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration"
+    ],
+    "owner": "crates/interaction-core/src/memory.rs（規則）；crates/interaction-runtime/src/{memory,curator,runtime}.rs（執行）；crates/interaction-api/src/lib.rs（token 分權）",
+    "entryPath": "TTL：watchdog runtime.rs:2421-2427 → sweep_memory（memory.rs:394-400）／knowledge_freshness_sweep（curator.rs:421-476）；讀取端 memory_get 拒絕 expired（memory.rs:96-101）；複查：PATCH /v1/memory/{id} retention（routes.rs:2118-2125 → memory_update :56-87；UI MemoryKnowledgePage.tsx:399-417）；刪除：DELETE /v1/memory/{id}（:2127-2133 → memory_delete :105-112）、POST /v1/memory/clear-session-context（:147-180）；可見：visible_to_agent（core :167-180）＋bundle 過濾（memory.rs:302-335）＋token 分權（lib.rs:489-545）",
+    "contract": "RetentionPolicy 三態 expiresAt／reviewAfter／until-deleted（core memory.rs:63-73）；status 派生 Active/Stale/Expired（:152-164）；agent 建立的內容降權且 horizon 不得超過層級預設（:254-288）；denylist > visibility > 層級預設（UserMemory/SessionContext/PersonaCore 預設不給 agent）",
+    "stateOwner": "memory_items.expires_at／review_after 欄位（storage :1013-1031）；knowledge_nodes.review_after 在 JSON body；狀態不落地、讀時派生",
+    "existingTests": [
+     "crates/interaction-core/src/memory.rs::retention_three_states_derive_status（:325）、::agent_rules_demote_claims_and_long_term_user_memory（:378）、::far_future_horizon_counts_as_long_term（:418）、::agent_horizons_clamped_to_layer_defaults（:470）、::visibility_denylist_wins_and_sensitive_layers_default_hidden（:554）",
+     "crates/interaction-runtime/tests/memory_loop.rs::expired_memories_are_pruned_by_sweep（:124）、::expired_memories_are_refused_before_sweep（:234）、::clear_session_context_clears_beyond_storage_page_limit（:266）、::agent_user_memory_cannot_be_extended_beyond_thirty_days（:544）",
+     "crates/interaction-runtime/tests/curator_loop.rs::freshness_sweep_marks_overdue_active_as_stale（:51）、::freshness_sweep_scans_beyond_a_single_page（:181）",
+     "crates/interaction-api/tests/api_e2e.rs（:216-230 agent token 對 /v1/memory、/v1/assets、/v1/knowledge/nodes GET 一律 403；:252 knowledge_tools_require_a_live_session_token_and_enforce_tool_and_domain_scopes）",
+     "scripts/v03-cli-e2e.sh:293-295（memory delete 後 show 失敗）",
+     "apps/interaction-desktop/src/test/regressions-review2-memory.test.tsx:195-239（reconfirmDays／reconfirmOutcome）"
+    ],
+    "evidence": [
+     "到期：memory_get 在 sweep 前就回 NotFound（memory.rs:96-101）；sweep 每 60 tick 跑 prune_expired_memory（runtime.rs:2421-2423；storage :1135-1153）；知識 stale sweep 每 600 tick（runtime.rs:2425-2427）",
+     "複查：記憶沒有 approve／review 端點；UI『重新確認』只是 PATCH retention.reviewAfter（MemoryKnowledgePage.tsx:399-417）。memory_update 對 patch 後物件重套 apply_actor_rules（memory.rs:79-83），而 created_by 不在可 patch 欄位（:60-69）→ agent 建立的 UserMemory 永遠被重新降回 Candidate＋30 天（core :264-271），人類無法經 PATCH 把它升為長期偏好，只能重新以人類身分建立；UI 已誠實標示只能延 30 天（vitest :218-226）",
+     "刪除：memory_delete 只刪 row＋audit memory.deleted（memory.rs:105-112）；知識節點沒有任何刪除端點（lib.rs:157-190 路由；review reject 只到 archived，knowledge.rs:1203-1205），core 註解宣稱的 archived→deleted 狀態不存在（core knowledge.rs:8-9）；知識收據、邊、衍生物也無刪除入口（只有 asset_delete 級聯）",
+     "可見：bundle 排除 stale（列 needsReview）、expired、tag sensitive、!visible_to_agent、Candidate、domain 層未命中 session `domain:` grant（memory.rs:302-335）；agent_id 取 session record.agent_id（agents.rs:863-885）；domains 來自 data_scope `domain:*`（:870-876）",
+     "token 分權：agent token 對 /v1/memory、/v1/assets、/v1/knowledge GET 403（lib.rs:491-493），POST 不在白名單也 403（:519-545，只放 estop/stop/cancel/tools/observations/plans/hardware/update-check）；human 端點 asAgent 只降權（routes.rs:2098-2103）；session capability tool_scope／domains（agents.rs:60-93）",
+     "知識可見範圍：knowledge_search_scoped／knowledge_graph_scoped／asset_accessible_in_domains 依 session domains 過濾，無 domain 的節點對非 `*` session 不可見（knowledge.rs:1286-1291,1315-1327,1338-1346）"
+    ],
+    "limitation": "『沒有你不能刪除的記憶』只對 memory_items 成立；知識節點／邊／收據沒有刪除路徑；記憶候選沒有正式複審動作（只有 PATCH），agent 候選的使用者記憶不可被人類升格；UserMemory 預設對 agent 不可見且無 UI 設定 agentVisibility（頁面只 patch retention），因此使用者偏好實際上幾乎不會進 bundle",
+    "nextAction": "補知識節點刪除（含 FTS／向量／邊／收據處置）；決定記憶候選的人類升格流程（例如 review 端點改 created_by 或 promote 動作）；UI 暴露 agentVisibility 或在文案明說偏好不會給 AI",
+    "reproCommand": "interact-ai memory add --layer user-memory --kind preference --title p --content c --as-agent codex --json | jq .kind  # candidate；再 memory set <id> '{\"kind\":\"preference\",\"retention\":{}}' 仍回 candidate",
+    "confidence": "high"
+   },
+   {
+    "id": "E-04",
+    "need": "查詢、排序、分頁及容量限制（/v1/memory GET 參數、/v1/knowledge/search、上限常數）",
+    "status": "confirmed-defect",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration",
+     "not-run"
+    ],
+    "owner": "crates/interaction-api/src/routes.rs（參數）；crates/interaction-storage/src/lib.rs（clamp／ORDER BY）；crates/interaction-runtime/src/{memory,agents}.rs（上限常數）",
+    "entryPath": "GET /v1/memory?layer&limit（routes.rs:2075-2091，預設 200）→ memory_list（memory.rs:119-142）→ list_memory clamp 1..1000 ORDER BY updated_at DESC（storage :1054-1090）；GET /v1/knowledge/nodes?status&limit（routes.rs:2261-2298，預設 100）；GET /v1/knowledge/search?q&k（:2380-2399，預設 10）；GET /v1/assets 固定 200（:2201）；GET /v1/knowledge/receipts 固定 100（:2412）；graph edges 固定 200（knowledge.rs:1329）；CLI memory list --limit 預設 50（main.rs:632-636）；桌面 memoryList(…,200)、GlobalSearch memoryList(100)/knowledgeList(100)",
+    "contract": "回傳 items/count/total/limit/limitReached（memory.rs:135-141）；知識 list 只回 nodes/count（knowledge.rs:1215-1221）；search 回 results＋retrievalNote；沒有 offset／cursor／sort／kind／tag／text 參數；bundle 上限 24 條／48 KiB／掃描 1000（memory.rs:18-22）；export 1000（:25）",
+    "stateOwner": "無（純查詢）；上限常數散落 memory.rs:18-25、core memory.rs:183-185（content 8 KiB／title 120／tags 16）、core knowledge.rs:232-233（content 16 KiB／title 160）、knowledge.rs:29-30（asset 64 MiB／inline 1 MiB）、routes.rs:2232（content 端點 8 MiB）、routes.rs:817（get_source 文字預覽 64 KiB）、agents.rs:50（mailbox body 16 KiB）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/memory_loop.rs::context_bundle_reports_capacity_truncation（:422）、::memory_export_declares_scope_and_reports_its_limit（:467）、::memory_export_exact_limit_is_not_falsely_reported（:506）、::memory_export_one_over_limit_reports_truncation（:526）",
+     "crates/interaction-runtime/tests/knowledge_loop.rs::asset_delete_cascade_and_dispute_are_not_truncated_by_caps（:478）；curator_loop.rs::freshness_sweep_scans_beyond_a_single_page（:181）",
+     "apps/interaction-desktop/src/test/regressions-review3-memory.test.tsx:62-77（limitReached 文案）；regressions-review2-memory.test.tsx:102-131（overCapacity／scanLimit 文案）",
+     "沒有任何測試把接近 BUNDLE_MAX_BYTES 的 bundle 送進 mailbox_send（grep MAX_BODY_BYTES／BUNDLE_MAX_BYTES 於 tests/ 無命中）"
+    ],
+    "evidence": [
+     "記憶 list 唯一排序 updated_at DESC、唯一過濾 layer（storage :1054-1090）；total 由 count_memory 取真值（:1092-1111）",
+     "知識 list：status＋limit，無 total／limitReached（knowledge.rs:1215-1221；storage :1326-1363）；keyset 分頁 list_knowledge_nodes_page／edges_touching_page 只供內部 sweep 使用（storage :1365-1411, 1477-1507），未經任何路由暴露",
+     "search：FTS clamp 1..100（storage :1413-1435）＋vector k；不分頁；結果不依 status 過濾（knowledge.rs:1266-1310）",
+     "GlobalSearch 只抓前 100 筆記憶／知識再做前端子字串比對（components/GlobalSearch.tsx:135-141, 335-339）；一般模式記憶頁沒有搜尋框，只有分類下拉（MemoryKnowledgePage.tsx:141-200）",
+     "缺陷路徑：mailbox_send 先把 bundle 塞進 body（agents.rs:863-886）再檢查整個 body ≤ MAX_BODY_BYTES=16 KiB（:50, :890-893）；而 bundle 的位元組預算是 BUNDLE_MAX_BYTES=48 KiB（memory.rs:19）且只計 content+title（:336），不計 memoryId/layer/kind/confidence 與 JSON 包裝。一個 session 只要授權 domain 內有 ≥3 筆接近 8 KiB（core :183 上限）的 Active know-how，或多筆合計 >~15 KiB，任務派送即回 Validation『mailbox body too large』，無降級／重算路徑；proactive 派送（proactive.rs:757-764）同路徑",
+     "schemas/openapi.json 只含 /v1/capabilities、/v1/health、/v1/tools 三條路徑（grep），記憶／知識 HTTP 參數沒有 golden 契約，只在 skills/…/references/api.md:147-157 與程式碼"
+    ],
+    "limitation": "無分頁／游標／排序選項；知識 list 不回 total；bundle 位元組預算（48 KiB）與 mailbox 上限（16 KiB）互相矛盾，資料量一大就派送失敗；HTTP 參數無 golden schema",
+    "nextAction": "把 BUNDLE_MAX_BYTES 壓到 mailbox 可容納的值（含 JSON 包裝）或讓 bundle 以獨立回執附帶、mailbox 只帶 bundle_id；補 cursor 分頁與 total；為記憶／知識路由產 OpenAPI golden",
+    "reproCommand": "for i in 1 2 3; do interact-ai memory add --layer domain-know-how --kind know-how --title \"big$i\" --content \"$(head -c 7900 /dev/zero | tr '\\0' 'a')\" --tag rust --json >/dev/null; done; 建立 data_scope=[domain:rust] 的 session 後送 task → 預期 400 mailbox body too large（未實跑）",
+    "confidence": "high"
+   },
+   {
+    "id": "E-05",
+    "need": "關鍵字／語意檢索是否接線（FTS5、本機向量／稀疏 embedding 真的被 search 路由用到嗎）",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "static-inspection",
+     "integration"
+    ],
+    "owner": "crates/interaction-runtime/src/knowledge.rs（VectorIndex／search）；crates/interaction-storage/src/lib.rs（knowledge_fts）",
+    "entryPath": "GET /v1/knowledge/search（routes.rs:2380-2399）與 tool interaction.knowledge_search（routes.rs:772-781，session 走 knowledge_search_scoped）→ knowledge_search_in_domains（knowledge.rs:1260-1315）→ store.search_knowledge（FTS5 bm25，storage :1413-1435）＋vector_index.query（knowledge.rs:172-183）；CLI `knowledge search`（commands.rs:525-532）；Tauri knowledge_search（lib.rs:1422-1431）→ 只有進階頁 KnowledgeAdvanced.tsx:19 使用",
+    "contract": "回傳 results[{nodeId,title,status,nodeType,confidence,domains,usable,retrieval:{fts|vector}}]＋retrievalNote『FTS=bm25；vector=local-subword-embedding-v1…檢索只產生候選，不代表可信』（knowledge.rs:1298-1313, 191-193）",
+    "stateOwner": "knowledge_fts 虛擬表（storage :232-233，預設 unicode61 tokenizer，無 tokenize= 設定）；LocalSubwordEmbeddingIndex 記憶體 HashMap（knowledge.rs:56-58），啟動重建（:1453-1477）、persist 時 upsert（:1444-1447）、刪素材時 remove（:377）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/knowledge_loop.rs::search_finds_via_fts_and_vector_candidates（:169，查『lookahead 延遲』、畸形查詢不 panic）、::local_subword_embedding_retrieves_cross_language_domain_concepts_as_candidates（:596，英文查中文節點）",
+     "crates/interaction-api/tests/api_e2e.rs::knowledge_tools_require_a_live_session_token_and_enforce_tool_and_domain_scopes（:252，tool 路徑 domain 過濾）",
+     "scripts/v03-cli-e2e.sh:325-326（knowledge search 找到剛 approve 的節點）"
+    ],
+    "evidence": [
+     "FTS：save_knowledge_node 每次寫入先 DELETE 再 INSERT knowledge_fts（storage :1303-1309）；search 以 bm25 排序（:1421-1422）；查詢字串整段加雙引號成 phrase（knowledge.rs:1485-1487）",
+     "向量：純確定性 sparse feature（token＋2/3 字元 subword＋6 組跨語言 concept anchor 雜湊到 8192 桶）＋cosine（knowledge.rs:60-160）；nature() 明說非神經模型（:191-193）；沒有任何外部／神經 embedding、沒有 INTERACT_AI_*EMBED* 之類設定",
+     "融合：FTS 結果先、vector 結果後、依 id 去重，沒有分數融合或重新排序（knowledge.rs:1274-1290）；superseded／archived 節點也會回傳，只靠 usable=false 標示（:1301）",
+     "記憶完全沒有檢索：memory_items 無 FTS／向量（storage :187-197）；記憶搜尋只有 GlobalSearch 前端子字串（GlobalSearch.tsx:335-339）",
+     "bundle 不用檢索：memory_context_bundle 依層級／時間排序而非相關性，task 字串只回填不參與選擇（memory.rs:283-298, 368-371）",
+     "推論（未實測）：unicode61 把連續 CJK 視為單一 token，phrase 查詢對中文子串多半靠 subword 向量路徑命中；現有測試不分辨是哪條路徑命中"
+    ],
+    "limitation": "語意檢索＝離線稀疏特徵，非神經 embedding；只服務知識節點；一般模式沒有檢索入口（只在進階頁）；task 文字不影響 bundle 內容；CJK 對 FTS 的實際命中率未驗證",
+    "nextAction": "若要『語意』宣稱成立需明說是 lexical/subword 候選；考慮 FTS5 trigram tokenizer 或明確測 CJK；決定是否讓 bundle 以 task 相關性挑選",
+    "reproCommand": "interact-ai knowledge search \"permission approval\" --json | jq '.retrievalNote, (.results[]|.retrieval)'",
+    "confidence": "high"
+   },
+   {
+    "id": "E-06",
+    "need": "provenance、附件、版本與關聯（knowledge receipts、edges、supersede）",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration",
+     "browser"
+    ],
+    "owner": "crates/interaction-core/src/knowledge.rs（SourceRef／edge 驗證）；crates/interaction-runtime/src/{knowledge,curator}.rs（receipt／supersede／conflict）",
+    "entryPath": "propose：POST /v1/knowledge/nodes|edges（routes.rs:2300-2363）、tools knowledge_propose_{entity,claim,relation,supersede}（routes.rs:827-933）；review/supersede 生效：POST /v1/knowledge/nodes/{id}/review approve（routes.rs:2365-2387 → knowledge.rs:1150-1264）；receipts：GET /v1/knowledge/receipts（routes.rs:2412）＋SSE knowledge.updated（curator.rs:388-397）；graph：GET /v1/knowledge/nodes/{id}/graph；素材：/v1/assets/{hash}/{derive,derivatives,impact}",
+    "contract": "Claim 每筆 evidence 必含 assetHash 或 url（core knowledge.rs:245-261）；causes/influences 不得來自 analogy/inspiration/ai-conjecture（:293-315）；review 狀態機 superseded/archived 不可復活（:270-290）；KnowledgeReceipt {updateId,triggeredBy,agentSessions,sources,sourceHashes,changes,verification{schemaPassed,sourceHashesVerified,conflictCheck,humanReviewed},published}（curator.rs:223-267）",
+    "stateOwner": "knowledge_nodes.body（evidence／reviews／supersedes／version）、knowledge_edges、knowledge_receipts、asset_derivatives（storage :214-263）；memory_items.body.provenance",
+    "existingTests": [
+     "crates/interaction-runtime/tests/knowledge_loop.rs::claims_need_evidence_and_analogies_cannot_be_causal（:122）、::supersede_archives_the_old_version（:201）、::empty_or_note_only_source_refs_cannot_pass_the_evidence_gate（:304）、::dangling_evidence_is_annotated_and_blocks_approval（:358）、::review_cannot_resurrect_superseded_or_archived_versions（:407）、::image_and_audio_derivatives_are_content_addressed_and_precisely_linked_to_sources（:626）、::deleting_source_previews_and_removes_derived_assets_without_silent_orphans（:709）",
+     "crates/interaction-runtime/tests/curator_loop.rs::update_decisions_are_deterministic_and_receipts_flow（:321）",
+     "crates/interaction-api/tests/api_e2e.rs（:389 receipts；:422-445 derive／derivatives／preview）",
+     "scripts/v03-cli-e2e.sh:306-338（assets import 冪等、propose→review→search→link 因果拒絕→receipts）",
+     "apps/interaction-desktop/e2e/evidence.spec.ts:517-533（Playwright：真 daemon 建 candidate 後右上 Inbox 顯示待決定）",
+     "crates/interaction-tool-schema/src/lib.rs:671（knowledge_propose_supersede 出現在 canonical tool manifest）"
+    ],
+    "evidence": [
+     "記憶 provenance：Vec<String> 自由字串（core memory.rs:130-132），驗證拒絕憑證樣態（:232-238）；由 API input（memory.rs:450-455）、user-correction（curator.rs:310）、handoff／task-experience（agents.rs:1352；curator.rs:591）寫入；bundle includes 不帶 provenance／tags（memory.rs:345-352）",
+     "知識 evidence：propose 時檢查 assetHash 存在（knowledge.rs:1030-1038），approve 時重驗（:1180-1189）；刪素材時 Active→Disputed、其他狀態附 runtime comment（:369-402）",
+     "supersede：node.supersedes 由 input 帶入（knowledge.rs:1712-1715；tool 版繼承 prior nodeType／domains routes.rs:902-921）；approve 時舊節點→Superseded（:1191-1198）；不會自動建 Supersedes 邊、無 superseded_by 反向指標；version 永遠 1（:1709），沒有遞增",
+     "receipts：propose node／edge、review approve/reject、freshness sweep、conflict check、user-correction、task-experience 都寫收據（knowledge.rs:1041-1077, 1118-1148, 1229-1264；curator.rs:352-378, 452-475, 530-550, 690-710）並發 SSE；review 收據 sourceHashesVerified 固定 false（:1250）雖然 approve 已重驗 hash——保守低報",
+     "邊：save_knowledge_edge ON CONFLICT 更新（storage :1437-1456）；conflict check 只看 status usable 的 Contradicts/ConflictsWith（curator.rs:482-552）",
+     "衍生物：thumbnail/OCR/transcript/audio-features/keyframe/pdf-text/code-index，各帶 processor／version／segment，缺工具誠實 unavailable（knowledge.rs:427-849）",
+     "素材 audit actor 一律 'unattributed-api-caller'（knowledge.rs:244-251, 404-409）；知識收據沒有過濾／匯出端點"
+    ],
+    "limitation": "版本號不遞增、supersede 鏈只有單向 supersedes 欄位；收據不可查詢過濾也不在匯出範圍；記憶 provenance 只是字串且不隨 bundle 送給 agent；user-correction 的 evidence url 指向記憶不做存在性驗證",
+    "nextAction": "在 approve supersede 時自動建 Supersedes 邊並遞增 version；為 receipts 加 cursor／過濾；bundle 附 provenance 摘要供 agent 引用",
+    "reproCommand": "interact-ai knowledge propose-claim --title v2 --content x --evidence '[{\"url\":\"https://e.x\"}]' --json（帶 supersedes 需走 tool interaction.knowledge_propose_supersede）→ knowledge review <id> approve → knowledge show <old> | jq .status",
+    "confidence": "high"
+   },
+   {
+    "id": "E-07",
+    "need": "新偏好取代舊偏好（supersede／conflict 流程是否確定性、是否影響 bundle）",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "static-inspection",
+     "integration"
+    ],
+    "owner": "crates/interaction-runtime/src/{memory,curator,knowledge}.rs；crates/interaction-core/src/memory.rs",
+    "entryPath": "記憶：只有 PATCH /v1/memory/{id}（原地覆寫同一 id，memory.rs:56-87）與 POST /v1/knowledge/user-corrections（curator.rs:272-385，每次新建一筆 UserMemory Preference＋Candidate）；知識：approve 帶 supersedes（knowledge.rs:1191-1198）＋knowledge_conflict_check（curator.rs:482-552）",
+    "contract": "記憶層沒有 supersede／conflict／dedupe 概念（memory.rs 與 core memory.rs 全文無相關邏輯）；知識層 supersede 與 dispute 皆確定性、無 AI（curator.rs:1-6）",
+    "stateOwner": "memory_items（同 id 覆寫，無歷史版本）；knowledge_nodes.status／supersedes",
+    "existingTests": [
+     "crates/interaction-runtime/tests/knowledge_loop.rs::supersede_archives_the_old_version（:201）",
+     "crates/interaction-runtime/tests/curator_loop.rs::active_contradiction_disputes_both_sides（:74）、::candidate_edges_never_demote_active_knowledge（:117）、::user_correction_is_deletable_memory_and_unpublished_candidate（:342）",
+     "crates/interaction-core/src/knowledge.rs::review_transitions_respect_the_state_machine（:408）",
+     "沒有測試涵蓋『兩筆同主題偏好同時存在時 bundle 給哪一筆』"
+    ],
+    "evidence": [
+     "record_user_correction 每次都 new_memory_item＋supersedes: None，不查找舊糾正（curator.rs:302-347）；memory_create 無重複偵測（memory.rs:36-53）",
+     "bundle 排序＝層級優先序→updated_at DESC→id（memory.rs:283-298），新舊偏好都會被收錄直到撞上限；UserMemory 預設對 agent 不可見（core memory.rs:174-179），所以偏好取代與否在預設情境下根本不影響 bundle",
+     "知識 supersede 只在人類 approve 時觸發（knowledge.rs:1160-1198）；superseded 節點仍會出現在 search，只有 usable=false（:1301；core :123-128）；知識不在 bundle（memory.rs:246），supersede 只影響 agent 主動查詢",
+     "conflict check 是確定性的：只有 usable 的 Contradicts/ConflictsWith 邊才把雙方標 Disputed，candidate 邊只列 candidateConflicts（curator.rs:482-552）；接著 review 收據帶 conflictCheck passed/conflicts-found（knowledge.rs:1226-1240）",
+     "UI 沒有『取代舊偏好』動作：MemoryKnowledgePage 只有刪除／重新確認（:376-424）；superseded 標籤文案存在（:436）"
+    ],
+    "limitation": "記憶偏好層沒有取代／衝突機制，新舊偏好並存且都可能進 bundle（若可見）；唯一確定性的 supersede 在知識層，且不影響 bundle；使用者要『改偏好』只能刪舊建新或 PATCH 原筆",
+    "nextAction": "為 UserMemory 偏好加 supersedes／dedupe（至少 title 相同時提示）或在 user-correction 自動把舊糾正標 stale；文件明說記憶層無取代流程",
+    "reproCommand": "interact-ai knowledge correct --correction a --json; interact-ai knowledge correct --correction b --json; interact-ai memory list --layer user-memory --json | jq '.items|length'  # 2 筆並存",
+    "confidence": "high"
+   },
+   {
+    "id": "E-08",
+    "need": "Agent 原生 Session／記憶如何利用（resume providerSessionId 是唯一途徑？CLAUDE.md／專案記憶是否被讀）",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "static-inspection",
+     "fixture",
+     "integration"
+    ],
+    "owner": "crates/interaction-runtime/src/{agents,gateway}.rs；crates/interaction-agent-gateway/src/{lib,claude,codex,codex_exec}.rs",
+    "entryPath": "POST /v1/agent-sessions{resumeProviderSessionId}（agents.rs:277）→ create_agent_session 驗證（:453-467 找不到紀錄即拒絕；check_resume_not_wider）→ gateway_attach spec.resume_provider_session（gateway.rs:291-337）→ claude `--resume <id>`（claude.rs:106-108）／codex `thread/resume`（codex.rs:321-330）／`codex exec resume`（codex_exec.rs:69-78）；provider_session_id 由連接器事件回填（gateway.rs:351-398, 640-645）；Runtime→agent 記憶只有 mailbox task 的 contextBundle 包裝（gateway.rs:722-738）",
+    "contract": "Runtime 不讀、不存 provider transcript；resume 不得放寬 scope／時間／成本／workdir（agents.rs:447-467 註解＋gateway_loop 測試）；bundle 包 runtimeRules 宣告為 untrusted reference data（gateway.rs:730-735）；handoff 落 AgentHandoff 層 30 天、confidence 0.5（agents.rs:1333-1353）；task-experience 落 TaskMemory（curator.rs:560-600）",
+    "stateOwner": "agent_sessions.body.provider_session_id／resolved_workdir（agents.rs:619-625）；provider 端 thread 由 claude／codex 自己的家目錄保存（codex_exec.rs:68 註解）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/gateway_loop.rs::resume_passes_the_provider_thread_and_relocks_permission_flags（:842）、::codex_resume_resends_cwd_and_sandbox_instead_of_inheriting_them（:1007）、::resume_cannot_widen_scope（:2157）、::resume_cannot_widen_time_or_cost_limits（:2295）、::resume_must_stay_in_the_recorded_workdir（:2505）、::resume_without_a_recorded_grant_is_refused（:2757）——全部用 fixtures/fake_{claude,codex}.sh",
+     "crates/interaction-agent-gateway/src/codex.rs::connector_uses_exec_fallback_and_resumes_the_same_thread（:907）",
+     "crates/interaction-runtime/tests/memory_loop.rs::handoff_lands_in_memory_with_30d_retention（:593）",
+     "docs/releases 內沒有任何逐列標示的『真 agent resume 成功』證據；E2E_REAL_AGENTS=1 的 Playwright 是否走 resume 未查到"
+    ],
+    "evidence": [
+     "resume 是唯一重用 provider 原生記憶的途徑：SessionSpec 只有 resume_provider_session（gateway lib.rs:167-168），沒有 transcript 匯入／匯出；runtime 從不讀 provider 對話",
+     "CLAUDE.md／AGENTS.md／專案記憶：crates 內沒有任何讀取（grep 只命中註解）；claude 以 spec.workdir 為 cwd 啟動（claude.rs:163），參數 `-p --safe-mode --strict-mcp-config --mcp-config {}`＋permission-mode／--tools（claude.rs:69-113），沒有 --setting-sources 之類禁止載入專案設定的旗標——是否自動讀 workdir 的 CLAUDE.md 取決於 claude CLI 行為，repo 內無法驗證",
+     "codex：只設 cwd／sandbox／approval（codex.rs:169; codex_exec.rs:65-80），CODEX_HOME 交給 codex 自管",
+     "跨 session 的 Runtime 側記憶：AgentHandoff（kind Inference、visible 預設給 agent、bundle 層級序 4）與 TaskMemory（Runtime 寫 Fact，序 3）會在下一次任何 agent 的 bundle 出現（memory.rs:284-292；core :176-179）——但 TaskMemory 內容含 providerSessionId／costUsd（curator.rs:566-575），會隨 bundle 送給後續 agent",
+     "task 文字＝mailbox body.task；bundle 只在 kind==task 且 ToSession 時計算（agents.rs:863-886）；resume 的 session 若無 task 派送則沒有任何 Runtime 記憶進到 agent"
+    ],
+    "limitation": "真 agent 的 resume 只有 fixture 證據；CLAUDE.md 是否被 claude 子程序讀取未驗證（非 Runtime 控制）；Runtime 沒有辦法把 agent 原生記憶納入自己的記憶層或稽核；TaskMemory 把 providerSessionId 暴露給後續 bundle",
+    "nextAction": "以真 claude/codex 跑一次 resume 並在 docs/releases 逐列記錄；在 claude 啟動參數明確決定是否隔離專案 CLAUDE.md（例如 --setting-sources）；把 providerSessionId 從 TaskMemory content 移出或標 sensitive",
+    "reproCommand": "cargo test -p interaction-runtime --test gateway_loop resume_ -- --nocapture（fixture；本輪未跑）",
+    "confidence": "medium"
+   },
+   {
+    "id": "E-09",
+    "need": "刪除或撤銷後，舊 Agent 上下文的限制（刪除記憶後已派送的 bundle 不可收回：有沒有標示／稽核）",
+    "status": "confirmed-defect",
+    "evidenceLevel": [
+     "static-inspection",
+     "not-run"
+    ],
+    "owner": "crates/interaction-runtime/src/{memory,agents,gateway}.rs；crates/interaction-api/src/routes.rs（agent_session_get）",
+    "entryPath": "DELETE /v1/memory/{id} → memory_delete（memory.rs:105-112）只刪 memory_items 一列＋audit {memoryId}；已派送的 bundle 副本存在：(a) mailbox message.body.contextBundle（agents.rs:885, 913-925，記憶體）、(b) AgentSessionRecord.context_bundles[] 完整 bundle（含 content）落地到 agent_sessions（agents.rs:928-942 → persist :1470-1476）、(c) 已送進 agent 子程序的 stdin 文字（gateway.rs:726-746）、(d) provider 端原生 transcript（resume 會重用）",
+    "contract": "AgentContextBundleReceipt {bundleId,messageId,generatedAt,contentHash,bundle}（core agent.rs:261-268）是『實際提供了什麼』的證據，設計上不可由 agent 偽造（agents.rs:860-862 註解）；沒有 revoked／stale-after-delete 欄位；audit memory.deleted 不連結 bundle",
+    "stateOwner": "agent_sessions.body.context_bundles（每 session 最多 32 筆：agents.rs:51,938-941）；已結束 session 保留最多 200 筆／30 天（agents.rs:47-49, 762-790, 1527-1537）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/agents_loop.rs::every_task_receives_and_persists_the_exact_session_scoped_context_bundle（:309-388，證明 bundle 連內容一起落地並跨重啟保留）",
+     "沒有任何測試涵蓋『刪除記憶後 bundle 回執／mailbox／agent 子程序的處置』"
+    ],
+    "evidence": [
+     "memory_delete 全文（memory.rs:105-112）：delete_memory＋audit，沒有掃 agent_sessions／mailbox；grep context_bundles 只在 agents.rs 寫入端與測試，無任何讀取／標示邏輯",
+     "GET /v1/agent-sessions/{id}（human）把整筆 record 序列化回傳（routes.rs:1397-1404），context_bundles[].bundle.includes[].content 仍含已刪記憶全文，直到 prune_agent_sessions 依 200 筆／30 天清除（agents.rs:762-790）",
+     "桌面／CLI 沒有任何畫面顯示 context_bundles（grep contextBundle 於 apps/interaction-desktop/src 非測試檔無命中；WorkPage／AiPage 不讀此欄位），使用者無從得知哪些 session 拿過被刪的記憶",
+     "已送進子程序的文字不可收回，這是物理限制；但 gateway_interrupt／close 也不會因記憶刪除觸發，且沒有『此 session 曾收到已刪記憶』的稽核或 UI 註記",
+     "素材刪除有對應處置（Active 知識→disputed，knowledge.rs:369-402）；記憶刪除沒有對稱設計",
+     "不變量『不存在使用者不可刪除的永久記憶』對 memory_items 成立，但刪除後內容副本可在 agent_sessions 表殘留最長 30 天，且 memory_export／UI 都看不到這些副本"
+    ],
+    "limitation": "刪除只是單表刪除；bundle 回執、mailbox、子程序與 provider transcript 四處副本都無標示、無稽核連結、無 UI；CLOSED_AGENT_SESSION_RETENTION 30 天內可經 human API 讀回已刪內容",
+    "nextAction": "memory_delete 時掃 agent_sessions.context_bundles，把命中的 includes 內容遮蔽為 {memoryId, redactedAt} 並寫 audit memory.deleted{affectedSessions}；在 Work／AI 頁顯示『此工作階段曾收到已刪除的記憶』；文件把『已派送不可收回』列為明示限制",
+    "reproCommand": "建 session（data_scope domain:rust）→ 送 task → interact-ai memory delete <id> → curl -H \"Authorization: Bearer $HUMAN\" localhost:8787/v1/agent-sessions/<sid> | jq '.contextBundles[].bundle.includes[]|select(.memoryId==\"<id>\")'（預期仍看到 content；未實跑）",
+    "confidence": "high"
+   }
+  ],
+  "openQuestions": [
+   "E-04 缺陷（bundle 48 KiB vs mailbox 16 KiB）尚未以測試重現；需要確認 MAX_BODY_BYTES 檢查是否有其他繞路（例如 gateway 直送不經 mailbox_send）——靜態看沒有",
+   "E-08：claude CLI `-p` 模式在 workdir 有 CLAUDE.md 時是否自動載入，以及 `--safe-mode` 的實際語意，需在真環境驗證（repo 內無資料）",
+   "E-05：FTS5 unicode61 對 CJK phrase 查詢的實際命中率未測；現有測試無法分辨命中來自 FTS 還是 subword 向量",
+   "E-01：CharacterMemory 層是否仍屬規格要求（docs/specs），或應與桌面 interactionMemory 合併／刪除——未查 specs 原文",
+   "E-03：知識節點無刪除端點是否為刻意設計（版本化封存）還是遺漏——core knowledge.rs:8-9 註解列出 deleted 狀態但無實作",
+   "docs/MAINTAINERS-MAP.md 沒有記憶／知識維度的必要測試列（grep 無命中），歸屬需由主流程補"
+  ],
+  "notes": "全部為靜態閱讀（未 build／未跑測試）。證據層級標示依 repo 內既有測試：core 單元測試＝unit；crates/interaction-runtime/tests 以 tempdir SQLite 跑真 Runtime＝integration；gateway_loop 以 fake_claude/fake_codex 子程序＝fixture；evidence.spec.ts 以真 daemon＋Chromium 建知識節點＝browser；沒有任何 real-agent／real-iphone／real-hardware 證據可標。與文件對照：docs/FEATURES.md:141-143 與 ARCHITECTURE.md:147-148 的宣稱（10 層／三態／bundle／CAS／FTS5／lexical-vector）與程式一致；docs/releases/v0.8.0 與 v0.7.0 known-limitations 未收錄本維度任何限制（grep 只命中 sensor journal 的 memory-only 用語）；docs/reviews/adversarial/c3d1786 曾指出角色互動記憶不在後端與匯出範圍，程式現況相同（memory.rs:217-222 已改為誠實標示）。schemas/openapi.json 只含 tools 三條路徑，記憶／知識 HTTP 契約無 golden。原始 JSON 已寫到 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/matrix/find-E.json。"
+ },
+ "verdicts": [
+  {
+   "id": "E-01",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "reason": "Independently re-verified every major claim against the actual source and found the finding to be exceptionally accurate. Confirmed: MemoryLayer 10-variant enum incl. CharacterMemory/AgentHandoff (core/memory.rs:17-38), default_retention per-layer table (:76-109), memory_create pipeline (runtime/memory.rs:36-53). Confirmed AssetRecord write-once CAS at knowledge.rs:198-260 (asset_import writes blob to <home>/state/assets/<hash[..2]>/<hash>, INSERT-OR-IGNORE semantics). Confirmed apply_knowledge_actor_rules forces agent-authored nodes to Candidate (core/knowledge.rs:318-322) verbatim. Confirmed knowledge_review's approve path (runtime/knowledge.rs:1170-1180) re-verifies only evidence.asset_hash against the asset store and never checks evidence.url -- exactly as claimed. Confirmed record_user_correction (curator.rs:272-360) links memory->knowledge purely via an evidence.url string 'adaptive-interaction://memory/<id>' with no FK. Confirmed memory_context_bundle (runtime/memory.rs:239-246,267) scans only memory_items + domain-pack entries, never knowledge_nodes; knowledge is reachable to agents only via the interaction.knowledge_* tool routes (routes.rs:772-943, exact match). Confirmed CharacterMemory is a genuinely dead enum variant: grep across all of crates/ shows it appears ONLY in the enum declaration and the default_retention match arm -- no writer anywhere. Confirmed apps/.../companion/interactionMemory.ts's own header comment states it imports no api/knowledge/runtime module, matching the claim near-verbatim. Confirmed memory_export's notIncluded array (runtime/memory.rs:216-222) lists exactly knowledge-nodes/assets-and-derivatives/knowledge-receipts/character-interaction-memory. Confirmed the route table (api/lib.rs:145-204) has no export or delete endpoint for knowledge nodes/edges/receipts/assets-as-a-set. All cited test function names/lines exist exactly as stated (memory_loop.rs:62,593,641; knowledge_loop.rs:55,82,227). Only trivial imprecisions found, none altering correctness: (1) knowledge_propose_node actually starts at runtime/knowledge.rs:952, not 1003 (1003-1077 is the tail of that function plus the receipt-emission code) -- the substance cited from that range is still correct; (2) the asset_delete claim cites knowledge.rs:358-368 but the function body is actually at 362-379 (off by ~4 lines); (3) the claim 'schemas/openapi.json 只含...三條路徑' undercounts -- the file actually lists 2 plain paths plus 21 distinct /v1/tools/interaction.*/call paths (23 total), not literally three, though grouping them as one '/v1/tools' family is a reasonable simplification and the underlying point (no golden schema for direct /v1/memory, /v1/knowledge/nodes, /v1/assets REST parameters) is correct. None of these affect the status or evidenceLevel classification.",
+   "evidence": [
+    "core/memory.rs:17-38 MemoryLayer enum verified verbatim (10 variants incl. CharacterMemory, AgentHandoff)",
+    "core/memory.rs:76-109 default_retention match verified verbatim",
+    "runtime/knowledge.rs:198-260 asset_import verified verbatim (write-once blob, SHA-256 hash, insert_asset)",
+    "core/knowledge.rs:318-322 apply_knowledge_actor_rules verified verbatim (agent actor forces Candidate)",
+    "runtime/knowledge.rs:1170-1180 knowledge_review approve path verified: loops node.evidence checking only e.asset_hash via store.get_asset, never checks e.url",
+    "runtime/curator.rs:272-360 record_user_correction verified: evidence.url = format!(\"adaptive-interaction://memory/{}\", memory.memory_id) -- pure string, no FK",
+    "runtime/memory.rs:239-277 memory_context_bundle verified: only self.store.list_memory(...) + domain_pack_context_entries(...), no knowledge_nodes scan",
+    "api/routes.rs:772-943 interaction.knowledge_* tool dispatch verified verbatim",
+    "grep -rn CharacterMemory crates/ returns exactly 2 hits: the enum declaration (memory.rs:21) and the default_retention arm (memory.rs:100) -- no constructor/writer anywhere in crates",
+    "apps/interaction-desktop/src/companion/interactionMemory.ts:1-11 header comment verified: '這裡不 import 任何 api／knowledge／runtime 模組'",
+    "runtime/memory.rs:211-231 memory_export verified verbatim: notIncluded = [knowledge-nodes, assets-and-derivatives, knowledge-receipts, character-interaction-memory]",
+    "api/lib.rs:145-204 route table verified: no DELETE for /v1/knowledge/nodes/{id}, no export route for knowledge/assets/receipts",
+    "test fn names verified present at cited lines: memory_loop.rs:62,593,641; knowledge_loop.rs:55,82,227"
+   ]
+  },
+  {
+   "id": "E-02",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "Independently re-verified against crates/interaction-storage/src/lib.rs migrate() and found every schema-version/table claim to be exact, including line numbers. All CREATE TABLE statements for receipts/plans/sessions/observations/audit/meta (v1), ai_descriptions (v2), providers/agent_sessions (v3), memory_items (v4, cols id/layer/kind/expires_at/review_after/updated_at/body), assets/knowledge_nodes/knowledge_edges/knowledge_fts fts5 (v5), knowledge_receipts (v6), asset_derivatives (v7), character_adapters (v8) verified verbatim at the exact cited line ranges. Confirmed mailbox is purely in-memory (agents.rs: MAILBOX_CAP=200 at line 40, VecDeque<MailboxMessage> field, no persistence call in mailbox_send). Confirmed LocalSubwordEmbeddingIndex is Mutex<HashMap>-backed (in-memory only) with rebuild_vector_index doing an O(N) rescan at startup (runtime.rs / knowledge.rs verified). Confirmed domain-pack install state uses the meta table via get_meta/set_meta (domain_packs.rs, function names and behavior match exactly, though the cited line numbers 285-301 are slightly off from the actual 283-299 -- trivial). Confirmed CAS asset blobs live under <home>/state/assets/<hash[..2]>/<hash> and asset_delete removes both the DB row and the blob file (knowledge.rs:362-379, cited as 340-352 -- off by ~10-20 lines but the substance is fully correct). No overclaiming of evidenceLevel found; the cited tests (storage lib.rs unit tests, memory_loop.rs, knowledge_loop.rs integration tests) genuinely exist and exercise what's claimed.",
+   "evidence": [
+    "storage/lib.rs:75-283 migrate() function verified verbatim: schema versions v1 through v8, exact table names, exact column lists, exact index names all match the finding's citations line-for-line",
+    "storage/lib.rs:187-197 memory_items table verified verbatim (id, layer, kind, expires_at, review_after, updated_at, body)",
+    "storage/lib.rs:207-233 v5 migration verified verbatim: assets, knowledge_nodes, knowledge_edges, CREATE VIRTUAL TABLE knowledge_fts USING fts5(node_id UNINDEXED, title, content)",
+    "runtime/agents.rs:38-40 verified: VecDeque import, MAILBOX_CAP=200, no persistence of mailbox contents",
+    "runtime/knowledge.rs:56-58,162-177,1453+ LocalSubwordEmbeddingIndex verified: Mutex<HashMap>-backed, in-memory only, rebuild_vector_index exists",
+    "runtime/domain_packs.rs verified: installed_domain_pack_ids/persist_installed_domain_pack_ids use self.store.get_meta/set_meta on INSTALLED_META_KEY"
+   ]
+  },
+  {
+   "id": "E-03",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "reason": "Independently re-verified all cited mechanisms with strong fidelity to the source. Confirmed memory_get returns NotFound for expired items before sweep runs (runtime/memory.rs:96-101, exact). Confirmed memory_delete only deletes the row + audits 'memory.deleted' (memory.rs:105-112, exact) -- no knowledge-node analog exists in the route table (verified via api/lib.rs route list: no DELETE for /v1/knowledge/nodes). Confirmed the critical PATCH-cannot-promote-agent-memory claim precisely: memory_update's patchable-field allowlist (memory.rs:60-69) excludes created_by, and apply_actor_rules is unconditionally re-applied after every patch (memory.rs:82) -- since created_by is immutable and Agent-sourced UserMemory with a long-term horizon is always re-demoted to Candidate by apply_actor_rules (core/memory.rs:254-271), a human genuinely cannot promote it via PATCH; they must recreate it as human. This is even corroborated verbatim by a code comment inside the desktop UI itself (MemoryKnowledgePage.tsx, the 'reconfirm' handler) explicitly stating the agent-authored UserMemory gets demoted and is no longer given to the AI -- independent, in-repo confirmation of the same finding from a different subsystem. Confirmed the token-scoping allowlist for agent POST requests (api/lib.rs ~489-542) is exactly the closed list claimed: estop/stop-all/session-revoke/session-stop/sensors-stop/actions-cancel/tools-call/observations-query/plans/plans-simulate-execute/hardware-scan/knowledge-update-check -- nothing else passes, confirming memory/knowledge/assets POST are 403 for agent tokens by omission. Confirmed knowledge_search_scoped/knowledge_graph_scoped/asset_accessible_in_domains all implement fail-closed domain filtering with a '*' wildcard escape hatch, matching the claim. Confirmed the review-verdict downgrade for non-human actors (knowledge.rs:1138-1150, 'agent 的裁決降為留言'). Minor citation drift only: knowledge_search_scoped/knowledge_graph_scoped/asset_accessible_in_domains actually start at lines 1255/1369/1317 respectively rather than exactly matching every sub-range cited, but the specific domain-filter logic cited (~1286-1291) does land inside knowledge_search_scoped as claimed. None of this changes the status or evidence level.",
+   "evidence": [
+    "runtime/memory.rs:96-101 memory_get expired-before-sweep NotFound verified verbatim",
+    "runtime/memory.rs:105-112 memory_delete verified verbatim: only deletes row + audits, no knowledge-node equivalent route exists",
+    "runtime/memory.rs:56-73 memory_update patchable-field list verified verbatim: title/content/tags/retention/agentVisibility/agentDenylist/kind/confidence -- created_by absent",
+    "runtime/memory.rs:82 apply_actor_rules(&mut updated, patched_at) called unconditionally on every PATCH, verified",
+    "core/memory.rs:254-271 apply_actor_rules verified: Agent-created UserMemory wanting long-term horizon is forced to Candidate + 30-day review_cap regardless of patch content",
+    "apps/interaction-desktop/.../MemoryKnowledgePage.tsx reconfirm-button code comment independently states the same agent-memory-demotion behavior verbatim, corroborating from a separate subsystem",
+    "api/lib.rs agent_request_allowed() verified: closed POST allowlist matches claim exactly (estop/stop-all/session-revoke/session-stop/sensors-stop/cancel/tools-call/observations-query/plans/plans-simulate/plans-execute/hardware-scan/knowledge-update-check)",
+    "runtime/knowledge.rs asset_accessible_in_domains verified: domains.contains(\"*\") short-circuits to true, otherwise fail-closed against node.domains overlap",
+    "runtime/knowledge.rs:1138-1150 verified: 'approve'|'reject' downgraded to 'comment' for non-Human actor"
+   ]
+  },
+  {
+   "id": "E-04",
+   "refuted": false,
+   "correctedStatus": "confirmed-defect",
+   "reason": "This is the most consequential claim (confirmed-defect) and it holds up completely under direct inspection of the exact code path. Verified mailbox_send (runtime/agents.rs:852-894, cited range matches closely): when direction==ToSession and kind=='task', it computes the full memory_context_bundle (which is budgeted up to BUNDLE_MAX_BYTES=48KiB per memory.rs:19) and inserts it into the message body via body.insert('contextBundle', bundle) at line 885, THEN checks the entire serialized body against MAX_BODY_BYTES=16KiB (agents.rs:40,890) and returns DomainError::Validation('mailbox body too large') if exceeded. This is a genuine, reproducible internal budget contradiction: the bundle budget (48KiB) is 3x the mailbox body cap it gets stuffed into (16KiB), with no size-reconciliation, truncation-on-overflow, or fallback path -- confirmed by grep showing zero other references to this error string and zero tests in crates/interaction-runtime/tests/ or crates/interaction-api/tests/ that combine BUNDLE_MAX_BYTES-sized data with mailbox_send. Also confirmed proactive.rs:751-764 (dispatch_proactive_agent_task) goes through the identical mailbox_send('task', ...) path and, on error, simply closes the session as 'candidate-dispatch-failed' with no bundle-shrinking retry -- matching the claim's 'no degradation path' assertion. Also verified: memory_list contract returns items/count/total/limit/limitReached (memory.rs:135-141, exact); knowledge_list returns only nodes/count with no total/limitReached (runtime/knowledge.rs:1119-1126, exact -- a real asymmetry vs. memory_list); the internal keyset-pagination helpers list_knowledge_nodes_page/edges_touching_page (storage/lib.rs:1365,1477) are confirmed used only by curator.rs's freshness sweep and knowledge.rs's rebuild_vector_index -- never exposed through any HTTP route, confirming 'not exposed via any route.' GlobalSearch.tsx verified to fetch only memoryList(undefined,100)/knowledgeList(undefined,100) then do client-side substring filtering. CLI --limit default 50 verified verbatim (cli/main.rs, default_value_t = 50). asset_content's 8MiB cap verified verbatim (routes.rs, 8*1024*1024). All core numeric constants (BUNDLE_MAX_ITEMS=24, BUNDLE_MAX_BYTES=48KiB, BUNDLE_SCAN_LIMIT=1000, EXPORT_MAX_ITEMS=1000, MAX_MEMORY_CONTENT_BYTES=8KiB, MAX_KNOWLEDGE_CONTENT_BYTES=16KiB, MAX_BODY_BYTES=16KiB, MAILBOX body cap) verified verbatim at their cited locations. The evidenceLevel list correctly includes 'not-run' for the repro command (which was not executed, consistent with the task's no-build/no-test constraint), and does not overclaim any real-* evidence level -- appropriate.",
+   "evidence": [
+    "runtime/agents.rs:40 const MAILBOX_CAP... and MAX_BODY_BYTES=16*1024 verified at line 50 (cited exactly)",
+    "runtime/agents.rs:863-894 mailbox_send verified verbatim: bundle computed via memory_context_bundle, inserted into body at line 885, full-body size checked against MAX_BODY_BYTES at line 890, error text 'mailbox body too large (max {MAX_BODY_BYTES} bytes)' at line 892 -- exact match",
+    "runtime/memory.rs:18-19 BUNDLE_MAX_ITEMS=24, BUNDLE_MAX_BYTES=48*1024 verified verbatim -- confirms the 48KiB vs 16KiB budget mismatch is real and unreconciled",
+    "grep across crates/interaction-runtime/tests and crates/interaction-api/tests for 'mailbox body too large'/MAX_BODY_BYTES/BUNDLE_MAX_BYTES together: zero hits, confirming no test exercises this failure mode",
+    "runtime/proactive.rs:751-764 dispatch path verified: same mailbox_send('task',...) call; on Err it removes proactive_agent_tasks entry and closes session as 'candidate-dispatch-failed' with no retry/shrink logic",
+    "runtime/memory.rs:135-141 memory_list contract verified verbatim (items/count/total/limit/limitReached)",
+    "runtime/knowledge.rs:1119-1126 knowledge_list verified verbatim: returns only {nodes, count} -- no total/limitReached, confirming the asymmetry claim",
+    "storage/lib.rs:1365,1477 list_knowledge_nodes_page/edges_touching_page verified defined; grep shows callers only in curator.rs (freshness sweep) and knowledge.rs (rebuild_vector_index) -- never called from api/routes.rs or any route handler",
+    "apps/interaction-desktop/.../GlobalSearch.tsx verified: api.memoryList(undefined,100), api.knowledgeList(undefined,100), then Array.filter with .includes(q) substring match",
+    "cli/main.rs MemoryAction::List limit field verified: #[arg(long, default_value_t = 50)]",
+    "api/routes.rs asset_content verified: state.runtime.asset_content(&hash, 8*1024*1024) -- 8MiB cap confirmed (cited line off by 1, trivial)"
+   ]
+  },
+  {
+   "id": "E-05",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "reason": "Verified: GET /v1/knowledge/search + tool interaction.knowledge_search both route into knowledge_search_in_domains, which genuinely runs FTS5 (bm25, phrase-quoted) and a purely deterministic sparse-feature vector index concatenated with no score fusion, including superseded/archived nodes gated only by usable flag. LocalSubwordEmbeddingIndex.nature() literal string confirms 'non-neural' claim; no neural/external embedding exists anywhere. memory_items table has no FTS/vector object; the memory_context_bundle's task argument is confirmed used ONLY to echo back into the response JSON (memory.rs:369), never for selection/relevance. GlobalSearch does only client-side substring filtering. All cited test function names exist verbatim at/near cited lines. Evidence levels not overstated.",
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "integration"
+   ],
+   "evidence": [
+    "crates/interaction-api/src/routes.rs:2383,2389 SearchQuery/knowledge_search handler; lib.rs:157 route registration",
+    "crates/interaction-runtime/src/knowledge.rs:1265-1315 knowledge_search_in_domains: FTS+vector concatenated, dedup by id, no fusion",
+    "crates/interaction-runtime/src/knowledge.rs:184-186 nature() confirms non-neural sparse embedding",
+    "crates/interaction-storage/src/lib.rs:187-197,232-233 memory_items has no FTS/vector table; knowledge_fts has no tokenize= override",
+    "crates/interaction-runtime/src/memory.rs:369 task param only echoed into response JSON, never used for scoring",
+    "apps/interaction-desktop/src/components/GlobalSearch.tsx:335-339 substring-only filter"
+   ]
+  },
+  {
+   "id": "E-06",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "Verified: propose/review/approve HTTP+tool entry points all confirmed. Approve path re-verifies each evidence asset_hash before promotion, sets old node Superseded on supersede, but creates no reverse edge/back-pointer (only save_knowledge_edge call site in the file is unrelated, in propose_edge). version:1 confirmed hardcoded with no increment logic anywhere in the crate. KnowledgeReceipt struct fields match claimed contract exactly, and source_hashes_verified is confirmed hardcoded false on the approve receipt despite a fresh hash check moments earlier. All 8 cited test names verified verbatim. The cited Playwright test is real but exercises the inbox/notification UI rather than receipt/version details specifically -- a slightly generous justification for the 'browser' tag but not an incorrect one.",
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "unit",
+    "integration",
+    "browser"
+   ],
+   "evidence": [
+    "crates/interaction-runtime/src/knowledge.rs:1150-1198 approve path: re-verify evidence hashes, set Active, old->Superseded, no edge created",
+    "crates/interaction-runtime/src/knowledge.rs:1069 only save_knowledge_edge call site in file, unrelated to approve/supersede",
+    "crates/interaction-runtime/src/knowledge.rs:1709 version: 1 hardcoded, never incremented",
+    "crates/interaction-runtime/src/curator.rs:223-267 KnowledgeReceipt struct matches claimed contract",
+    "source_hashes_verified: false hardcoded on approve receipt despite fresh hash re-check just above",
+    "apps/interaction-desktop/e2e/evidence.spec.ts:515-533 real POST + Inbox notification assertion confirmed"
+   ]
+  },
+  {
+   "id": "E-07",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "reason": "Verified: memory_update is a same-id in-place merge with no versioning, and MemoryItem struct structurally has no supersedes field at all -- confirms memory layer has no supersede concept. record_user_correction always creates a brand-new UserMemory item with no lookup of prior corrections, and its parallel KnowledgeNode candidate has supersedes: None. Bundle sort confirmed purely deterministic (layer_rank -> updated_at DESC -> id), and UserMemory confirmed excluded from agent visibility by default -- meaning the preference-supersede gap is largely moot under default config, exactly as claimed. Knowledge-layer supersede confirmed human-approve-only and knowledge confirmed absent from the bundle entirely. All cited test names verified verbatim, and knowledge_conflict_check's deterministic usable-edge-only dispute logic matches the described mechanism precisely.",
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "integration"
+   ],
+   "evidence": [
+    "crates/interaction-runtime/src/memory.rs:56-87 memory_update: in-place merge, no version/supersede handling",
+    "crates/interaction-core/src/memory.rs:123-148 MemoryItem struct has no supersedes field",
+    "crates/interaction-runtime/src/curator.rs:272-350 record_user_correction always creates new memory item, no lookup of priors",
+    "crates/interaction-core/src/memory.rs:165-180 visible_to_agent excludes UserMemory from agent visibility by default",
+    "crates/interaction-runtime/src/curator.rs:485-535 knowledge_conflict_check: only usable Contradicts/ConflictsWith edges drive dispute"
+   ]
+  },
+  {
+   "id": "E-08",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "reason": "Verified thoroughly, with one minor citation-precision slip. resume_provider_session_id field, check_resume_not_wider gate, claude.rs --resume flag, codex.rs thread/resume RPC selection, and codex_exec.rs exec resume fallback args all confirmed at/near cited lines. The negative claim about no code reading project CLAUDE.md/AGENTS.md holds: a repo-wide grep only hits comments referencing this project's own governance CLAUDE.md, not any runtime path reading a workdir's project-memory file. Bundle layer_rank confirmed TaskMemory=3, AgentHandoff=4 exactly as claimed; AgentHandoff memory write confirmed MemoryKind::Inference/confidence 0.5/visible-by-default. TaskMemory content is confirmed to include providerSessionId and costUsd (substantive claim true), but the cited line range curator.rs:566-575 is off by about 15-20 lines from the actual location (function starts at 581, fields at 590-594) -- a citation-precision issue, not a substantive error. All 7 cited gateway_loop.rs/memory_loop.rs test names verified verbatim.",
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "fixture",
+    "integration"
+   ],
+   "evidence": [
+    "crates/interaction-runtime/src/agents.rs:277 resume_provider_session_id field",
+    "crates/interaction-agent-gateway/src/claude.rs:106-108 --resume flag appended on resume",
+    "crates/interaction-agent-gateway/src/codex.rs:321-330 thread/resume RPC method selected on resume",
+    "crates/interaction-agent-gateway/src/codex_exec.rs:76-77 exec resume fallback args",
+    "repo-wide CLAUDE.md grep hits only comments about this project's own governance file, none about reading workdir project memory at runtime",
+    "crates/interaction-runtime/src/curator.rs:581 record_task_experience actually starts here (not 566-575); providerSessionId/costUsd content fields at lines 590-594 -- confirms substantive claim, citation line range is off by ~15-20 lines"
+   ]
+  },
+  {
+   "id": "E-09",
+   "refuted": false,
+   "correctedStatus": "confirmed-defect",
+   "reason": "所有引用的 file:line 逐一核對皆準確，且推論鏈完整無跳步。(1) memory.rs:105-112 memory_delete 確實只 delete_memory + audit「memory.deleted」，沒有任何掃描 agent_sessions 或 mailbox 的程式碼；repo 內對 context_bundles/contextBundle 的所有命中（agents.rs:551,861,885,938-941,1930；gateway.rs:726-746）皆是寫入/持久化/送進子程序路徑，找不到任何刪除、標示、revoked 或 redact 相關邏輯。(2) agents.rs:928-941 精確對應：context_bundles 上限 32（CONTEXT_BUNDLE_RECEIPT_CAP，agents.rs:51），bundle 含完整 content 並雜湊存證（AgentContextBundleReceipt，agent.rs:261-268 存在，欄位含 bundle 全文）。(3) gateway.rs:726-746 證實已送進 agent 子程序 stdin 的文字含完整 bundle JSON，物理上不可收回。(4) routes.rs:1397-1404 agent_session_get 逐字確認：直接對整個 AgentSessionRecord serde 序列化回傳，未過濾 context_bundles；進一步查證 lib.rs 的 agent_request_allowed（明確排除 GET /v1/agent-sessions* 給 legacy agent token）與 session_request_allowed（session-scoped capability 只准 GET .../messages，不含整份 record），證實這條路徑確實只有 human token 能讀到已刪除記憶的殘留內容，比原文更精確地支持了「human API 可讀回」的論點而非削弱它。(5) prune_agent_sessions 的 200 筆／30 天保留邏輯（agents.rs:47-49,751-790,1528-1537）行號與語意皆核實。(6) 測試引用 agents_loop.rs:309 起的函式名稱與行號精確吻合，且該測試確實只驗證 bundle 完整落地/跨重啟保留，未觸及刪除情境——這是誠實的『沒有測試覆蓋』負面主張，未過度宣稱。(7) 對桌面前端 grep 'context_bundle|contextBundle' 於非測試檔案零命中，證實『UI 無顯示』的說法。(8) knowledge.rs:388-402 的 Active→disputed 級聯確實存在，作為『對稱設計缺失』的比較基準成立。evidenceLevel 標 static-inspection／not-run 誠實，repro 明確註記『未實跑』未虛報成 integration 或 real-agent 證據，未高報。整體判定為功能缺口/confirmed-defect（設計上未處理已刪除記憶在既有 agent session 產物中的殘留）成立，且比原始寫法更嚴謹（補充了 auth 邊界的獨立驗證）。",
+   "evidence": [
+    "crates/interaction-runtime/src/memory.rs:105-112 memory_delete 只 delete_memory()+audit，無 agent_sessions/mailbox 掃描",
+    "crates/interaction-runtime/src/agents.rs:928-941 AgentContextBundleReceipt 寫入邏輯，含 CONTEXT_BUNDLE_RECEIPT_CAP=32（agents.rs:51）",
+    "crates/interaction-core/src/agent.rs:243,261-268 AgentSessionRecord.context_bundles / AgentContextBundleReceipt 定義存在，欄位含完整 bundle，無 revoked/stale 欄位",
+    "crates/interaction-runtime/src/gateway.rs:726-746 已送進子程序 stdin 的文字含完整 contextBundle JSON",
+    "crates/interaction-api/src/routes.rs:1397-1404 agent_session_get 對整個 record 做 serde_json::to_value 後直接回傳，未過濾 context_bundles",
+    "crates/interaction-api/src/lib.rs:487-495 agent_request_allowed 明確排除 legacy agent token 讀取 /v1/agent-sessions*；lib.rs:436-450 session_request_allowed 只放行 GET .../messages（非整份 record）——獨立確認唯有 human token 能經此路徑讀回已刪記憶殘留內容",
+    "crates/interaction-runtime/src/agents.rs:47-49,751-790,1528-1537 CLOSED_AGENT_SESSION_RETENTION=200／30 天，prune_agent_sessions 行號吻合",
+    "crates/interaction-runtime/tests/agents_loop.rs:309 起的測試函式名稱/行號精確吻合，且內容確實只驗證 bundle 完整落地與跨重啟保留，未涉及刪除場景",
+    "grep 'context_bundle|contextBundle' apps/interaction-desktop/src（排除測試檔）零命中，證實無 UI 呈現",
+    "crates/interaction-runtime/src/knowledge.rs:388-402 Active→disputed 級聯邏輯存在，佐證『記憶刪除無對稱設計』的比較成立"
+   ]
+  }
+ ],
+ "critic": {
+  "missingRows": [
+   {
+    "need": "E-10 記憶／知識到達 AI 的端到端接線：`domain:` 資料授權與 `knowledge.*` 工具授權，在任何出貨入口都無法設定",
+    "whyItMatters": "這是整個 E 維度的決定性缺口，九列全都沒有追到底。bundle 對 DomainKnowledge／DomainKnowHow／Skill 三層是 fail-closed（memory.rs:322-330：domains 為空即排除），10 個內建 Domain Pack 也要求 session 明確寫出 pack.id（domain_packs.rs:351-357）；而 AgentSessionCapability::allows_tool（agents.rs:69-88）與 allows_domain（:90-93）同樣 fail-closed，空集合＝全部拒絕。桌面唯一的建立 payload 產生器 buildSessionCreateInput 只寫 `dataScope: workdir ? [\"workspace:<dir>\"] : []`、`toolScope: allowWrite ? [\"workspace.write\"] : []`（TaskComposer.tsx:166-178），CLI `agents create` 根本沒有 domain／tool-scope 旗標（cli/main.rs:376-404），proactive 只發 `proactive-dialogue:intent-only`（proactive.rs:722-723）。結論：從桌面或 CLI 建立的 agent session，bundle 只可能拿到 TaskMemory／AgentHandoff／WorldKnowledge（Runtime 自己寫的東西），且一個知識工具都叫不動——使用者輸入的領域知識、技能、偏好與全部 Domain Pack 對 AI 永遠不可達。只有手寫 HTTP POST /v1/agent-sessions 才能打開。E-01～E-09 每一列各自標 implemented-and-connected／partial 都成立，但合起來的產品行為是「記憶與知識子系統在出貨路徑上對 AI 不可達」。",
+    "whereToLook": "apps/interaction-desktop/src/pages/work/TaskComposer.tsx:164-178；crates/interaction-cli/src/main.rs:376-404；crates/interaction-runtime/src/proactive.rs:719-728；crates/interaction-runtime/src/agents.rs:69-93,866-886；crates/interaction-runtime/src/memory.rs:322-330；crates/interaction-runtime/src/domain_packs.rs:347-370；crates/interaction-api/src/routes.rs:640,966；apps/interaction-desktop/src/pages/HomePage.tsx:746-748（只有 `domain:` 的顯示標籤函式，沒有任何產生者）",
+    "likelyStatus": "confirmed-defect（型別／執行層完整，但產品入口從不授權；等同對使用者 defined-only）"
+   },
+   {
+    "need": "E-11 備份與還原的還原半邊：匯出檔要怎麼回到系統（資料主權的另一半）",
+    "whyItMatters": "E-01／E-02 只盤點了 /v1/memory/export。還原完全沒有後端端點：唯一實作是桌面前端在 BackupSection.tsx 逐筆呼叫 api.memoryCreate 重放（檔案上限 5 MiB／1000 筆，MAX_BACKUP_BYTES／MAX_BACKUP_ITEMS），每筆取得新 ID、非原子、中途失敗只回報已寫入幾筆；CLI MemoryAction 只有 List/Show/Add/Set/Delete/Export/ClearSession/Bundle，沒有 Import（cli/main.rs:626-670）。而且知識節點／邊／素材／收據連匯出都沒有（api/lib.rs:145-204 無對應路由），memory_export 的 notIncluded 誠實列了四類，但那四類在任何入口都無法備份。使用者換機或災難復原時，記憶只能靠桌面 App 重放、知識與素材直接遺失。",
+    "whereToLook": "apps/interaction-desktop/src/pages/BackupSection.tsx:1-14,20-22,52-90；crates/interaction-runtime/src/memory.rs:192-232；crates/interaction-cli/src/main.rs:626-670；crates/interaction-api/src/lib.rs:145-204",
+    "likelyStatus": "implemented-partial（記憶還原只在桌面前端；知識／素材／收據 absent）"
+   },
+   {
+    "need": "E-12 記憶變更的稽核與可追溯：PATCH 與批次清除沒有 audit，audit 本身沒有保存期限也沒有刪除／匯出",
+    "whyItMatters": "E-03 談了 TTL／delete／可見權限，E-09 談了刪除後的殘留，但沒有一列問「記憶被改過的事實有沒有留下紀錄」。memory_create（memory.rs:43-51）與 memory_delete（:107-110）有 audit；memory_update（:56-87）與 memory_clear_session_context（:147-180，一次可刪光整層）完全沒有 audit 呼叫。memory_delete 的 actor 還硬編 \"human\"（:109），不看實際呼叫者（Tauri embedded 與 CLI 都走這條）。稽核本身：GET /v1/audit 只回 tail（上限 500，routes.rs:1036-1043），桌面只在 SafetyPage 顯示 50 筆（SafetyPage.tsx:51），沒有過濾／分頁／匯出／刪除；repo 自己的 docs/aip/privacy.md:175-177 已誠實記錄「audit 表找不到保存期限常數，未盤點／看起來沒有自動清除」。合起來：使用者改過或清空過什麼記憶無從追溯，而已刪記憶的 memoryId 反而永久留在 audit。",
+    "whereToLook": "crates/interaction-runtime/src/memory.rs:36-53,56-87,105-112,147-180；crates/interaction-api/src/routes.rs:1036-1043；apps/interaction-desktop/src/pages/SafetyPage.tsx:51；docs/aip/privacy.md:175-177",
+    "likelyStatus": "implemented-partial（create／delete 有稽核；update／clear-session absent；audit 無保存期限與治理入口）"
+   },
+   {
+    "need": "E-13 常態可追溯性：使用者能不能看到「這次任務實際帶了哪些記憶給 AI」",
+    "whyItMatters": "E-09 只問「刪除之後」的殘留，沒問常態。AgentContextBundleReceipt 落地得很完整（agents.rs:928-941，每 session 32 筆，含全文與 SHA-256），也能由 GET /v1/agent-sessions/{id}（routes.rs:1397-1404）與 CLI `interact-ai agents show <id>`（v03-cli-e2e.sh:275-276 就是這樣驗的）取回；但整個桌面 src 對 contextBundle／context_bundle 的非測試命中為零，工作頁與 AI 頁都不讀這個欄位。產品方向要求「可追溯」，而唯一的證據只有原始 JSON 看得到——一般模式使用者永遠不知道 AI 拿到了哪些記憶，也就無從判斷 excluded.overCapacity／scanLimitReached 這些誠實欄位在說什麼。",
+    "whereToLook": "crates/interaction-runtime/src/agents.rs:928-941；crates/interaction-core/src/agent.rs:261-268；crates/interaction-api/src/routes.rs:1397-1404；scripts/v03-cli-e2e.sh:275-276；apps/interaction-desktop/src（grep contextBundle 非測試檔零命中）",
+    "likelyStatus": "implemented-partial（HTTP／CLI 可讀；桌面與一般模式 absent）"
+   },
+   {
+    "need": "E-14 Agent 提議記憶→人類核准的閉環（記憶層有沒有 inbox）",
+    "whyItMatters": "canonical tool manifest 只有 9 個 interaction.knowledge_* 工具（tool-schema/lib.rs:204-322，routes.rs:772-943 逐一對應），沒有任何 memory 工具；agent token 對 /v1/memory 全面 403（api/lib.rs:491-493 GET 段、:519-545 POST 白名單不含 memory）。所以 agent 根本無法提議一條記憶：`--as-agent` 是人類 token 的降權旗標（routes.rs:2100-2103），不是 agent 自己走的路。E-03 說「agent 候選的使用者記憶不可被人類升格」，但更前面的問題是這些候選只可能由人類代打或由 Runtime 自動寫（AgentHandoff／TaskMemory）。產品敘事裡的「AI 記住你的偏好、你來核准」在記憶層完全不存在，只在知識層存在。",
+    "whereToLook": "crates/interaction-tool-schema/src/lib.rs:204-322；crates/interaction-api/src/routes.rs:772-943,2098-2103；crates/interaction-api/src/lib.rs:487-545；crates/interaction-runtime/src/curator.rs:272-360（唯一的 user-correction 路徑是人類發起）",
+    "likelyStatus": "absent（記憶層的 AI 提議）／implemented-and-connected（知識層）"
+   },
+   {
+    "need": "E-15 Domain Pack 作為 Context Bundle 的第二個內容來源：版本、supersedes、安裝／移除與它佔掉的預算",
+    "whyItMatters": "E-01 只把 Domain Pack 當成一句「bundle 只含記憶＋domain pack」帶過，但它是 bundle 裡唯一「不是使用者資料」的內容，而且計費方式和記憶不同：pack 以完整序列化 JSON 長度計（memory.rs:266-276），記憶只算 content+title（:336）——同一個 48 KiB 預算用兩把尺量，這直接影響 E-04 的缺陷推算。另外 10 個內建 pack 的 version 全部硬編 1.0.0、supersedes 永遠是空陣列（domain_packs.rs:33-35,377-390 測試把這兩件事鎖死），也就是 E-07 的「取代」在 pack 層同樣不存在；安裝狀態存在 meta 表 key（domain_packs.rs:283-299）而不是專屬表。",
+    "whereToLook": "crates/interaction-runtime/src/domain_packs.rs:17-40,283-299,347-370,377-390；crates/interaction-runtime/src/memory.rs:262-277,336；crates/interaction-api/src/lib.rs:159-169；scripts/v03-cli-e2e.sh:297-305",
+    "likelyStatus": "implemented-and-connected（安裝／移除／持久化）；版本與 supersedes defined-only；與 E-04 的位元組缺陷耦合"
+   },
+   {
+    "need": "E-16 儲存成長與配額：記憶筆數、素材總量、稽核列數都沒有上限或清理",
+    "whyItMatters": "E-04 盤的是「查詢與 bundle 的上限」，不是「資料庫能長多大」。MAX_ASSET_BYTES=64 MiB 是單檔上限（knowledge.rs:27,212-215），沒有素材總量配額、沒有磁碟空間檢查；memory_items 沒有筆數上限（只有查詢 clamp 與 bundle 掃描上限）；audit 無保存期限（privacy.md:175-177）；素材 blob 與 SQLite 都在同一個 INTERACT_AI_HOME 下。CLAUDE.md 自己記載本機磁碟接近滿時會 ENOSPC 中斷——但那是講 target/，同樣的風險對使用者資料目錄沒有任何防護或告警。長期使用（這是一個常駐在電腦上的主核心）遲早撞到。",
+    "whereToLook": "crates/interaction-runtime/src/knowledge.rs:27,198-220；crates/interaction-storage/src/lib.rs:187-263（無配額欄位／觸發器）；crates/interaction-runtime/src/runtime.rs:2421-2427（sweep 只處理過期，不處理總量）；docs/aip/privacy.md:175-177",
+    "likelyStatus": "absent"
+   },
+   {
+    "need": "E-17 記憶／知識資料的靜態保護：DB 與素材 blob 的檔案權限與加密",
+    "whyItMatters": "E-02 盤了「哪些走 SQLite、哪些走檔案」，沒盤「這些檔案受什麼保護」。Store::open 直接 Connection::open(path)，沒有任何 set_permissions（storage/lib.rs:48-55），素材 CAS 目錄與 blob 同樣沒有（knowledge.rs:198-220）；相對地 token 檔（config.rs:359-365）、character-session.epoch／snapshot（character_session.rs:527）、mobile 配對檔（mobile.rs:2077,2113,2147）都明確 chmod 0o600。也就是最敏感的長期記憶庫反而是唯一沒有設權限的一份，且沒有加密。唯一的內容防護是寫入時的 secret 樣態字串比對（core/memory.rs:183-200，v03-cli-e2e.sh:288 有覆蓋），那擋的是誤存憑證，不是同機其他程序讀檔。",
+    "whereToLook": "crates/interaction-storage/src/lib.rs:48-74；crates/interaction-runtime/src/knowledge.rs:198-220；crates/interaction-runtime/src/config.rs:88-105,355-366；crates/interaction-runtime/src/character_session.rs:527；crates/interaction-runtime/src/mobile.rs:2077,2113,2147；crates/interaction-core/src/memory.rs:183-200",
+    "likelyStatus": "implemented-partial（有 secret 寫入閘與 token 0600；DB／素材權限與加密 absent，且與同 repo 其他檔案的做法不一致）"
+   },
+   {
+    "need": "E-18 跨裝置：iPhone 端對記憶／知識有沒有任何入口",
+    "whyItMatters": "產品方向明說「電腦主核心＋桌面／iPhone 入口」。E-01 只在 limitation 尾巴帶一句。實際 SwiftUI app 只有 SensorsView／CharacterView／PairingView／ContentView，Services 只有 BleGateway／SessionClient／ActuatorCenter／MotionSemantics／SessionReceive／ConnectionManager，Models 全是 AIP／SemanticState／Character——沒有任何 memory／knowledge model、view 或請求。手機使用者看不到、也刪不掉自己的記憶，遑論核准 AI 提議的知識。這一列該獨立存在，好讓「跨裝置」這個需求在矩陣裡有明確的 absent 判定，而不是散在別列的 limitation。",
+    "whereToLook": "apps/interaction-ios/InteractionCompanion/{Views,Services,Models}/*.swift（全檔清單無 memory／knowledge）；docs/aip/iphone-companion.md",
+    "likelyStatus": "absent"
+   },
+   {
+    "need": "E-19 一般模式（五入口）下記憶與知識的可達性與搜尋",
+    "whyItMatters": "E-05 在 evidence 裡提了「一般模式沒有檢索入口」，但沒有成為一列，因此矩陣裡看不出「五入口使用者實際能對記憶做什麼」。實況：記憶住在第五入口「更多 → 記憶與資料」（MorePage.tsx:19,28,41,72），頁面只有分類下拉＋刪除＋重新確認（MemoryKnowledgePage.tsx:141-200,376-424），沒有搜尋框；知識搜尋只在進階頁 KnowledgeAdvanced.tsx:19；GlobalSearch 只抓前 100 筆再做前端子字串比對（GlobalSearch.tsx:135-141,335-339）。當記憶超過 200 筆（桌面 memoryList 預設）時，一般模式使用者沒有任何辦法找到某一條記憶去刪除它——這直接侵蝕「沒有你不能刪除的記憶」這條不變量的實務可行性。",
+    "whereToLook": "apps/interaction-desktop/src/pages/MorePage.tsx:19-41,72；apps/interaction-desktop/src/pages/MemoryKnowledgePage.tsx:141-200,376-424；apps/interaction-desktop/src/pages/KnowledgeAdvanced.tsx:19；apps/interaction-desktop/src/components/GlobalSearch.tsx:135-141,335-339；apps/interaction-desktop/src/api.ts:208-232",
+    "likelyStatus": "implemented-partial"
+   },
+   {
+    "need": "E-20 角色／Session 快照這第二份持久化狀態的內容與刪除路徑",
+    "whyItMatters": "E-01 認定「角色互動記憶」的唯一 owner 是 Tauri DesktopPrefs（supervisor.rs:135,226），但 repo 自己的 docs/aip/privacy.md:156-170 記載了另一份長存檔案：<home>/state/character-session.json（character_session.rs:90,672），每 32 revision 或 60 秒覆寫，「沒有找到任何以天數為單位的自動清除機制」，壞檔改名 .corrupt 後不刪除；加上 <home>/state/character-session.epoch。它保存的是 SemanticState 與成員裝置身分，不是記憶層資料，因此不受 MemoryLayer retention、memory_export 與 agent 可見性規則管轄，也不在任何刪除入口內。E 維度既然要回答「期限、刪除、可見權限」，這份檔案必須被明確判定（含它到底有沒有互動內容）。",
+    "whereToLook": "crates/interaction-runtime/src/character_session.rs:90,331,519,643-680；docs/aip/privacy.md:150-177；apps/interaction-desktop/src-tauri/src/supervisor.rs:135,226；apps/interaction-desktop/src/character/adapters/shuPlayControls.tsx:151-152（唯一的清除按鈕，只清前端 prefs）",
+    "likelyStatus": "needs-investigation（傾向 implemented-partial：有持久化與隔離，無保存期限與刪除入口）"
+   }
+  ],
+  "contradictions": [
+   "E-04 說「bundle 的位元組預算只計 content+title，不計 JSON 包裝」——這只對記憶項成立。同一個 48 KiB 預算裡的 Domain Pack 條目是以完整序列化長度計費（memory.rs:266-276 `serde_json::to_vec(&entry)`），記憶項則只加 `item.content.len() + item.title.len()`（memory.rs:336）。同一個預算用兩把尺，E-04 的算式與 E-01「bundle 只含記憶＋domain pack」都沒有指出這件事，缺陷的觸發門檻因此被算高了（pack 先吃掉真實位元組）。",
+   "E-04 的 repro 前提「建立 data_scope=[domain:rust] 的 session」在任何出貨入口都做不到（TaskComposer.tsx:175 只發 workspace:；CLI agents create 無 domain 旗標；proactive 只發 proactive-dialogue:intent-only）。缺陷本身是真的（HTTP 可觸發），但 E-04 描述的「一個 session 只要授權 domain 內有 ≥3 筆…任務派送即回 400」在產品實際路徑上永遠不會發生——因為那條路徑永遠不授權 domain。這同時削弱 E-04 的嚴重性與強化 E-10 的缺口：矩陣目前兩邊都沒說。",
+   "E-03 說 agent token 對 /v1/knowledge 是 403、session capability 有 tool_scope／domains 過濾，語氣是「權限分層設計完整」；但 AgentSessionCapability::allows_tool／allows_domain 是 fail-closed（agents.rs:69-93），而桌面唯一的建立 payload 只會產生空的或 [\"workspace.write\"] 的 tool_scope（TaskComposer.tsx:176）。因此 routes.rs:640 的檢查對出貨路徑而言不是「分權」，而是「全關」。E-03 的可見權限敘述與 E-01 的「知識只經 interaction.knowledge_* 工具給 agent」合起來，實際結論是「知識對出貨路徑的 agent 一個工具都不可達」，兩列都沒有得出這個結論。",
+   "E-03 判 implemented-partial 並宣告「『沒有你不能刪除的記憶』只對 memory_items 成立」，E-09 判 confirmed-defect 並指出刪除後內容副本可在 agent_sessions 殘留 30 天。同一條不變量在兩列得到兩種嚴重度，而 E-03 的 evidence／limitation 完全沒有交叉引用 E-09。整合時必須擇一：要嘛刪除不變量整體判 confirmed-defect，要嘛 E-09 降級為 E-03 的子項。",
+   "E-03 的「可見／權限」契約以 HTTP token 分權為骨幹，但記憶的三個入口只有一個走那道閘：Tauri 桌面是 embedded 直呼 Runtime（lib.rs:1317-1563，E-01 自己也這樣寫），CLI 用人類 token。也就是說 api/lib.rs:487-545 的白名單只約束 HTTP 外部呼叫者，對桌面完全不適用；E-03 把它當成整體的可見權限機制，敘述過寬。",
+   "E-02 說「跨表關聯沒有 FK 或觸發器」是對的，但沒指出 Store::init 明確開了 `PRAGMA foreign_keys=ON`（storage/lib.rs:65），而整個 schema 沒有任何 REFERENCES／FOREIGN KEY 子句（grep 零命中）。這個 pragma 是純裝飾，會讓後續讀碼者誤以為級聯有資料庫層保障——正是 E-01 指出的 memory→knowledge 懸空 evidence 問題的來源。",
+   "E-06 把 evidenceLevel 標到 browser，唯一根據是 evidence.spec.ts:517-533，而那個測試斷言的是 Inbox 通知出現，不是 receipts／version／supersede；懷疑者自己也記為「slightly generous」。同時 E-01／E-03／E-04 對桌面行為的覆蓋全部只有 vitest（api 以 mock 替身）。實況是：整個 e2e/*.spec.ts 對 memory／knowledge 的命中只有那一行 POST（grep 確認），記憶頁在真 daemon 下的瀏覽器覆蓋為零。矩陣裡唯一的 browser 標記落在覆蓋最薄的那一列，容易讓人誤讀成 UI 有真實驗收。",
+   "E-05 說「task 字串只回填不參與選擇」，E-04 說「撞到上限就停止收錄並回報 overCapacity」。兩件事單看都誠實，合起來的產品後果沒有任何一列指出：一旦記憶量超過 24 筆／48 KiB，哪些記憶進得了 bundle 完全由層級序與 updated_at 決定，與這次任務是否相關無關——也就是「AI 記得對這次任務有用的事」這個需求在資料一多就必然失效，而且失效方式是確定性的、不是偶發的。",
+   "E-08 的 limitation 寫「CLAUDE.md 是否被 claude 子程序讀取未驗證（非 Runtime 控制）」「repo 內無法驗證」，但 repo 內就有可執行的驗證程序：scripts/tests/phase0/README.md 明載真 Agent 跑完後可從 provider 本機紀錄唯讀取得實況（~/.claude/projects/<workdir>/<providerSessionId>.jsonl、~/.codex/sessions/…/rollout-*-<providerSessionId>.jsonl），並要求標註 provider-local-log (not via gateway)。E-08 的 nextAction 說要「以真 claude/codex 跑一次 resume 並記錄」，卻沒引用這個已存在的 harness（agent_smoke.py／restart_test.py），也沒引用它同時揭示的 K-01/K-02/K-03（模型與推理設定無法經 gateway 指定或回報）。",
+   "E-01 的 stateOwner 把「角色記憶」的落點定為 Tauri DesktopPrefs（supervisor.rs:135,226），並據此判 CharacterMemory enum 為死碼；但 docs/aip/privacy.md:156-170 記載 <home>/state/character-session.json 是 Runtime 側另一份無保存期限、無刪除入口、壞檔只隔離不刪的持久化狀態。E-01 的「角色互動記憶完全在桌面 prefs」因此不完整，且該檔案落在 E-03（期限／刪除）的職權範圍內卻沒有被任何一列覆蓋。",
+   "E-01／E-02 都說 memory_export 的 notIncluded 誠實列出四類未涵蓋資料，語氣是「誠實揭露即可」；但那四類（知識節點、素材與衍生物、知識收據、角色互動記憶）在整個系統裡連匯出端點都不存在（api/lib.rs:145-204），也就是說 notIncluded 不是「這個端點不含」而是「任何地方都拿不到」。把它記成端點層級的誠實揭露，會讓資料主權的缺口在矩陣裡看起來比實際小。"
+  ],
+  "reproCandidates": [
+   {
+    "what": "E-04 核心缺陷：48 KiB bundle 預算塞進 16 KiB mailbox body 上限。用非 gateway 的 agentId（agent.coder）避免起任何子程序，用 HTTP 帶 dataScope（CLI 做不到）。",
+    "command": "export O=/tmp/p0-E04 && rm -rf $O && mkdir -p $O && export INTERACT_AI_HOME=$O/home INTERACT_AI_MOBILE_ADVERTISE=0 && ./target/debug/interact-ai serve --port 18901 & sleep 3; T=$(cat $O/home/state/api-token); for i in 1 2 3; do ./target/debug/interact-ai memory add --layer domain-know-how --kind know-how --title \"big$i\" --content \"$(python3 -c 'print(\"a\"*7900)')\" --tag rust --json >/dev/null; done; SID=$(curl -s -XPOST localhost:18901/v1/agent-sessions -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -d '{\"agentId\":\"agent.coder\",\"dataScope\":[\"domain:rust\"],\"ttlMinutes\":10}' | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"sessionId\"])'); curl -s -o /dev/stderr -w '%{http_code}\\n' -XPOST localhost:18901/v1/agent-sessions/$SID/messages -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -d '{\"direction\":\"to-session\",\"kind\":\"task\",\"body\":{\"task\":\"x\"}}'",
+    "expected": "400 且訊息含 \"mailbox body too large (max 16384 bytes)\"（agents.rs:890-893）。同時 GET /v1/memory/context-bundle 對同一組 domain 會成功回傳 >16 KiB 的 bundle——證明兩個預算互相矛盾而非資料超量。若回 200，代表 domain 過濾或計費與推論不符，需回頭改判 E-04。"
+   },
+   {
+    "what": "E-04／E-15 的位元組計費不一致：Domain Pack 以完整 JSON 計費、記憶只計 content+title。量出單一 pack 在 bundle 裡的真實大小，換算它吃掉多少 16 KiB 額度。",
+    "command": "export INTERACT_AI_HOME=/tmp/p0-E04/home; ./target/debug/interact-ai memory bundle --task t --agent agent.coder --domain task-planning --json | python3 -c 'import sys,json;d=json.load(sys.stdin);print(\"items\",len(d[\"includes\"]));print(\"bundle_bytes\",len(json.dumps(d)));[print(i.get(\"domainPackId\"),len(json.dumps(i))) for i in d[\"includes\"] if \"domainPackId\" in i]'",
+    "expected": "至少一筆 domainPackId=task-planning 的條目，其序列化長度約 1–2 KB；整個 bundle 的 JSON 長度會明顯大於 includes 內容長度總和（memoryId／layer／kind／confidence／excluded／limits 都不計入預算）。這給出 E-04 修法所需的真實包裝成本。"
+   },
+   {
+    "what": "E-10：`domain:` 與 `knowledge.*` 授權在出貨入口不可設定（靜態證明，不需 daemon）。",
+    "command": "grep -rn '\"domain:' apps/interaction-desktop/src crates/interaction-cli/src | grep -v '/test/' ; sed -n '164,178p' apps/interaction-desktop/src/pages/work/TaskComposer.tsx ; ./target/debug/interact-ai agents create --help | grep -i -E 'domain|tool-scope|scope' ; sed -n '719,728p' crates/interaction-runtime/src/proactive.rs",
+    "expected": "第一條只命中 HomePage.tsx:748 的顯示標籤函式（無產生者）與 CLI 測試 fixture；TaskComposer 只輸出 workspace:／workspace.write；`agents create --help` 沒有任何 domain／tool-scope 旗標；proactive 只有 proactive-dialogue:intent-only。四項齊備即確立 E-10 為 confirmed-defect。"
+   },
+   {
+    "what": "E-10 的行為面確認：桌面版 payload 建立的 session，領域記憶進不了 bundle、知識工具被 fail-closed 擋下。",
+    "command": "T=$(cat /tmp/p0-E04/home/state/api-token); SID=$(curl -s -XPOST localhost:18901/v1/agent-sessions -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -d '{\"agentId\":\"agent.coder\",\"label\":\"desktop-shaped\",\"ttlMinutes\":10,\"workdir\":\"/tmp\",\"allowWrite\":false,\"dataScope\":[\"workspace:/tmp\"],\"toolScope\":[],\"consentScope\":[]}' | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"sessionId\"])'); ./target/debug/interact-ai memory bundle --task t --agent agent.coder --json | python3 -c 'import sys,json;d=json.load(sys.stdin);print([i.get(\"layer\") for i in d[\"includes\"]],d[\"excluded\"])'",
+    "expected": "bundle 的 includes 不含任何 domain-know-how／domain-knowledge／skill 條目，excluded.outsideGrantedDomains > 0；且以該 session 的 capability token 呼叫 interaction.knowledge_search 會被 routes.rs:640 擋成 403（tool_scope 為空 → allows_tool 全 false）。"
+   },
+   {
+    "what": "E-09：刪除記憶後，內容仍留在該 session 的 context bundle 回執裡。順序要在 v03-cli-e2e.sh 之外重排（該腳本先跑 agent 再建記憶，剛好避開這個情境）。",
+    "command": "export INTERACT_AI_HOME=/tmp/p0-E04/home; MID=$(./target/debug/interact-ai memory add --layer world-knowledge --kind fact --title 'delete-me' --content 'SENTINEL-9f2a' --json | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"memoryId\"])'); T=$(cat $INTERACT_AI_HOME/state/api-token); SID=$(curl -s -XPOST localhost:18901/v1/agent-sessions -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -d '{\"agentId\":\"agent.coder\",\"ttlMinutes\":10}' | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"sessionId\"])'); curl -s -XPOST localhost:18901/v1/agent-sessions/$SID/messages -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -d '{\"direction\":\"to-session\",\"kind\":\"task\",\"body\":{\"task\":\"x\"}}' >/dev/null; ./target/debug/interact-ai memory delete $MID --json >/dev/null; ./target/debug/interact-ai agents show $SID --json | grep -c 'SENTINEL-9f2a'",
+    "expected": "grep 計數 ≥1：已刪記憶的全文仍在 contextBundles[].bundle.includes[].content。同時 GET /v1/audit 只會看到 memory.deleted{memoryId}，沒有任何 affectedSessions 或遮蔽標示。這把 E-09 從 not-run 升到 integration 證據。"
+   },
+   {
+    "what": "E-12：PATCH 記憶與 clear-session-context 不寫稽核（並順帶確認 clear-session 連 memory.deleted 都不產生）。",
+    "command": "export INTERACT_AI_HOME=/tmp/p0-E04/home; T=$(cat $INTERACT_AI_HOME/state/api-token); MID=$(./target/debug/interact-ai memory add --layer session-context --kind fact --title a --content b --json | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"memoryId\"])'); ./target/debug/interact-ai memory set $MID '{\"title\":\"changed\"}' --json >/dev/null; ./target/debug/interact-ai memory clear-session --json; curl -s -H \"Authorization: Bearer $T\" 'localhost:18901/v1/audit?limit=200' | python3 -c 'import sys,json;e=json.load(sys.stdin);print(sorted({x.get(\"kind\") for x in e}))'",
+    "expected": "audit kinds 只出現 memory.created 與 memory.deleted，沒有任何 memory.updated／memory.session-cleared；且 clear-session 刪掉的那一筆不會新增 memory.deleted（它走 store.delete_memory 而非 memory_delete，memory.rs:160-166）。"
+   },
+   {
+    "what": "E-11：匯出可用、還原無後端入口。",
+    "command": "export INTERACT_AI_HOME=/tmp/p0-E04/home; ./target/debug/interact-ai memory export --json | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d[\"included\"],d[\"notIncluded\"],d[\"limitReached\"],len(d[\"items\"]))'; ./target/debug/interact-ai memory --help | grep -i -E 'import|restore' ; grep -n 'memory/import\\|knowledge/export\\|assets/export' crates/interaction-api/src/lib.rs",
+    "expected": "export 正常回 included/notIncluded/limitReached；`memory --help` 沒有 import／restore 子命令；lib.rs grep 零命中。三者齊備即確立還原只存在於 BackupSection.tsx 的前端重放，且知識／素材連匯出都沒有。"
+   },
+   {
+    "what": "E-17：長期記憶庫與素材 blob 的檔案權限，對照 token／pairing 檔的 0600。",
+    "command": "ls -l /tmp/p0-E04/home/state/interaction.db /tmp/p0-E04/home/state/api-token /tmp/p0-E04/home/state/character-session.epoch 2>/dev/null; find /tmp/p0-E04/home/state/assets -type f -exec ls -l {} \\; 2>/dev/null | head",
+    "expected": "interaction.db 與 assets blob 為 umask 預設（通常 0644），api-token／epoch 為 0600。差異即 E-17 的證據；同時可確認 assets 目錄本身的權限。"
+   },
+   {
+    "what": "E-05：FTS5 unicode61 對 CJK 子字串的實際命中路徑（現有測試不分辨命中來自 fts 還是 vector）。",
+    "command": "export INTERACT_AI_HOME=/tmp/p0-E04/home; AH=$(./target/debug/interact-ai assets import <(echo evidence) --json 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"hash\"])'); KID=$(./target/debug/interact-ai knowledge propose-claim --title '延遲與節流的取捨' --content '在高頻事件下先節流再延遲' --evidence \"[{\\\"assetHash\\\":\\\"$AH\\\"}]\" --activate --json | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"nodeId\"])'); for q in '節流' '延遲與節流' 'throttle'; do echo \"== $q\"; ./target/debug/interact-ai knowledge search \"$q\" --json | python3 -c 'import sys,json;d=json.load(sys.stdin);print([(r[\"nodeId\"],r[\"retrieval\"]) for r in d[\"results\"]])'; done",
+    "expected": "逐一看 retrieval 欄位是 fts 還是 vector。若 CJK 子字串查詢只由 vector 命中（fts 空），即證實 E-05 推論的 unicode61 CJK 限制，可把該推論從 low 升為實測；`throttle` 這類英文查中文節點則驗證 subword anchor 路徑。"
+   },
+   {
+    "what": "E-08：resume 只有 fixture 證據，且 CLAUDE.md 是否被子程序載入需靠 provider 本機紀錄（repo 已有既定程序）。",
+    "command": "INTERACT_AI_CLAUDE_BIN=$PWD/crates/interaction-runtime/tests/fixtures/fake_claude.sh INTERACT_AI_CODEX_BIN=$PWD/crates/interaction-runtime/tests/fixtures/fake_codex.sh cargo test -p interaction-runtime --test gateway_loop resume_ -- --nocapture ; sed -n '1,40p' scripts/tests/phase0/README.md",
+    "expected": "六個 resume_* 測試通過（fixture 證據，不得標 real-agent）；README 給出真 Agent 路徑：python3 scripts/tests/phase0/agent_smoke.py --agent claude-code …，事後從 ~/.claude/projects/<workdir>/<providerSessionId>.jsonl 唯讀確認 CLAUDE.md 是否被載入，並標註 provider-local-log (not via gateway)。"
+   },
+   {
+    "what": "既有整合基線（不新增測試就能覆蓋 E-01/02/03/06/07 的多數宣稱）。",
+    "command": "cargo test -p interaction-runtime --test memory_loop --test knowledge_loop --test curator_loop --test agents_loop -- --nocapture 2>&1 | grep 'test result:' ; INTERACT_AI_CLAUDE_BIN=$PWD/crates/interaction-runtime/tests/fixtures/fake_claude.sh bash scripts/v03-cli-e2e.sh 2>&1 | tail -5",
+    "expected": "四個 runtime 整合測試的 test result 行數字（記錄實際數，不寫「全部通過」）；CLI E2E 末行 RESULT: N passed, M failed，其中 memory／knowledge 區段（v03-cli-e2e.sh:280-338）覆蓋 create／降權／secret 拒收／bundle／delete／domain-pack／assets／propose／review／search／link／receipts。注意該腳本的 agent session 不帶 domain，因此不會觸發 E-04。"
+   }
+  ]
+ }
+}

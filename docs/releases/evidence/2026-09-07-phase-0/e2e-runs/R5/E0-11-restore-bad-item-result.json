@@ -1,0 +1,61 @@
+{
+  "restored": [
+    {
+      "sourceMemoryId": "mem-dccd7dc0-dfb7-4d0c-a180-8a2e2ccb4150",
+      "newMemoryId": "mem-12f30a2f-a6b1-43db-b29b-c1331b683df4",
+      "result": {
+        "agentDenylist": [],
+        "agentVisibility": [],
+        "confidence": 1.0,
+        "content": "\u4f7f\u7528\u8005\u504f\u597d\u88ab\u7a31\u70ba Alex",
+        "createdAt": "2026-09-07T09:06:34.005774Z",
+        "createdBy": {
+          "kind": "human"
+        },
+        "kind": "fact",
+        "layer": "persona-core",
+        "memoryId": "mem-12f30a2f-a6b1-43db-b29b-c1331b683df4",
+        "provenance": [],
+        "retention": {},
+        "schemaVersion": "1.0",
+        "tags": [
+          "persona"
+        ],
+        "title": "\u7a31\u547c\u504f\u597d",
+        "updatedAt": "2026-09-07T09:06:34.005774Z"
+      }
+    },
+    {
+      "sourceMemoryId": "mem-39788804-db05-4bb9-9314-a0897c4c4e4a",
+      "newMemoryId": "mem-64655d62-bb96-468a-b346-b7b7f88111ae",
+      "result": {
+        "agentDenylist": [],
+        "agentVisibility": [],
+        "confidence": 1.0,
+        "content": "\u4f7f\u7528\u8005\u4f4d\u65bc Asia/Taipei",
+        "createdAt": "2026-09-07T09:06:34.007217Z",
+        "createdBy": {
+          "kind": "human"
+        },
+        "kind": "fact",
+        "layer": "world-knowledge",
+        "memoryId": "mem-64655d62-bb96-468a-b346-b7b7f88111ae",
+        "provenance": [],
+        "retention": {},
+        "schemaVersion": "1.0",
+        "tags": [
+          "timezone"
+        ],
+        "title": "\u6642\u5340\u8a2d\u5b9a",
+        "updatedAt": "2026-09-07T09:06:34.007217Z"
+      }
+    }
+  ],
+  "errors": [
+    {
+      "index": 2,
+      "status": 400,
+      "body": "{\"error\":{\"code\":\"validation_failed\",\"message\":\"validation failed: title \u5fc5\u9808\u70ba 1..120 \u5b57\"}}"
+    }
+  ]
+}

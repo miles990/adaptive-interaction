@@ -1,0 +1,677 @@
+{
+ "key": "C",
+ "found": {
+  "dimension": "C",
+  "rows": [
+   {
+    "id": "C-01",
+    "need": "Provider／Profile／Session 的關係：provider.ai-agent.*、AgentProfile、AgentSessionRecord 與儲存表",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration",
+     "browser"
+    ],
+    "owner": "crates/interaction-agent-gateway ＋ crates/interaction-runtime/src/{agents,gateway}.rs（docs/MAINTAINERS-MAP.md:98）",
+    "entryPath": "HTTP POST/GET /v1/agent-sessions（crates/interaction-api/src/lib.rs:216-218 → routes.rs:1385-1403）；GET /v1/agents、POST /v1/agents/refresh（lib.rs:205-206 → routes.rs:2007-2013）；CLI `agents create|sessions|show|providers`（crates/interaction-cli/src/commands.rs:876-884, 911-940）；Tauri `agent_session_create`／`agent_sessions_list`（apps/interaction-desktop/src-tauri/src/lib.rs:1567-1579）；UI AiPage.tsx:989-996、work/TaskComposer.tsx:167-177 → Runtime::create_agent_session（crates/interaction-runtime/src/agents.rs:387-661）→ gateway_attach（gateway.rs:285-377）",
+    "contract": "AgentKind::provider_id() 固定 `provider.ai-agent.codex|claude-code`（crates/interaction-agent-gateway/src/lib.rs:20-37）；AgentSessionRecord（crates/interaction-core/src/agent.rs:183-244）；每個 session 同時登記為 `provider.ai-session.<id>`（agents.rs:555-577）；CreateAgentSession payload（agents.rs:245-278）",
+    "stateOwner": "Runtime.agent_sessions（RwLock<BTreeMap<String, AgentSessionEntry>>，runtime.rs:105）＋ GatewayManager.sessions（gateway.rs:107-108）；SQLite `agent_sessions(id, body JSON, updated_at)`（crates/interaction-storage/src/lib.rs:173-177；save/all/delete 418-428）、`providers`（168-172）、`meta.gateway_pgids`（agents.rs:1675）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/agents_loop.rs::delegation_honesty_ladder_dispatched_acknowledged_claimed (49)",
+     "crates/interaction-runtime/tests/agents_loop.rs::open_sessions_do_not_survive_restart (491)",
+     "crates/interaction-runtime/tests/gateway_loop.rs::gateway_full_loop_with_fake_agent (138)",
+     "crates/interaction-api/tests/api_e2e.rs::interrupt_requires_session_ownership_or_a_human_token (2229)",
+     "scripts/v03-cli-e2e.sh:181-196, 261-281（真 daemon＋fake_claude fixture）",
+     "apps/interaction-desktop/e2e/evidence.spec.ts:321-372（Playwright，fixture agent）"
+    ],
+    "evidence": [
+     "gateway.rs:189-227 refresh_agent_providers：對每個 connector discover()，依 usable()（lib.rs:71-73）登記 provider.ai-agent.* 為 Available／Degraded／Disconnected，TrustLevel::Discovered；啟動時背景執行（runtime.rs:529 spawn_agent_discovery）",
+     "agents.rs:505-509：providerId 由 payload 直接採用、未驗證是否與 agentId 對應；缺省才由 agent_kind_for 推得",
+     "agents.rs:597-646：只有 agent_id 為 codex／claude-code 才掛子程序；其他 agent_id（例如 e2e 用的 agent.coder）建立純信箱輪詢 session，無子程序",
+     "grep `AgentProfile` 於 crates/ 只命中 crates/interaction-core/src/agent.rs:1 的模組註解與 docs/ARCHITECTURE.md:114；沒有任何型別、欄位或表——「Profile」層實際上是 AgentKind（gateway.rs:52-58）＋ UiPreferences.disabled_agents／agent_routes（crates/interaction-runtime/src/human.rs:119-122, 137-150）＋ agent_route_suggestion（gateway.rs:1144-1194）",
+     "agents.rs:1479-1538 restore：重啟後 open session 一律標 Expired（子程序不跨重啟存活）；已結束紀錄有界保留 200 筆／30 天（agents.rs:47-49, 751-792）"
+    ],
+    "limitation": "docs/ARCHITECTURE.md:114 所述「AI Provider → Agent Profile → Agent Session」三層在程式碼中只有兩層（Provider、Session）；providerId 不驗證；非 gateway agent id 的 session 沒有任何 provider 實體。真 Agent（真 claude／codex CLI）在 repo 測試中零覆蓋（E2E_REAL_AGENTS=1 時 session 測試被 skip：work-delegate.spec.ts:39-42、evidence.spec.ts:326-329）。",
+    "nextAction": "把文件的「Agent Profile」改寫為現況（AgentKind＋偏好路由），或補型別；在 create_agent_session 驗證 providerId 與 agentId 一致；補一筆真 CLI 的 smoke 證據並逐列標示。",
+    "reproCommand": "cargo test -p interaction-runtime --test agents_loop delegation_honesty_ladder_dispatched_acknowledged_claimed（建議；本輪未執行）",
+    "confidence": "high"
+   },
+   {
+    "id": "C-02",
+    "need": "同種多 Session（兩個 claude-code session 並存）：GatewayManager 是否以 session id 隔離子程序、事件、mailbox、workdir",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "integration",
+     "browser"
+    ],
+    "owner": "crates/interaction-runtime/src/gateway.rs（GatewayManager）＋ crates/interaction-agent-gateway/src/{claude,process}.rs",
+    "entryPath": "同 C-01 的建立入口，重複呼叫 → create_agent_session（agents.rs:387-661，受 agent_create_lock 序列化 394）→ gateway_attach 每次 `connectors()` 新建 connector 並 start_session（gateway.rs:315-347）→ 以 runtime session id 插入 GatewayManager.sessions（gateway.rs:362-366）",
+    "contract": "AgentConnector::start_session 每次回傳獨立 AgentSessionHandle（lib.rs:256-265）；handle 自帶 process group、events receiver（lib.rs:234-254）",
+    "stateOwner": "GatewayManager.sessions: HashMap<runtime session id, ManagedSession{handle Mutex, approvals, group, turn_settled}>（gateway.rs:95-105, 107-108）；每個 AgentSessionEntry 各自的 mailbox VecDeque（agents.rs:239-243, 580-587）；每個 session 一把 memory-only capability token（agents.rs:284-319；只淘汰同 session 舊 token 311）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/gateway_loop.rs::estop_terminates_sessions_concurrently (2095-2155)：兩個 fake_claude `hang` session 並存、各自 pid，estop 並行終止",
+     "apps/interaction-desktop/e2e/evidence.spec.ts:336-372：同一 daemon 同時開兩個 fixture Codex session（A active、B waiting-for-consent）＋兩個 fixture Claude session",
+     "crates/interaction-api/tests/api_e2e.rs:2229-2360：兩個（非 gateway）session 的 token 擁有權互不可跨"
+    ],
+    "evidence": [
+     "claude.rs:156-165：每個 session 各自 spawn `claude -p …`，cwd＝spec.workdir，`--safe-mode --strict-mcp-config --mcp-config {}`（74-86）；process.rs:39-49 每個子程序自成 process group，process.rs:15-36 移除 runtime token 後只注入該 session 的 INTERACT_AI_SESSION_TOKEN／API_URL",
+     "gateway.rs:348-372, 380-638：每個 session 一條 mpsc 事件通道與獨立 pump task，所有 report／mailbox 都以該 session_id 呼叫；approvals map 每 session 一份（353-354）",
+     "agents.rs:1098-1106 emit_agent_session_state 事件帶 agentSessionId；桌面投影以 AgentSessionState 逐筆處理（apps/interaction-desktop/src/statusProjection/workState.ts:1-13）",
+     "gateway.rs:240-281 resolve_gateway_workdir：不要求各 session 目錄不同；未指定目錄的 session 全部共用 home/agent-workspaces/no-folder（249-258）",
+     "agents.rs:1562-1604 record_gateway_pgid：以「本 daemon 直接子程序、自為 group leader、未記錄過」歸屬 pgid，候選不唯一時放棄記錄（只影響崩潰後的孤兒清理）"
+    ],
+    "limitation": "隔離靠 session id 為鍵的 map 與各自子程序（靜態確認）；沒有測試直接斷言「送給 A 的任務不會進 B 的 stdin」或「A 的 result 不會寫進 B 的信箱」，現有多 session 測試只驗 estop／狀態。兩個 claude 子程序共用同一個 HOME（~/.claude 的 session 存放）與同一個 no-folder 暫存目錄。真 CLI 並存未在 repo 內測過。",
+    "nextAction": "補一支 gateway_loop 測試：兩個 fixture session 各送不同任務，斷言各自 fake-input 只含自己的任務且 mailbox 結果不交叉；考慮為 no-folder session 建立每 session 專屬子目錄。",
+    "reproCommand": "cargo test -p interaction-runtime --test gateway_loop estop_terminates_sessions_concurrently（建議；本輪未執行）",
+    "confidence": "high"
+   },
+   {
+    "id": "C-03",
+    "need": "異種多 Session（claude＋codex 並存）",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "integration",
+     "browser"
+    ],
+    "owner": "crates/interaction-runtime/src/gateway.rs ＋ crates/interaction-agent-gateway/src/{claude,codex,codex_exec}.rs",
+    "entryPath": "create_agent_session 以 agentId 選 kind（agents.rs:597 agent_kind_for）→ gateway_attach 以 kind 從 `connectors()` 挑 connector（gateway.rs:74-81, 315-318）；UI 選擇 agent：AiPage.tsx:887-890、TaskComposer.tsx:43,79（programming 預設 codex、conversation 預設 claude-code，human.rs:137）；路由建議 GET /v1/agents/routing（routes.rs:2049-2060 → gateway.rs:1144-1194，確定性、不強制）",
+    "contract": "default_connectors／connectors() 同時提供 ClaudeConnector 與 CodexConnector（lib.rs:268-273；gateway.rs:74-81 可用 INTERACT_AI_CLAUDE_BIN／INTERACT_AI_CODEX_BIN 覆寫）",
+    "stateOwner": "同 C-02；GatewayManager 不分 kind，同一張 map",
+    "existingTests": [
+     "apps/interaction-desktop/e2e/evidence.spec.ts:336-372：同一 daemon 同時開 2 個 fixture Codex＋2 個 fixture Claude session 並各自到達 active／waiting-for-consent／claimed-completed",
+     "crates/interaction-runtime/tests/gateway_loop.rs::codex_refuses_intent_only_sessions_it_cannot_enforce (2650-2690)：同一 runtime 先 codex 再 claude（序列，非並行）",
+     "apps/interaction-desktop/e2e/work-delegate.spec.ts:170,263（程式工作→codex、一般對話→claude-code，serial 模式逐支建立）"
+    ],
+    "evidence": [
+     "gateway.rs:191-224：discover 依序跑兩個 connector，各自登記 provider；gateway.rs:319-326 每次 attach 重新 discover（每個探測 6 s 上限：claude.rs:26、codex.rs:28），且在 agent_create_lock 內，故建立延遲隨探測時間累加",
+     "gateway.rs:297-314：codex 專屬拒絕（maxCost、intent-only）在 attach 期確定性擋下，claude 不受影響——異種並存時各 session 規則獨立",
+     "apps/interaction-desktop/e2e/global-setup.ts:58-66：Playwright 預設同時把兩個 bin 指到 fixture；E2E_REAL_AGENTS=1 時改用 PATH 真 CLI，但 session 證據測試被 skip",
+     "scripts/v03-cli-e2e.sh:261-281 只用 fake claude；沒有 codex 並存段落"
+    ],
+    "limitation": "runtime 層沒有任何一支整合測試同時讓 codex 與 claude fixture 並行；瀏覽器層的並存證據只來自 fixture。真 claude 與真 codex 同時並存在 repo 內 not-run。",
+    "nextAction": "在 gateway_loop.rs 增加 codex(turns)＋claude(default) 同時建立、各自收到自己的結局的測試；在 docs/releases 以真 CLI 做一次逐列標示的 smoke。",
+    "reproCommand": "cd apps/interaction-desktop && pnpm test:e2e -- evidence.spec.ts（建議；本輪未執行）",
+    "confidence": "high"
+   },
+   {
+    "id": "C-04",
+    "need": "Connector 真實支援範圍：claude stream-json 的 send／approval／interrupt／resume；codex app-server 的 thread/start、turn/start、turn/interrupt、approval、thread/resume；codex exec fallback 限制",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration",
+     "browser"
+    ],
+    "owner": "crates/interaction-agent-gateway/src/{claude,codex,codex_exec,process}.rs",
+    "entryPath": "POST /v1/agent-sessions/{id}/messages（routes.rs:1500-1516 → mailbox_send agents.rs:852-967 → gateway_deliver gateway.rs:669-825 → handle.send_user_message）；POST …/approve（routes.rs:2023-2032 → gateway_resolve_approval gateway.rs:828-975 → handle.resolve_approval）；POST …/interrupt（routes.rs:2039-2048 → gateway_interrupt gateway.rs:995-1010 → handle.interrupt）；resume 走 create（resumeProviderSessionId → SessionSpec.resume_provider_session gateway.rs:337）；CLI `agents send|approve|interrupt|resume`（commands.rs:893-909, 941-1002）；Tauri lib.rs:1297-1314, 1597-1618；UI AiPage.tsx:664, 696, 834-846",
+    "contract": "AgentSessionHandle trait（lib.rs:234-254）；GatewayEvent 正規化事件（lib.rs:77-152）；SessionSpec（lib.rs:156-207）",
+    "stateOwner": "各 handle 內部狀態（claude.rs:306-315 ClaudeHandle；codex.rs:377-387 CodexShared；codex_exec.rs:113-123 CodexExecHandle）；runtime 端 PendingApproval（gateway.rs:83-93）",
+    "existingTests": [
+     "claude.rs unit 479-639（args、parser、never fabricate consent）",
+     "codex.rs unit 715-988（notification 正規化、approval retry、exec fallback＋resume 走真 fake 子程序）",
+     "codex_exec.rs unit 475-601（args 安全、intent-only 拒絕、drain outcome）",
+     "gateway_loop.rs::resume_passes_the_provider_thread_and_relocks_permission_flags (842)、::codex_resume_resends_cwd_and_sandbox_instead_of_inheriting_them (1007)、::an_unanswered_approval_is_denied_by_the_watchdog_and_the_deny_reaches_the_agent (1133)、::an_interrupted_codex_turn_is_cancelled_not_claimed_completed (1772)、::an_undelivered_message_during_a_running_exec_turn_is_not_an_agent_failure (1518)、::a_second_turn_that_dies_is_not_covered_by_the_first_turns_claim (1286)",
+     "apps/interaction-desktop/e2e/work-delegate.spec.ts:159-224（fixture codex `turns` 模式 interrupt→cancelled）、327（拒絕核可送達 agent）"
+    ],
+    "evidence": [
+     "claude send：claude.rs:323-341 直接把 user JSON 寫進 stdin，無「上一輪未完」檢查；approval：claude.rs:343-352 一律回 Protocol error（-p 無核可管道），parser 絕不產生 waiting-for-consent（612-628）；interrupt：claude.rs:354-357 對整個 process group 送 SIGINT——若 CLI 因此退出，stdout task 走 SessionClosed（285-288），runtime 記 `unknown`（gateway.rs:607-630）而非 cancelled；resume：`--resume <id>`（106-108）並重上鎖 plan／tools",
+     "claude args：claude.rs:74-116 只有三種固定 --tools 預設（Read,Glob,Grep／＋Edit,Write／空）；`--model` 只在 spec.model 有值時附加（103-105），但 gateway_attach（gateway.rs:329-343）從不設 model、CreateAgentSession（agents.rs:247-278）也沒有 model 欄位 ⇒ 模型選擇 defined-only；`--max-turns` 同樣從未由 runtime 設定",
+     "codex app-server：initialize/initialized（codex.rs:292-307）→ thread/start 或 thread/resume 皆重送 cwd／approvalPolicy=untrusted／sandbox（309-343）→ turn/start 以 acked 寫入為送達（604-621）；approval ServerRequest→waiting-for-consent（250-266），回覆 {decision: accept|reject}（623-660，先送達再移除）；turn/interrupt 帶 threadId＋turnId，寫不進去退回 SIGINT（662-682）；turn/completed 依 turn.status 映射 completed／interrupted／failed／unknown（510-553）；token usage（564-577）；schema 鎖定 0.149.1（檔頭 8-9），本機 Codex 為 0.153.4，漂移未在 repo 內驗證",
+     "codex exec fallback：每則訊息一個子程序（codex_exec.rs:131-241），上一輪未完回 Busy（135-143）→ runtime 409 Conflict（gateway.rs:759-763）；無核可管道、approval_policy=never（243-251, 69-111）；interrupt＝SIGINT group（253-259）；resume＝`exec resume <thread>`；`--model` 同樣從未被設定",
+     "codex 兩條路徑共同限制：maxCost 在 attach 拒絕（gateway.rs:297-302）、intent-only 拒絕（309-314；codex.rs:145-149；codex_exec.rs:28-32）",
+     "TaskWaitingForInput：lib.rs:89-99 與 core agent.rs:21-30 明言沒有 connector 產生；只有手動 POST …/report event=waiting-for-input 會走到（agents.rs:1183）",
+     "gateway_interrupt 只在 codex 測試被呼叫（gateway_loop.rs:1805, 1900）；claude interrupt 的後續狀態沒有任何測試"
+    ],
+    "limitation": "claude：無 approval、interrupt 語意實為對整組 SIGINT（真 CLI 反應未驗）、model／max-turns 未接線；codex：schema 鎖 0.149.1 而本機 0.153.4；exec fallback 無核可、無並行 turn；三者都只以 bash fixture 驗證，真 CLI 在 repo 測試中 not-run。",
+    "nextAction": "為 claude interrupt 補 fixture 測試並定義預期狀態（cancelled vs unknown）；用真 Codex 0.153.4 重新 generate-json-schema 比對 thread/resume 與 turn/completed 形狀；決定是否把 model 欄位接到 CreateAgentSession（否則從 SessionSpec 移除以免誤導）。",
+    "reproCommand": "cargo test -p interaction-agent-gateway && cargo test -p interaction-runtime --test gateway_loop an_interrupted_codex_turn_is_cancelled_not_claimed_completed（建議；本輪未執行）",
+    "confidence": "high"
+   },
+   {
+    "id": "C-05",
+    "need": "開啟 Session 與實際並行的差異：並行上限、open_agent_sessions 用途、policy 限制、同時 turn 的排程",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration"
+    ],
+    "owner": "crates/interaction-runtime/src/agents.rs（上限）＋ crates/interaction-core/src/agent.rs（DelegationLimits）",
+    "entryPath": "create_agent_session（agents.rs:469-501）讀 policy().delegation；PATCH /v1/policy（api lib.rs:298-299 → runtime.rs:701-716 merge-patch）可改 delegation 數值；GET /v1/status 的 agentSessions 計數（runtime.rs:631）",
+    "contract": "DelegationLimits 預設 max_depth 3／max_sessions 8／max_messages_per_session 200／max_parallel 4（core agent.rs:121-143）；PolicyConfig.delegation（core policy.rs:101-103）",
+    "stateOwner": "Runtime.policy_config（runtime.rs:696-699；持久化 config_service.save_policy 710）；open 計數即時由 agent_sessions map 計算（agents.rs:375-383）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/agents_loop.rs::delegation_limits_depth_cycle_and_count (228-276)：第 9 個 open session 被拒",
+     "crates/interaction-runtime/tests/agents_loop.rs::delegation_tree_is_bounded_by_max_parallel_regardless_of_hop_count (581-606)",
+     "crates/interaction-runtime/tests/gateway_loop.rs::estop_terminates_sessions_concurrently (2095)：兩個子程序真的同時存在",
+     "crates/interaction-core/src/agent.rs unit 388-410"
+    ],
+    "evidence": [
+     "agents.rs:375-383 open_agent_sessions：計 state.is_open() 且租約未過期的 session；呼叫端只有 agents.rs:469（上限）與 runtime.rs:631（status.agentSessions）",
+     "agents.rs:496-501：無 delegation envelope 的建立以 max_sessions 為全域 open 上限——包含純對話 session 與主動式對話 session（proactive.rs:716-733，同樣佔用配額）；有 envelope 時改以 rootTaskId 同樹 open 數 ≥ max_parallel 拒絕（473-495），並跳過 max_sessions 直接檢查（check_delegation 內仍有 open_sessions ≥ max_sessions，core agent.rs:171-176）",
+     "沒有「同時執行中 turn」的上限或排程：每個 session 自有子程序；claude send 無 busy 檢查（claude.rs:323-341）、codex app-server turn/start 不檢查 current_turn（codex.rs:604-621）——同一 session 連續兩個 turn 的行為交給 provider CLI；只有 codex exec 以 Busy 拒絕（codex_exec.rs:135-143）",
+     "runtime.rs:701-716 update_policy 是無驗證的 JSON merge：delegation.max_sessions 可被設為 0（此後所有非委派建立都被拒）或任意大（等於取消上限），只固定 resume_high_risk_after_restart",
+     "agents.rs:394 agent_create_lock：建立（含 discover 探測與 spawn）序列化，故並行建立會排隊"
+    ],
+    "limitation": "「並行」只有 open-session 計數，沒有執行中 turn 的並行上限、沒有 per-provider 上限、沒有排程／佇列；同一 session 連送兩個 turn 的行為未定義（依 provider）；policy 上限可被人類 PATCH 成無效值。",
+    "nextAction": "為 delegation 上限加 PATCH 驗證（下限 1、合理上限）；決定同 session 第二個 turn 的語意（拒絕或排隊）並在 claude／codex app-server 路徑實作；文件化 max_sessions 含主動式對話配額。",
+    "reproCommand": "cargo test -p interaction-runtime --test agents_loop delegation_limits_depth_cycle_and_count（建議；本輪未執行）",
+    "confidence": "high"
+   },
+   {
+    "id": "C-06",
+    "need": "委派、深度、allowlist、訊息與預算限制在哪確定性強制（delegation depth、tool allowlist、max messages、lease TTL、cost ceiling）",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration"
+    ],
+    "owner": "crates/interaction-runtime/src/{agents,gateway}.rs ＋ crates/interaction-core/src/agent.rs（check_delegation）",
+    "entryPath": "create_agent_session（agents.rs:412-438 write 前提、469-501 delegation、504 TTL、526-541 budget）；mailbox_send（agents.rs:906-912 訊息預算）；gateway_deliver（gateway.rs:699-714 成本預算）；renew（agents.rs:826-848）；watchdog gateway_sweep（gateway.rs:1034-1122，每 tick runtime.rs:2419）；DelegateActuator（agents.rs:1746-1889）",
+    "contract": "DelegationLimits／DelegationEnvelope／check_delegation（core agent.rs:103-178）；SessionBudget（84-101）；CapabilityLease（60-81）",
+    "stateOwner": "AgentSessionRecord.budget／lease（in-memory＋SQLite agent_sessions）；policy_config.delegation",
+    "existingTests": [
+     "crates/interaction-core/src/agent.rs::delegation_depth_cycle_and_budget_are_enforced (388-410)",
+     "agents_loop.rs::delegation_limits_depth_cycle_and_count (228)、::message_budget_is_a_hard_ceiling (278)、::max_messages_zero_does_not_mean_unlimited (562)、::lease_expiry_kills_capabilities_and_refuses_renewal (390)、::lease_expiry_emits_timed_out_and_revokes_the_session_capability (780)",
+     "gateway_loop.rs::resume_cannot_widen_time_or_cost_limits (2295)、::resume_cannot_widen_scope (2157)、::resuming_an_intent_only_session_may_not_widen_the_real_tool_set (2694)、::delegated_gateway_receipt_reaches_acknowledged (2416)",
+     "scripts/v03-cli-e2e.sh:182-190（訊息預算硬上限）"
+    ],
+    "evidence": [
+     "強制點在 runtime（agents.rs）呼叫 core 的 check_delegation；crates/interaction-policy/src/lib.rs 沒有任何 agent／delegation 程式碼（grep 只命中 session consent）——docs/MAINTAINERS-MAP.md:100「限界由 crates/interaction-policy 確定性強制」與程式不符",
+     "深度／循環／預算只在 payload 帶 delegation envelope 時檢查（agents.rs:470-472）；DelegateActuator 轉送時會 hop_count+1 並追加 visited（1817-1828），但直接呼叫 HTTP create 的呼叫端可自行填 hop_count:0——深度誠實度對直接 API 建立依賴呼叫端",
+     "DelegationLimits.provider_allowlist（core agent.rs:129-130）在整個 crates/ 沒有任何讀取點（grep 只有定義）⇒ defined-only",
+     "max_messages＝min(requested, policy)，0＝policy 預設（agents.rs:530-539）；mailbox_send 對雙向訊息都扣預算（906-913），runtime 自己寫的 approval-request／result／approval-resolved 也經 mailbox_send（gateway.rs:446-454, 528-536, 934-942）而佔用配額（estop 註記除外，agents.rs:1434-1462 直接 push）",
+     "TTL clamp 1..1440 分（agents.rs:504）；renew 每次 ≤240 分且無累計上限（845）；到期惰性判定（675-704）＋ watchdog 殺掉紀錄已非 open 的殘留子程序（gateway.rs:1105-1118）",
+     "成本：claude 以 `--max-budget-usd` 交給 CLI（claude.rs:112-114）並在 runtime 於 spent≥max 時拒開新 turn（gateway.rs:699-714，spent 來自 result.cost_usd 517-519）；codex 在建立時拒絕 maxCost（gateway.rs:297-302）；非 gateway session 的 maxCost 只存不扣（gateway_deliver 在預算檢查前已對非 gateway 回 Ok(false)，682-698）",
+     "工具白名單：claude 依模式固定三組 `--tools`（claude.rs:87-102）；payload.toolScope 只影響 (a) 精確等於 [conversation.generate] 的 intent-only（gateway.rs:68-70）、(b) write 需含 workspace.write（agents.rs:424-428）、(c) session token 可呼叫的 /v1/tools（agents.rs:69-93）；codex 只有 sandbox，無工具白名單（gateway.rs:303-314）"
+    ],
+    "limitation": "provider_allowlist 未實作；深度檢查對直接 API 建立可被呼叫端重置；非 gateway session 的 cost ceiling 只是宣告；toolScope 不是 provider 端逐工具白名單；renew 無累計上限；MAINTAINERS-MAP 對 policy crate 的歸屬描述錯誤。",
+    "nextAction": "修正 MAINTAINERS-MAP.md:100；實作或移除 provider_allowlist；為 renew 加累計上限或文件化；把非 gateway session 的 maxCost 標為不強制或拒收。",
+    "reproCommand": "cargo test -p interaction-core delegation_depth_cycle_and_budget_are_enforced && cargo test -p interaction-runtime --test agents_loop message_budget_is_a_hard_ceiling（建議；本輪未執行）",
+    "confidence": "high"
+   },
+   {
+    "id": "C-07",
+    "need": "工作目錄／worktree 隔離：workdir 驗證規則（拒絕 INTERACT_AI_HOME、需存在、是否要求各 session 不同目錄）",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration",
+     "browser"
+    ],
+    "owner": "crates/interaction-runtime/src/gateway.rs（resolve_gateway_workdir）＋ agents.rs（check_resume_same_workdir）",
+    "entryPath": "create_agent_session → gateway_attach → resolve_gateway_workdir（gateway.rs:240-281）；resume 比對 check_resume_same_workdir（agents.rs:204-236）；UI workdir 輸入 AiPage.tsx:868-901、TaskComposer.tsx:158-177；CLI `--workdir`（main.rs:391, 428）",
+    "contract": "AgentSessionRecord.resolved_workdir（core agent.rs:219-227）：實際掛載的正規化絕對路徑，續開唯一可比對的事實",
+    "stateOwner": "AgentSessionRecord.resolved_workdir（agents.rs:624-626 落地）；檔案系統本身",
+    "existingTests": [
+     "gateway_loop.rs::workdir_never_exposes_the_runtime_state_dir (2258)、::a_symlink_cannot_smuggle_the_runtime_state_dir_in_as_a_workdir (2592)、::a_workdir_inside_the_runtime_state_dir_is_refused (2620)、::resume_must_stay_in_the_recorded_workdir (2505)",
+     "agents.rs unit resume_workdir_tests (1892-2032)",
+     "apps/interaction-desktop/e2e/work-delegate.spec.ts、evidence.spec.ts:331-336（每 session 各自 tmp 目錄——測試衛生，非 runtime 強制）"
+    ],
+    "evidence": [
+     "gateway.rs:244-258：空字串／None → 共用暫存 home/agent-workspaces/no-folder（自動建立）；主動式對話固定 home/agent-workspaces/proactive（proactive.rs:711）",
+     "gateway.rs:260-265：目錄不存在 → Validation（400）；267 canonicalize；268-277 雙向拒絕「是／包含／位於」state 目錄（state/ 內有 api-token 與 interaction.db：config.rs:88-92）——INTERACT_AI_HOME 本身因包含 state/ 被拒，但 home 底下不含 state 的子目錄（如 agent-workspaces、config）被接受",
+     "沒有任何「各 session 目錄必須不同」的檢查；grep `worktree` 只命中 domain_packs.rs 的文字，沒有 git worktree 機制；兩個 write-enabled session 可同時掛同一目錄",
+     "codex_exec.rs:76-90 resume 分支不帶 `--cd`，但 149 行以 current_dir 設 cwd；codex app-server thread/resume 重送 cwd（codex.rs:320-343）",
+     "續開：previous 與 requested 都正規化後比對（agents.rs:186-192, 213-221）；缺任一方一律拒絕（222-233）"
+    ],
+    "limitation": "無 per-session 唯一目錄、無 worktree；未指定目錄的多個 session 共用同一暫存目錄；write-enabled 並存寫同一目錄不擋。安全邊界只擋 state/，不擋 home 其他子目錄。",
+    "nextAction": "為 no-folder／proactive 建立 per-session 子目錄；若要支援並行寫入，加入 git worktree 或「同一目錄只允許一個 write-enabled open session」的檢查。",
+    "reproCommand": "cargo test -p interaction-runtime --test gateway_loop workdir_never_exposes_the_runtime_state_dir（建議；本輪未執行）",
+    "confidence": "high"
+   },
+   {
+    "id": "C-08",
+    "need": "單一 Session 取消是否影響其他工作（close/kill 只殺該 process group？estop 全殺？）",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration",
+     "browser"
+    ],
+    "owner": "crates/interaction-runtime/src/{agents,gateway}.rs ＋ crates/interaction-agent-gateway/src/process.rs",
+    "entryPath": "POST …/close（routes.rs:1548-1563 → close_agent_session agents.rs:1266-1381 → gateway_spawn_kill gateway.rs:1013-1029）；POST …/interrupt（gateway.rs:995-1010）；POST /v1/emergency-stop（runtime.rs:1116-1201 → estop_agent_sessions agents.rs:1394-1428）；Tauri agent_session_close（lib.rs:1620-1631）；UI AiPage.tsx:664（interrupt）；CLI `agents close|interrupt`",
+    "contract": "AgentSessionHandle::kill／interrupt／process_group（lib.rs:245-251）；ProcessGroup::terminate（process.rs:143-163）",
+    "stateOwner": "GatewayManager.sessions（remove by id）＋ meta.gateway_pgids（agents.rs:1547-1560）",
+    "existingTests": [
+     "gateway_loop.rs::estop_terminates_sessions_concurrently (2095-2155)",
+     "agents_loop.rs::estop_cancels_all_open_sessions_and_blocks_new_ones (428)、::estop_leaves_a_runtime_note_instead_of_a_cancel_task (1068)",
+     "gateway_loop.rs::estop_does_not_send_a_user_turn (1932)",
+     "process.rs unit 280-340（group SIGTERM→SIGKILL 含孫程序）",
+     "api_e2e.rs:2340-2360（estop 取消兩個 session）",
+     "apps/interaction-desktop/e2e/work-delegate.spec.ts:159-250（fixture codex 單一 session interrupt／close）"
+    ],
+    "evidence": [
+     "agents.rs:1323-1325 close → gateway_spawn_kill(id)：gateway.rs:1014-1016 只 remove 該 id；1021 只對該 session 的 group terminate(2 s)，之後有界取鎖 handle.kill()",
+     "gateway.rs:995-1010 gateway_interrupt 只作用於該 session handle；claude＝SIGINT 該 group（claude.rs:354-357）、codex＝turn/interrupt 或退回 SIGINT（codex.rs:662-682）",
+     "estop：agents.rs:1394-1428 快照所有 open session（與建立互斥），每個 session 2 s 有界關閉、逾時改走鎖外 kill，join_all 併行；不送使用者回合、只留 runtime 註記（1434-1468）；runtime.rs:1199-1201 由 emergency_stop 呼叫；gateway_deliver 在 estop 後拒送（gateway.rs:677-681）；重啟不自動恢復（restore 標 Expired，agents.rs:1492-1514）",
+     "gateway.rs:1105-1118 watchdog：紀錄已非 open 但子程序仍掛著 → 逐一 kill",
+     "shutdown／restore：reap_recorded_gateway_pgids 對所有已記錄 pgid 做 SIGTERM→SIGKILL（agents.rs:1620-1672；runtime.rs:502, 570），以 pid＋pgid＋command 相等作 PID 重用防護",
+     "DelegateActuator::cancel 回 NotFound「以關閉 session 取消」（agents.rs:1876-1883）；emergency_stop 為 no-op、由 runtime 路徑負責（1885-1888）"
+    ],
+    "limitation": "沒有測試直接斷言「關閉 A 之後 B 的子程序仍活著」；pgid 歸屬為 best-effort（agents.rs:1562-1604），前一 session 殘影未死時可能誤記，只影響崩潰重啟後的孤兒清理；非 unix 平台無 process-group 語意（process.rs:159-162, 216-221）。",
+    "nextAction": "補一支兩 session 測試：close A → 斷言 A 的 pid 死、B 的 pid 活且仍可送訊；為 pgid 誤歸屬加 regression。",
+    "reproCommand": "cargo test -p interaction-runtime --test gateway_loop estop_terminates_sessions_concurrently && cargo test -p interaction-agent-gateway kill_tree（建議；本輪未執行）",
+    "confidence": "high"
+   },
+   {
+    "id": "C-09",
+    "need": "達限制時明確拒絕（錯誤碼／訊息）",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration"
+    ],
+    "owner": "crates/interaction-runtime/src/{agents,gateway}.rs（DomainError）＋ crates/interaction-api/src/error.rs（HTTP 映射）",
+    "entryPath": "HTTP：ApiError::from(DomainError)（api error.rs:53-71）→ body {error:{code,message}}；CLI 原樣輸出 status＋JSON（commands.rs emit）；Tauri 以 err_s 壓成字串（src-tauri lib.rs:1577, 1613, 1628）；UI 顯示訊息字串",
+    "contract": "DomainError::code() 字串（core error.rs:76-93：policy_blocked／conflict／validation_failed／unavailable／consent_required／not_found／expired…）；HTTP 狀態（api error.rs:56-66：PolicyBlocked／ConsentRequired 403、Conflict 409、Validation 400、Unavailable 503、Expired 410、NotFound 404）",
+    "stateOwner": "無（純錯誤路徑）",
+    "existingTests": [
+     "agents_loop.rs::delegation_limits_depth_cycle_and_count (228)、::message_budget_is_a_hard_ceiling (278)、::lease_expiry_kills_capabilities_and_refuses_renewal (390)",
+     "gateway_loop.rs::after_the_process_exits_a_new_task_is_refused_instead_of_silently_queued (1427)、::an_undelivered_message_during_a_running_exec_turn_is_not_an_agent_failure (1518)、::resume_without_a_recorded_grant_is_refused (2757)、::codex_refuses_intent_only_sessions_it_cannot_enforce (2650)",
+     "api_e2e.rs::interrupt_requires_session_ownership_or_a_human_token (2229)：403 token_scope_forbidden／404 not_found",
+     "scripts/v03-cli-e2e.sh:186-190（第 4 則訊息非 0 退出）、673-678（estop 後建立被拒）"
+    ],
+    "evidence": [
+     "open 上限：agents.rs:496-501 PolicyBlocked「too many open agent sessions (N ≥ M)」；max_parallel：490-495；depth／cycle／budget：core agent.rs:152-177 帶原因文字，經 470-472 轉 PolicyBlocked",
+     "estop：agents.rs:395-398, 651-659 PolicyBlocked；disabled agent：400-411；訊息預算：906-912 PolicyBlocked「message budget exhausted」；成本預算：gateway.rs:710-714 PolicyBlocked",
+     "Busy（codex exec）：gateway.rs:759-763 Conflict 409，訊息明說「未送達；稍後再送或先中斷」；子程序已結束：692-696 Unavailable 503；stdin 阻塞：745-751, 783-787 Unavailable",
+     "codex maxCost／intent-only：gateway.rs:297-314 Validation 400 附建議改用的替代；workdir 不存在：260-265 Validation；state 目錄：272-277 Validation",
+     "續開放寬：agents.rs:125-176 PolicyBlocked／ConsentRequired 逐項指出放寬了什麼；未知 thread：460-465 PolicyBlocked",
+     "renew 已結束：agents.rs:836-841 Conflict；連接器不可用：gateway.rs:320-326 Unavailable 附 discovery.detail"
+    ],
+    "limitation": "Tauri 路徑把 code 壓掉只剩 message（src-tauri lib.rs err_s），桌面 UI 無法依 code 分流；PATCH /v1/policy 對 delegation 數值不驗證（runtime.rs:701-716），人類可把上限設成 0 或極大而無警告。",
+    "nextAction": "讓 Tauri 回傳結構化 {code,message}；為 policy.delegation 的 PATCH 加範圍驗證與明確拒絕訊息。",
+    "reproCommand": "cargo test -p interaction-api --test api_e2e interrupt_requires_session_ownership_or_a_human_token（建議；本輪未執行）",
+    "confidence": "high"
+   },
+   {
+    "id": "C-10",
+    "need": "不誤續接另一個 Session（resume 用 providerSessionId 是否驗 agentId／owner）",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration"
+    ],
+    "owner": "crates/interaction-runtime/src/agents.rs（resumed_session_record／check_resume_not_wider）＋ crates/interaction-api/src/lib.rs（principal 守門）",
+    "entryPath": "POST /v1/agent-sessions{resumeProviderSessionId}（routes.rs:1389-1395；只有 human token 可 POST：api lib.rs:491-494, 751，api_e2e.rs:2295-2311）→ create_agent_session agents.rs:453-468 → resumed_session_record 352-365 → check_resume_not_wider 105-178 → gateway_attach resume（gateway.rs:337）；CLI `agents resume`（commands.rs:941-1002 以原 record 的 agentId 與上限重送）；UI AiPage.tsx:122-134 buildResumeInput（沿用 record.agentId）",
+    "contract": "AgentSessionRecord.provider_session_id「不是 runtime 的 session 身分」（core agent.rs:215-218）；resume「不得放寬任何 scope」（agents.rs:273-277, 441-452）",
+    "stateOwner": "agent_sessions in-memory map（含 restore 回載的已結束紀錄，保留 200 筆／30 天）",
+    "existingTests": [
+     "gateway_loop.rs::resume_passes_the_provider_thread_and_relocks_permission_flags (842)、::codex_resume_resends_cwd_and_sandbox_instead_of_inheriting_them (1007)、::resume_cannot_widen_scope (2157)、::resume_cannot_widen_time_or_cost_limits (2295)、::resume_must_stay_in_the_recorded_workdir (2505)、::resuming_an_intent_only_session_may_not_widen_the_real_tool_set (2694)、::resume_without_a_recorded_grant_is_refused (2757)",
+     "agents.rs unit resume_workdir_tests (1960-2032)",
+     "apps/interaction-desktop/src/test/aiPageResume.test.tsx（vitest，前端 payload）"
+    ],
+    "evidence": [
+     "agents.rs:352-365 resumed_session_record：只以 provider_session_id 相等取「最近建立」的紀錄，不看 state（open／closed）也不看 agent_id",
+     "agents.rs:105-178 check_resume_not_wider：比對 data／tool／consent scope、allow_write、ttl、maxCost、maxMessages、workdir——沒有 `input.agent_id == original.agent_id` 的比對；因此 human 可用 codex thread id 搭配 agentId=claude-code 建立，runtime 全數放行後才在 connector `claude --resume <codex-thread>` 失敗（子程序非零退出→failed，或退出→unknown），而非前置拒絕",
+     "沒有「原 session 必須已關閉」或「同一 provider thread 不得同時被兩個 open session 掛載」的檢查；GatewayManager 不以 provider_session_id 去重 ⇒ 同一 claude/codex thread 可被雙重續開",
+     "owner：系統只有一個 human principal；agent／session token 不能 POST /v1/agent-sessions（api lib.rs:491-494 GET 排除、POST 未列於白名單；session_request_allowed 430-475 只放行自己 session 的 messages／interrupt），所以跨 owner 誤續接在 API 層不可能，跨 agent／雙重續開對 human 可能",
+     "續開可比對的紀錄受保留策略限制：超過 200 筆或 30 天的已結束紀錄被清（agents.rs:751-792），之後同一 thread id 續開會以「找不到上一次的授權紀錄」拒絕（460-465）",
+     "check_resume_not_wider 以 original.budget.max_duration_ms 為 TTL 基準（151），renew 不更新它（845），故續租過的 session 只能以原始 TTL 續開"
+    ],
+    "limitation": "未驗 agentId 一致、未擋雙重續開；跨 agent 誤續接不會擴大授權（scope 仍比對原紀錄）但會產生一個註定失敗的 session 而非明確拒絕；沒有測試覆蓋跨 agent 或雙重續開。",
+    "nextAction": "在 create_agent_session 加 `original.agent_id != input.agent_id ⇒ PolicyBlocked`，並在 resume 時檢查沒有其他 open session 掛同一 provider_session_id；各補一支 gateway_loop 回歸測試。",
+    "reproCommand": "cargo test -p interaction-runtime --test gateway_loop resume_without_a_recorded_grant_is_refused（建議；本輪未執行）",
+    "confidence": "medium"
+   }
+  ],
+  "openQuestions": [
+   "真 `claude -p --input-format stream-json` 收到 process-group SIGINT 時是中止當前 turn 還是整個退出？（決定 C-04 claude interrupt 的狀態應為 cancelled 或 unknown；repo 內無測試）",
+   "本機 Codex 0.153.4 的 app-server schema 與 connector 鎖定的 0.149.1 是否相容（thread/resume 參數、turn/completed 的 turn.status、approval ServerRequest method 名）？",
+   "同一 session 在 turn 進行中再送一則訊息：claude CLI 的 stdin 佇列與 codex app-server 對第二個 turn/start 的實際行為（排隊、拒絕或並行）？runtime 沒有守門。",
+   "兩個 open session 以 `--resume` 同時掛同一個 claude session id（或 codex thread/resume 同一 thread）是否安全？runtime 目前不阻止。",
+   "PATCH /v1/policy 對 delegation 上限是否應加範圍驗證？目前可設 0 或任意大。",
+   "docs/ARCHITECTURE.md:114 的「Agent Profile」層是否應視為未實作功能，或改寫文件為 AgentKind＋偏好路由？"
+  ],
+  "notes": "方法：純靜態閱讀（未執行 cargo／pnpm／任何測試），以正式入口（HTTP routes.rs／lib.rs、CLI commands.rs／main.rs、Tauri lib.rs、React AiPage／TaskComposer）追到 runtime agents.rs／gateway.rs 與 agent-gateway 三個 connector、process.rs、storage DDL。證據層級只依 repo 內現有測試標示：unit＝crate 內 #[test]；integration＝crates/interaction-runtime/tests 與 interaction-api/tests（fixture 子程序 fake_claude.sh／fake_codex.sh／fake_codex_exec.sh）；browser＝Playwright（global-setup 預設同樣接 fixture，E2E_REAL_AGENTS=1 時 session 測試被 skip）。真 Agent 證據：repo 測試中一律 not-run；docs/releases 沒有逐列的多 Agent 真 CLI 證據，故所有列都不標 real-agent。跨列共同發現：(1) 沒有 AgentProfile 型別；(2) SessionSpec.model 從未由 runtime 設定且 API payload 無 model 欄位；(3) DelegationLimits.provider_allowlist 無任何讀取點；(4) 限制強制在 runtime/agents.rs 而非 interaction-policy crate，MAINTAINERS-MAP.md:100 描述不符；(5) TaskWaitingForInput 無 connector 產生；(6) resume 不驗 agentId、不擋雙重續開；(7) 沒有執行中 turn 的並行上限或排程；(8) no-folder／proactive session 共用暫存目錄、無 worktree。同一份 JSON 已寫入 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/matrix/find-C.json。"
+ },
+ "verdicts": [
+  {
+   "id": "C-01",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "reason": "Every specific claim verified against source: AgentKind::provider_id (lib.rs:19-36 — off-by-one from claimed 20-37 but content matches exactly), CreateAgentSession fields (agents.rs:246-279, no model field, confirming C-04's related claim), provider_id passthrough without validation (agents.rs:503-508: `input.provider_id.unwrap_or_else(...)`), provider.ai-session.<id> dual registration (agents.rs:555), subprocess gating strictly on agent_kind_for (agents.rs:593, gateway.rs:52-58 only matches \"codex\"/\"claude-code\"), retention constants CLOSED_AGENT_SESSION_RETENTION=200/_DAYS=30 (agents.rs:47,49), restart marking open sessions Expired (agents.rs:1489-1508), meta.gateway_pgids key exactly at agents.rs:1675, record_gateway_pgid's \"give up if candidates not unique\" behavior (agents.rs:1568-1600) matches verbatim. HTTP routes, CLI commands.rs:876-940, Tauri lib.rs:1566-1578, AiPage.tsx/TaskComposer.tsx all confirmed wired to create_agent_session. The 'AgentProfile' grep claim is technically imprecise (actual text is 'Agent Profile' with a space, not camelCase 'AgentProfile') but the substance — only two comment mentions (agent.rs:1, ARCHITECTURE.md:114), no real type — is verified correct. Test citations (agents_loop.rs:49 delegation_honesty_ladder using non-gateway agent 'agent.coder', line 491 open_sessions_do_not_survive_restart, gateway_loop.rs:138, api_e2e.rs:2229 interrupt ownership test) all match claimed content exactly. E2E_REAL_AGENTS skip behavior confirmed in evidence.spec.ts and work-delegate.spec.ts. Status and evidence levels (no real-agent claimed) are justified.",
+   "evidence": [
+    "crates/interaction-agent-gateway/src/lib.rs:19-36 AgentKind::provider_id matches exactly",
+    "crates/interaction-runtime/src/agents.rs:503-508 provider_id passthrough unvalidated",
+    "crates/interaction-runtime/src/agents.rs:555 provider.ai-session.<id> registration",
+    "crates/interaction-runtime/src/agents.rs:593 subprocess only for agent_kind_for match",
+    "crates/interaction-runtime/src/agents.rs:47,49 retention constants 200/30",
+    "crates/interaction-runtime/src/agents.rs:1489-1508 restore marks open sessions Expired",
+    "crates/interaction-runtime/src/agents.rs:1675 GATEWAY_PGID_META_KEY",
+    "grep 'Agent Profile' only in agent.rs:1 comment and docs/ARCHITECTURE.md:114 — no real type",
+    "crates/interaction-runtime/tests/agents_loop.rs:49 uses non-gateway agent 'agent.coder'",
+    "crates/interaction-api/tests/api_e2e.rs:2229 interrupt_requires_session_ownership_or_a_human_token confirmed"
+   ]
+  },
+  {
+   "id": "C-02",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "Verified: process.rs:15-36 remove_runtime_auth_env strips runtime tokens before spawn, process.rs:39-49 spawn_grouped uses process_group(0) for per-session isolation; gateway.rs GatewayManager.sessions keyed by runtime session_id (gateway.rs:362-366 insert into map); resolve_gateway_workdir (gateway.rs:240-281) confirms unspecified-workdir sessions all share a single fixed 'agent-workspaces/no-folder' path with no per-session subdirectory — exactly as claimed, a genuine shared-directory gap. estop_terminates_sessions_concurrently test (gateway_loop.rs:2094-2148, close to claimed 2095-2155) confirmed to use two same-kind (claude) fixture sessions and assert concurrent termination — but does NOT assert cross-session message isolation, confirming the row's own honest caveat that no test directly proves 'A's task never reaches B's stdin'. emit_agent_session_state (agents.rs:1098) and workState.ts:1-13 confirmed. No overclaiming of real-agent evidence.",
+   "evidence": [
+    "crates/interaction-agent-gateway/src/process.rs:15-49 per-process isolation confirmed",
+    "crates/interaction-runtime/src/gateway.rs:240-281 resolve_gateway_workdir shares one 'no-folder' path across all unnamed-workdir sessions",
+    "crates/interaction-runtime/tests/gateway_loop.rs:2094-2148 estop_terminates_sessions_concurrently uses two same-kind fixture sessions, tests only estop timing/termination, not message-delivery isolation",
+    "crates/interaction-runtime/src/agents.rs:1098 emit_agent_session_state confirmed"
+   ]
+  },
+  {
+   "id": "C-03",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "Verified: connectors() (gateway.rs:73-80) registers both ClaudeConnector and CodexConnector; gateway_attach (gateway.rs:284-372) has kind-specific rejection logic (maxCost for Codex, intent-only for Codex) confirmed at gateway.rs:296-314; default agent_routes in human.rs:135-140 confirm programming→codex, conversation→claude-code default mapping. evidence.spec.ts:349-364 confirmed to create 2 codex + 2 claude fixture sessions reaching independent states concurrently (browser-level). Searched gateway_loop.rs exhaustively for any test creating both codex_input and claude_input in one test body — only codex_refuses_intent_only_sessions_it_cannot_enforce (actual line 2650) does so, and it is indeed sequential (codex session creation is REJECTED/never becomes live, then a separate claude session is created) — exactly matching the row's own '序列，非並行' caveat, not an overclaim. work-delegate.spec.ts:166,260 (close to claimed 170,263) confirmed programming-work→codex and general-conversation→claude-code routing in serial-mode tests. codex.rs schema pinned to 0.149.1 (codex.rs:8) vs installed codex-cli 0.153.4 confirmed via `codex --version`, supporting the drift-risk limitation. No real-agent evidence overclaimed.",
+   "evidence": [
+    "crates/interaction-runtime/src/gateway.rs:73-80 connectors() registers both kinds",
+    "crates/interaction-runtime/src/gateway.rs:296-314 kind-specific attach rejections confirmed",
+    "crates/interaction-runtime/src/human.rs:135-140 default agent_routes confirmed",
+    "apps/interaction-desktop/e2e/evidence.spec.ts:349-364 concurrent 2 codex + 2 claude fixture sessions confirmed",
+    "crates/interaction-runtime/tests/gateway_loop.rs: only codex_refuses_intent_only_sessions_it_cannot_enforce (line 2650) combines both kinds, and codex is rejected before ever running — sequential, not concurrent, confirming row's own caveat",
+    "apps/interaction-desktop/e2e/work-delegate.spec.ts:166,260 confirmed kind routing",
+    "codex.rs:8 schema pinned to 0.149.1 vs local `codex --version` = codex-cli 0.153.4"
+   ]
+  },
+  {
+   "id": "C-04",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "reason": "Extensively verified against source. claude_session_args (claude.rs:74-114) confirmed: three fixed --tools sets, --model only appended if spec.model set, --max-turns appended if spec.max_turns set — and grep of gateway.rs for 'max_turns'/'.model' found ZERO occurrences, confirming runtime never sets either field (defined-only gap, matches C-04 exactly). claude.rs:613 confirmed test named exactly 'claude_never_fabricates_an_approval_request'. codex.rs thread/start vs thread/resume (codex.rs:309-343) both resend cwd/approvalPolicy/sandbox, confirmed. codex.rs turn/completed handling (codex.rs:510-553) confirmed exact mapping: completed→TaskClaimedCompleted, interrupted→TaskCancelled, failed→TaskFailed, other→TaskOutcomeUnknown. Approval ServerRequest → TaskWaitingForConsent confirmed (codex.rs:250-266). codex_exec.rs Busy-on-unfinished-turn (codex_exec.rs:135-142) and gateway.rs:758-763 mapping Busy→DomainError::Conflict confirmed verbatim. TaskWaitingForInput 'no connector produces this' comment confirmed word-for-word at lib.rs:89-99 and agent.rs; manual report path confirmed at agents.rs:1181 ('waiting-for-input' → WaitingForInput). Schema version pin 0.149.1 (codex.rs:8) vs actual installed codex-cli 0.153.4 confirmed live via `codex --version`, and claude --version confirmed 2.1.263. All evidence levels appropriately exclude real-agent/real-iphone claims.",
+   "evidence": [
+    "crates/interaction-agent-gateway/src/claude.rs:74-114 args builder confirmed exactly as described",
+    "grep -n 'max_turns|.model' crates/interaction-runtime/src/gateway.rs returned zero matches — confirms model/max-turns never set by runtime",
+    "crates/interaction-agent-gateway/src/claude.rs:613 fn claude_never_fabricates_an_approval_request confirmed",
+    "crates/interaction-agent-gateway/src/codex.rs:309-343 thread/start vs thread/resume both resend cwd/approvalPolicy/sandbox",
+    "crates/interaction-agent-gateway/src/codex.rs:510-553 turn/completed status mapping confirmed exactly",
+    "crates/interaction-agent-gateway/src/codex_exec.rs:135-142 Busy on unfinished turn confirmed",
+    "crates/interaction-runtime/src/gateway.rs:758-763 Busy -> DomainError::Conflict confirmed",
+    "crates/interaction-agent-gateway/src/lib.rs:89-99 TaskWaitingForInput honest-gap comment confirmed verbatim",
+    "crates/interaction-runtime/src/agents.rs:1181 manual 'waiting-for-input' report path confirmed",
+    "crates/interaction-agent-gateway/src/codex.rs:1-9 schema pinned '0.149.1'; live `codex --version` = codex-cli 0.153.4, `claude --version` = 2.1.263"
+   ]
+  },
+  {
+   "id": "C-05",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "reason": "All cited file:line evidence checks out against HEAD 78dcda1: open_agent_sessions (agents.rs:375-383), the delegation-envelope vs else branch (agents.rs:469-501), status.agentSessions (runtime.rs:631), and update_policy as an unvalidated JSON merge-patch (runtime.rs:700-715, only ~1 line off) are all verified verbatim. Confirmed no turn-level busy check exists in claude.rs (send_user_message, line 323) or codex.rs (turn/start, ~604-621); only codex_exec.rs has a real Busy AtomicBool gate (~131-141, claim said 135-143). proactive.rs:711 workdir and its shared max_sessions quota consumption confirmed. agent_create_lock serialization confirmed at agents.rs:394. All cited tests exist at the claimed locations. Status/evidence levels are accurate and do not overclaim.",
+   "evidence": [
+    "agents.rs:375-383, 469-501 — exact match",
+    "runtime.rs:631, 700-715 — exact/near-exact match",
+    "claude.rs:323, codex.rs:604-621 — no busy check, confirmed",
+    "codex_exec.rs:131-141 Busy gate confirmed",
+    "proactive.rs:711 confirmed",
+    "agents.rs:394 agent_create_lock confirmed",
+    "cited tests (agents_loop.rs:228,581; gateway_loop.rs:2095; core agent.rs:388-409) all exist"
+   ]
+  },
+  {
+   "id": "C-06",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "reason": "DelegationLimits/check_delegation (core agent.rs:124-178) match verbatim, including that check_delegation still enforces max_sessions even with an envelope present. provider_allowlist confirmed defined-only (only 2 hits repo-wide, both definitional). interaction-policy/src/lib.rs confirmed to contain zero agent/delegation code, directly contradicting docs/MAINTAINERS-MAP.md's claim that the policy crate enforces delegation limits — the finding's documentation-drift claim is correct. DelegateActuator hop_count/visited_sessions advancement, cancel()->NotFound, and no-op emergency_stop are all confirmed verbatim (agents.rs:1746-1889). Budget/TTL/cost specifics (mailbox_send deduction, renew's 240-min clamp with no cumulative cap, claude's --max-budget-usd, codex's maxCost rejection at create, claude's three --tools groups) all check out at or near the cited lines. This is an exceptionally well-sourced finding with no inaccuracy found.",
+   "evidence": [
+    "core agent.rs:124-178 DelegationLimits/check_delegation — exact match",
+    "provider_allowlist: 2 repo-wide hits, both definitional — confirms defined-only",
+    "interaction-policy/src/lib.rs: no agent/delegation code — confirms MAINTAINERS-MAP.md drift",
+    "agents.rs:1746-1889 DelegateActuator — hop_count/visited advancement, cancel/emergency_stop no-ops confirmed",
+    "claude.rs:87-101 three --tools groups, gateway.rs:297-302 codex maxCost rejection, claude.rs:112-114 --max-budget-usd — all confirmed"
+   ]
+  },
+  {
+   "id": "C-07",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "reason": "resolve_gateway_workdir (gateway.rs:240-281) matches exactly, including the empty/None shared scratch dir, non-existent-dir rejection, canonicalize, and the bidirectional state-dir protection. config.rs confirms state/ holds both interaction.db and api-token. grep confirms 'worktree' has zero real hits outside plain-text strings in domain_packs.rs — no per-session-unique-directory or git-worktree mechanism exists, confirming the core claim. check_resume_same_workdir (agents.rs:204) matches described semantics. codex_exec.rs's resume branch omitting --cd is confirmed. All four cited gateway_loop.rs tests exist at exactly the claimed line numbers, and evidence.spec.ts's per-session tmp dirs are confirmed to be test hygiene rather than runtime enforcement, matching the claim's characterization.",
+   "evidence": [
+    "gateway.rs:240-281 resolve_gateway_workdir — exact match on all sub-ranges",
+    "config.rs:88-98 confirms state/ contents",
+    "grep worktree -i: no git-worktree mechanism found",
+    "agents.rs:204 check_resume_same_workdir semantics confirmed",
+    "codex_exec.rs resume branch omits --cd — confirmed",
+    "gateway_loop.rs:2258,2505,2592,2620 all four tests exist exactly where claimed"
+   ]
+  },
+  {
+   "id": "C-08",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "gateway_spawn_kill (gateway.rs:1013-1029) and gateway_interrupt (gateway.rs:995-1008) are both confirmed single-session-scoped by construction (remove-then-terminate on that session's own ManagedSession/ProcessGroup). close_agent_session's call to gateway_spawn_kill is one line off from the cited range (1324 vs claimed 1323-1325) but otherwise exact. estop_agent_sessions (agents.rs:1394-1428) matches verbatim: create-lock-guarded snapshot, real per-session concurrency via join_all, 2s bounded timeout with lock-free kill fallback, and a runtime-only mailbox note instead of a user turn. process.rs confirms SIGTERM->poll->SIGKILL escalation via reap_stragglers on unix and a plain child.kill() no-op on non-unix, matching the claim's process-group-semantics note. All cited tests exist at or near the claimed lines, including the kill_tree unit tests proving grandchild-process cleanup. I specifically searched for a test asserting 'closing session A leaves session B's subprocess alive' and found none — confirming the finding's self-reported test gap is real and honestly disclosed rather than overclaimed. This gap doesn't change the status: the termination code path is genuinely per-session scoped by construction, so implemented-and-connected is correct as given.",
+   "evidence": [
+    "gateway.rs:1013-1029 gateway_spawn_kill — exact, single-session scoped",
+    "agents.rs:1324 close->gateway_spawn_kill call — near-exact",
+    "agents.rs:1394-1428 estop_agent_sessions — exact match on concurrency/timeout/mailbox-note behavior",
+    "process.rs:143-163 unix terminate + 216-221 non-unix fallback — confirmed",
+    "No test found directly asserting sibling-session isolation on close (only estop's cross-session concurrency test exists) — confirms the claim's disclosed limitation is genuine"
+   ]
+  },
+  {
+   "id": "C-09",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "unit",
+    "integration"
+   ],
+   "reason": "Directly verified every cited file:line. DomainError::code() at core error.rs:76-93 matches exactly; HTTP status mapping in api error.rs:53-83 matches exactly including the {error:{code,message}} body. Confirmed each rejection site fires the claimed DomainError variant: estop-blocks-create (agents.rs:395-398, 651-659), disabled-agent (400-411), open-session cap (490-501), message budget (907-912), Codex maxCost/intent-only Validation (gateway.rs:778-787), connector-unavailable Unavailable (321-326), Busy->Conflict409 (759-763), stdin-blocked/closed->Unavailable (745-787), renew-on-closed->Conflict (836-841). All cited test function names exist at the exact claimed line numbers in agents_loop.rs, gateway_loop.rs, and api_e2e.rs; scripts/v03-cli-e2e.sh non-zero-exit and estop-blocks-create assertions confirmed verbatim near the cited lines. evidenceLevel is honest — no browser/real-agent overclaim, and the cited tests are correctly fixture-subprocess integration tests. Both limitation claims independently confirmed: Tauri's err_s(e)=e.to_string() at lib.rs:1577 does discard DomainError::code() (only lines 1613/1628 are imprecise — they are `.await` continuation lines, not the exact map_err(err_s) line, a minor citation nit only); update_policy (runtime.rs:696-716) merge-patches via serde with no bounds validation on DelegationLimits, confirmed by inspection.",
+   "evidence": [
+    "crates/interaction-core/src/error.rs:76-93",
+    "crates/interaction-api/src/error.rs:53-83",
+    "crates/interaction-runtime/src/agents.rs:395-501,651-659,836-841,907-912",
+    "crates/interaction-runtime/src/gateway.rs:261-326,745-787",
+    "crates/interaction-runtime/src/runtime.rs:696-716",
+    "crates/interaction-runtime/tests/agents_loop.rs:228,278,390",
+    "crates/interaction-runtime/tests/gateway_loop.rs:1427,1518,2650,2757",
+    "crates/interaction-api/tests/api_e2e.rs:2229,2290-2312",
+    "scripts/v03-cli-e2e.sh:186-190,673-678",
+    "apps/interaction-desktop/src-tauri/src/lib.rs:509-511,1571-1578"
+   ]
+  },
+  {
+   "id": "C-10",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "unit",
+    "integration"
+   ],
+   "reason": "Directly verified: resumed_session_record (agents.rs:352-365) selects the most-recent record matching provider_session_id with no state filter and no agent_id filter; check_resume_not_wider (104-178, TTL basis at 151 uses original.budget.max_duration_ms exactly as claimed) plus check_resume_same_workdir (204-237) never compare agent_id anywhere — confirmed via a full grep of agent_id in agents.rs. renew_agent_session (825-846) only mutates lease.expires_at, never budget.max_duration_ms, confirming the stale-TTL-basis claim. GatewayManager.sessions (gateway.rs:107-108) is keyed by runtime session_id not provider_session_id, confirming no thread-level dedup. Went further and found direct proof the gap is live, not theoretical: gateway_loop.rs's codex resume test (~1044-1095) opens a write-enabled session on 'fake-thread-1', then successfully resumes a SECOND session onto the same still-open thread before closing either — passing test code demonstrating the runtime permits double-attach onto an open original, exactly matching (and strengthening) the claim's 'no open-original / no dedup' point. Ownership claim confirmed: lib.rs:751's test asserts POST /v1/agent-sessions is refused for agent tokens, and api_e2e.rs:2295-2311 confirms 403 for an agent-token POST attempt, so only a same-human-principal cross-agent-id vector remains, as claimed. First-party mitigation confirmed but narrower than implied: `agents resume` (commands.rs:941-1002) and AiPage buildResumeInput (AiPage.tsx:118-134, function starts at 118 not 122, minor offset) both auto-fill agentId from the prior record — but the plain `agents create --agent X --resume <id>` subcommand (commands.rs:914-939) accepts any operator-chosen --agent with any --resume id, no cross-check, so the mismatch is reachable via a shipped CLI command too. Retention window (200/30 days, agents.rs:47-49,751-786) confirmed exactly. No test anywhere covers cross-agent-id resume or double-attach-while-open, confirming the claim's 'untested' note.",
+   "evidence": [
+    "crates/interaction-runtime/src/agents.rs:104-178,151,204-237,352-365,453-472,825-846,47-49,751-786",
+    "crates/interaction-runtime/src/gateway.rs:107-108",
+    "crates/interaction-runtime/tests/gateway_loop.rs:1044-1095,842,1007,2157,2295,2505,2694,2757",
+    "crates/interaction-api/src/lib.rs:751",
+    "crates/interaction-api/tests/api_e2e.rs:2295-2312",
+    "crates/interaction-cli/src/commands.rs:941-1002,914-939",
+    "apps/interaction-desktop/src/pages/AiPage.tsx:118-134"
+   ]
+  }
+ ],
+ "critic": {
+  "missingRows": [
+   {
+    "need": "C-11 Agent 主動向人類提問並在得到回答後續跑（waiting-for-input 的真實閉環）",
+    "whyItMatters": "產品方向明列「提問」。現況狀態機、UI 文案、CLI kind 都備好，但沒有任何 agent 端路徑能產生提問；使用者永遠不會被問，多 Agent 並行時也無法分辨「卡住」與「在做」。C-04 只把它當 connector 支援度的註腳，沒有成為需求列。",
+    "whereToLook": "crates/interaction-agent-gateway/src/lib.rs:88-99（TaskWaitingForInput：明言沒有 connector 產生）；crates/interaction-runtime/src/agents.rs:1181（唯一到達路徑＝有人 POST report event=waiting-for-input）；crates/interaction-api/src/lib.rs:430-467（session capability token 只能 GET 自己的 /messages、POST /interrupt、POST /v1/tools/*/call，不能 POST /report 或 /messages）；crates/interaction-runtime/src/gateway.rs:447-455,529-537,935-943（runtime 只寫 approval-request／result／approval-resolved 三種 mailbox kind）；apps/interaction-desktop/src/pages/AiPage.tsx:216-220（\"question\":\"Agent 的提問\" 標籤沒有任何產生者）",
+    "likelyStatus": "defined-only（型別＋UI 文案＋人類手動 report 可達；agent 端零路徑）"
+   },
+   {
+    "need": "C-12 工作進行中的內容串流到人類介面（progress 文字、使用中的工具、失敗原因）",
+    "whyItMatters": "產品方向明列「串流」。現況只有狀態轉移即時；progress text／tool name／artifact path／failure error 全落到 observation，session 記錄上沒有欄位，介面的訊息清單也拿不到，於是「多個 agent 同時在做什麼」在 UI 上只剩一個徽章。",
+    "whereToLook": "crates/interaction-runtime/src/gateway.rs:406-412,455-485（progress／tool／artifact 全轉成 report_agent_session(\"progress\")）；crates/interaction-runtime/src/agents.rs:1240-1256（payload 只進 observation inferences，confidence 0.5）；crates/interaction-runtime/src/agents.rs:1098-1102（AgentSessionState 事件只帶 {agentSessionId, agentId, state}）；crates/interaction-core/src/agent.rs:210-214 與 crates/interaction-runtime/src/agents.rs:680,1311,1495（record.detail 只在 lease expired／close／restore 被寫，失敗原因不落在 session 上）",
+    "likelyStatus": "implemented-partial（狀態串流有；內容串流只在 observation 層，介面未接）"
+   },
+   {
+    "need": "C-13 非 gateway（第三方／跨 AI Skill）Agent 用自己的 token 回報進度、結果、交接",
+    "whyItMatters": "多 Agent 的另一半是「不是 codex／claude-code 的 agent 也能被委派」。現況 session capability token 與 legacy agent token 都不能 POST /v1/agent-sessions/{id}/report 或 /messages，誠實階梯的 acknowledged→claimed 只能靠 human token 或 gateway pump 推進；repo 內測試直接呼叫 runtime 方法繞過 HTTP，所以這個缺口沒有被任何測試照到。",
+    "whereToLook": "crates/interaction-api/src/lib.rs:430-467（session_request_allowed 白名單）、487-541（agent_request_allowed 的 POST 放行清單不含 agent-session 路由）；crates/interaction-runtime/tests/agents_loop.rs:96-115（用 rt.mailbox_fetch／rt.report_agent_session 直呼，非 HTTP）；skills/orchestrate-adaptive-interaction/references/api.md:101-108（把 POST /report、POST /messages 列成端點卻未標人類專屬）",
+    "likelyStatus": "implemented-partial 或 confirmed-defect（HTTP 面對 agent 身分不可用；文件與程式漂移）"
+   },
+   {
+    "need": "C-14 指定模型／回合上限（哪個 agent 用哪個模型跑這件事）",
+    "whyItMatters": "多 Agent 的實務選擇不只「哪個 CLI」還有「哪個模型」。SessionSpec 已有 model／max_turns 且 connector 會照傳，但沒有任何入口能設定；CreateAgentSession 沒有 deny_unknown_fields，client 送 model 會被靜默丟掉，看起來成功其實沒生效。",
+    "whereToLook": "crates/interaction-agent-gateway/src/lib.rs:165,171（SessionSpec.model／max_turns）；crates/interaction-agent-gateway/src/claude.rs:103-110（--model／--max-turns 只在有值時附加）；crates/interaction-runtime/src/gateway.rs:329-346（spec 只設 disable_tools／resume／max_cost_usd／token／api base，從不設 model 或 max_turns）；crates/interaction-runtime/src/agents.rs:244-277（payload 無 model 欄位、無 deny_unknown_fields）",
+    "likelyStatus": "defined-only（外加靜默忽略未知欄位的誠實風險）"
+   },
+   {
+    "need": "C-15 從 iPhone 檢視／建立／核准／回覆多 Agent 工作",
+    "whyItMatters": "產品方向是「電腦主核心＋桌面／iPhone 入口」。多 Agent 的裁決（核可、回答提問、驗證 claim）目前只在桌面；iPhone 只能被動看到人類驗證後的綠勾，沒有任何 agent-session 讀寫路徑，人不在電腦前就無法推進多個等待中的 session。",
+    "whereToLook": "apps/interaction-ios/InteractionCompanion/Views/（只有 ContentView／PairingView／SensorsView／CharacterView）；crates/interaction-runtime/src/mobile.rs:3239-3270（mobile_present_verified 是唯一與 agent session 有關的路徑，單向）；crates/interaction-api/src/lib.rs:500-505（/v1/mobile 屬人類層）；crates/interaction-runtime/src/agents.rs:1155-1169（verify 後才背景直送手機）",
+    "likelyStatus": "absent（除了 verified 單向呈現）"
+   },
+   {
+    "need": "C-16 多個 session 同時等待人類時的主動通知與待決優先序",
+    "whyItMatters": "並行多 Agent 的實際痛點是「誰在等我」。現況有統一收件匣與徽章，但 tray 只顯示 session 數不顯示待決數，沒有 OS 通知／手機推播，而 approval 有 TTL 到期自動拒絕——人沒看到就被自動拒了。",
+    "whereToLook": "crates/interaction-runtime/src/activity.rs:112-146（agent-session 進 inbox，needs_decision＝waiting-for-consent／waiting-for-input／claimed-completed）；apps/interaction-desktop/src/App.tsx:428-451（徽章）；apps/interaction-desktop/src-tauri/src/tray.rs:229,253（sessions_text 只有數量）；crates/interaction-runtime/src/gateway.rs:1034-1122（gateway_sweep 逾時自動拒絕）",
+    "likelyStatus": "implemented-partial（有彙總與徽章；無主動通知、無待決計數、無跨裝置提醒）"
+   },
+   {
+    "need": "C-17 一件任務跨多個 session 的彙整與委派鏈可視化（誰委派誰、同一 rootTaskId 的分支）",
+    "whyItMatters": "深度／max_parallel 都以 rootTaskId 為界（C-06），但人類介面完全看不到這條鏈：桌面只有平面 session 清單，無法回答「這件事現在有幾個 agent 在跑、誰是誰的下游」。",
+    "whereToLook": "crates/interaction-core/src/agent.rs:103-120（DelegationEnvelope：root_task_id／hop_count／visited_sessions）；crates/interaction-runtime/src/activity.rs:133-136（inbox 的 task_id 來自 delegation.root_task_id）；apps/interaction-desktop/src/pages/WorkPage.tsx:84-108（只有 sessions／automations 兩個分頁）；grep taskId|delegation 於 apps/interaction-desktop/src（排除 test）零命中",
+    "likelyStatus": "implemented-partial（後端有欄位與強制；介面 absent）"
+   },
+   {
+    "need": "C-18 第二意見／交叉複審（讓另一個 agent 複審前一個 agent 的成果）",
+    "whyItMatters": "誠實階梯規定 claim≠verified 且只有人類能 verify；多 Agent 最自然的補強是讓 B 複審 A。現況只有一個路由字串 review-second-opinion 與 UI 角色標籤，沒有把 A 的 claim／handoff 帶進 B 的任何機制。",
+    "whereToLook": "crates/interaction-runtime/src/gateway.rs:1165（\"review-second-opinion\" => (Some(\"review\"), \"結果複審\")）；apps/interaction-desktop/src/pages/AiPage.tsx:224-229（ROUTE_ROLES 含 review）；crates/interaction-runtime/src/agents.rs:1111-1150（verify 僅 human token）；crates/interaction-runtime/src/agents.rs:1319-1360（handoff 只寫進記憶／知識，不會變成新 session 的輸入）",
+    "likelyStatus": "defined-only（只有路由標籤）"
+   },
+   {
+    "need": "C-19 daemon 重啟／當機後多 Agent 工作的恢復路徑（哪些該續、怎麼續）",
+    "whyItMatters": "使用者心智是「電腦是主核心，工作應該接得回來」。現況所有 open session 一律標 Expired、子程序被 reap，續接必須人工逐一 resume，且只在保留窗口（200 筆／30 天）內才有授權紀錄可比對；沒有任何列把「重啟後怎麼接回多個工作」當成需求。",
+    "whereToLook": "crates/interaction-runtime/src/agents.rs:1479-1538（restore 標 Expired）、1620-1672（reap_recorded_gateway_pgids）、751-792（保留策略）、453-468（沒有紀錄就拒絕 resume）；apps/interaction-desktop/src/pages/AiPage.tsx:118-134（buildResumeInput 逐一手動）",
+    "likelyStatus": "implemented-partial（安全預設正確；恢復體驗與批次續接缺）"
+   },
+   {
+    "need": "C-20 未知／未安裝的 agentId 也能建立出一個永遠不會執行的「工作」",
+    "whyItMatters": "誠實不變量：不得讓使用者以為有 agent 在做事。create_agent_session 只擋 estop／使用者停用／allow_write 三條，agentId 不做存在性檢查；非 codex/claude-code 的 id 建立純信箱 session（無子程序、無 provider 實體），卻仍出現在 /v1/activity/inbox 與 UI 清單，CLI 說明甚至以 agent.coder 為例。",
+    "whereToLook": "crates/interaction-runtime/src/agents.rs:387-411（僅三種前置檢查）、593-646（只有 agent_kind_for 命中才掛子程序）；crates/interaction-runtime/src/gateway.rs:52-58（只認 codex／claude-code）；crates/interaction-cli/src/main.rs:377-379（--agent 說明「Agent profile id (e.g. agent.coder)」）；crates/interaction-runtime/src/activity.rs:112-146（照樣列進待辦）",
+    "likelyStatus": "confirmed-defect（誠實度）或 by-design-未文件化；需一列明講"
+   },
+   {
+    "need": "C-21 多 Agent 的用量／花費總覽與跨 session 上限",
+    "whyItMatters": "並行多個 session 時，唯一的錢包保護是每個 session 各自的 maxCost（且 codex 完全不回報 USD、建立時直接拒收 maxCost）。沒有跨 session 的日／月總量上限，也沒有彙總畫面；使用者無法回答「今天這些 agent 一共花了多少」。",
+    "whereToLook": "apps/interaction-desktop/src/pages/AiPage.tsx:563-571（每 session 顯示 spentCost/maxCost）；crates/interaction-runtime/src/gateway.rs:699-714（per-session 成本閘）、296-302（codex maxCost 拒絕）；crates/interaction-policy/src/lib.rs:287（session_monetary_budget 只作用於動器 plan，不含 agent session）；apps/interaction-desktop/src/pages/companion/ProactiveSettings.tsx:212（唯一的日彙總只涵蓋主動說話）",
+    "likelyStatus": "implemented-partial（每 session 有；跨 session 無）"
+   },
+   {
+    "need": "C-22 同一個 session 連續交代第二件事的語意（排隊、拒絕、還是丟給 provider）",
+    "whyItMatters": "使用者會連續交代；同一入口三種行為：codex exec fallback 回 Busy→409，claude 直接寫進 stdin，codex app-server 直接再送一個 turn/start。沒有任何列把「我可以連續交代嗎」當成需求，也沒有文件說明差異。",
+    "whereToLook": "crates/interaction-agent-gateway/src/codex_exec.rs:131-143（Busy）；crates/interaction-runtime/src/gateway.rs:758-763（Busy→Conflict 409）；crates/interaction-agent-gateway/src/claude.rs:323-341（無 busy 檢查）；crates/interaction-agent-gateway/src/codex.rs:604-621（turn/start 不檢查目前 turn）",
+    "likelyStatus": "implemented-partial／needs-investigation（行為依 connector 而異且未定義）"
+   },
+   {
+    "need": "C-23 真 claude／真 codex 二進位的多 Agent 端到端證據（不是 fixture）",
+    "whyItMatters": "整個維度 C 的功能宣稱全部建立在 bash fixture 上；E2E_REAL_AGENTS=1 時，正好是 session 證據測試被 skip。這是證據列而非功能列，但沒有它，C-02／C-03／C-04 的 connected 只到 fixture 為止。",
+    "whereToLook": "apps/interaction-desktop/e2e/global-setup.ts:58-66（預設把兩個 bin 指到 fixture）；apps/interaction-desktop/e2e/evidence.spec.ts:326-329 與 work-delegate.spec.ts:39-42（E2E_REAL_AGENTS=1 時 skip）；crates/interaction-runtime/tests/fixtures/fake_claude.sh、fake_codex.sh；docs/releases/v0.7.0-known-limitations.md:158（§1.8「真 codex／claude 二進位未跑」沿承）",
+    "likelyStatus": "not-run（證據層級；功能不因此改判，但不得標 real-agent）"
+   },
+   {
+    "need": "C-24 每個 session 的上下文包與跨 session 的記憶隔離（多 Agent 各自看到什麼）",
+    "whyItMatters": "產品方向明列「記憶／上下文」。多 Agent 的關鍵是「A 看得到的，B 不一定看得到」：bundle 由 dispatch 當下依 session lease 的 domain scope 計算、覆寫呼叫端自帶內容、留下 hash 收據。這是維度 C 真正落實的一環，卻沒有任何一列涵蓋（C-01~C-10 全未提）。",
+    "whereToLook": "crates/interaction-runtime/src/agents.rs:861-885（只有 direction=to-session 且 kind==\"task\" 才生成，caller 的 contextBundle 被替換）、928-941（收據上限 32）；crates/interaction-runtime/src/memory.rs:239-356（candidate 不入 bundle、domain 過濾、截斷誠實回報）；crates/interaction-runtime/src/gateway.rs:726-733（bundle 以 untrusted reference data 包裝送進子程序）；crates/interaction-runtime/tests/agents_loop.rs:309-383、memory_loop.rs:299-436",
+    "likelyStatus": "implemented-and-connected（但只覆蓋 kind==task；其他 kind 無 bundle，值得單列驗證）"
+   },
+   {
+    "need": "C-25 多 Agent 軌跡的可追溯與保留邊界（能回看多久、什麼被丟掉）",
+    "whyItMatters": "產品方向明列「可追溯」。現況 audit 只記 create／retention／verify／close／estop 五處；mailbox 滿 200 則靜默 pop_front；已結束 session 只留 200 筆／30 天；transcript 從不保存（只留 bounded handoff）。並行多 Agent 時最先被丟掉的正是最舊那件工作的證據，而使用者不會被告知。",
+    "whereToLook": "crates/interaction-runtime/src/agents.rs:313,781,1149,1362,1463（audit 呼叫點）；agents.rs:40,913-915（MAILBOX_CAP 200＋pop_front）；agents.rs:47-49,751-792（保留策略＋一則 audit）；crates/interaction-core/src/agent.rs:212-214（handoff：NEVER a full transcript）",
+    "likelyStatus": "implemented-partial"
+   },
+   {
+    "need": "C-26 委派給「另一台機器上的 agent」（跨裝置多 Agent）",
+    "whyItMatters": "產品方向是跨裝置；但 gateway 只會在本機 spawn 子程序，provider 面沒有遠端 agent transport（iPhone provider 是感測／呈現，不是 agent）。若不在範圍內就該明寫成 by-design 邊界，否則「跨裝置＋多 Agent」會被讀成已支援。",
+    "whereToLook": "crates/interaction-agent-gateway/src/claude.rs:156-165 與 codex.rs:292-343（一律本機 Command spawn）；crates/interaction-runtime/src/gateway.rs:73-80（connectors 只有兩個本機 connector）；crates/interaction-runtime/src/mobile.rs:266-303（手機能力宣告只有感測／呈現）",
+    "likelyStatus": "absent（需明確標為 out-of-scope 或列為缺口）"
+   }
+  ],
+  "contradictions": [
+   "C-02 與 C-07 對同一事實給出不同狀態：兩列都指出未指定 workdir 的 session 共用 home/agent-workspaces/no-folder（gateway.rs:244-258），C-07 據此判 implemented-partial，C-02 卻判 implemented-and-connected。同一個共用目錄要嘛是隔離缺口、要嘛不是，兩列不能各判各的。",
+   "C-02 的狀態與它自己的 limitation 相衝：limitation 明說「沒有測試直接斷言送給 A 的任務不會進 B 的 stdin、A 的 result 不會寫進 B 的信箱」，懷疑者也確認 estop_terminates_sessions_concurrently（gateway_loop.rs:2094-2148）只驗終止不驗投遞隔離。依本輪分類規則（接線但缺關鍵環＝implemented-partial），「隔離」這個關鍵環目前只有靜態推論。",
+   "C-04 與 C-08 對「取消」的結局不一致：C-04 說 claude interrupt＝對整組送 SIGINT，CLI 若因此退出會走 SessionClosed→runtime 記 unknown（gateway.rs:607-630）；C-08 卻以 implemented-and-connected 描述「單一 session 取消」。使用者看到的狀態（cancelled vs 結果未知）在兩列間沒有對齊，而 UI 的 workState 兩種分支都有。",
+   "C-05 evidence 段自相矛盾：先說「有 envelope 時跳過 max_sessions 直接檢查」，括號內又說「core agent.rs:171-176 內仍有 open_sessions ≥ max_sessions」。C-06 的懷疑者裁決明確認定 check_delegation 仍會強制 max_sessions；應以後者為準並修正 C-05 文字。",
+   "C-06 指出 docs/MAINTAINERS-MAP.md:100 說「限界由 crates/interaction-policy 確定性強制」與程式不符（policy crate 無 agent／delegation 程式碼），但 C-01 的 owner 欄仍以 docs/MAINTAINERS-MAP.md:98 當歸屬來源。同一份文件在一列被判為漂移、在另一列被當成權威。",
+   "C-09 的 need 是「達限制時明確拒絕（錯誤碼／訊息）」、entryPath 包含 Tauri，卻判 implemented-and-connected；同列 limitation 又說 Tauri 用 err_s 把 DomainError::code() 壓成字串（apps/interaction-desktop/src-tauri/src/lib.rs:509-511,1571-1578），桌面這個主要入口拿不到錯誤碼。以入口為準的分類規則下，這是 implemented-partial 的典型。",
+   "C-10 的 limitation 說「沒有測試覆蓋跨 agent 或雙重續開」，但 C-10 的懷疑者裁決指出 gateway_loop.rs:1044-1095 這支既有的通過測試就示範了「原 session 仍 open 時再續開同一 thread」。行與裁決對『有無證據』的敘述相反，最終矩陣必須採用裁決版本（缺口已被既有測試示範，而非未測）。",
+   "拒絕面的完整度在列間不一致：C-09 判「達限制時明確拒絕」為 connected，但 C-01 指出 providerId 完全不驗證（agents.rs:503-508），且未知 agentId 也不會被拒（agents.rs:387-411）。同一個入口對『無效輸入』既有明確拒絕也有靜默接受，兩列沒有互相引用。",
+   "C-03 判異種並存 implemented-and-connected，但同列 limitation 說 runtime 層沒有任何並行測試、瀏覽器層只有 fixture；再加上 C-03／C-05 都指出建立被 agent_create_lock 序列化、且每次 attach 都重新 discover（每個 connector 上限 6 s：claude.rs:26、codex.rs:28），使用者實際感受到的是『序列建立＋延遲累加』。沒有任何一列把這個可感知行為列為需求或缺口。",
+   "非 gateway session 的 maxCost 在 C-06 被記為『只存不扣』（gateway_deliver 在預算檢查前就對非 gateway 回 Ok(false)，gateway.rs:682-698），而 C-04／C-03 記錄 codex 的 maxCost 在建立時被明確拒絕。同一個欄位在三種 agent 上分別是『強制／明確拒絕／靜默無效』，沒有任何一列把這個不一致本身列為需求（使用者會以為設了就有上限）。",
+   "跨文件漂移沒有被任何一列涵蓋：skills/orchestrate-adaptive-interaction/references/api.md:101-108 把 POST /v1/agent-sessions/{id}/report 與 /messages 列成 agent 可用端點，但 crates/interaction-api/src/lib.rs:430-467,487-541 的守門讓 agent／session token 都送不出這兩個請求。C-06 只審了 tool allowlist，沒有審 skill 文件對外的可用性宣稱。",
+   "『真 Agent 證據』的引用層級不一致：C-03／C-04 的裁決以現場執行 `codex --version`／`claude --version` 得到 0.153.4／2.1.263 來支撐 schema 漂移風險，但所有列的 evidenceLevel 都（正確地）不含 real-agent。這個環境事實應標成 environment-probe 而非 repo 測試證據，否則會與『真 Agent 在 repo 測試中零覆蓋』的結論互相衝撞。"
+  ],
+  "reproCandidates": [
+   {
+    "what": "維度 C 的既有 runtime 整合測試基線（委派上限／預算／租約／resume／中斷／estop）",
+    "command": "cargo test -p interaction-runtime --test agents_loop --test gateway_loop",
+    "expected": "全綠。確認 C-05／C-06／C-07／C-10 引用的測試名稱與行為仍存在；同時記下沒有任何測試名稱涉及『兩個 session 的訊息不交叉』或『關閉 A 不影響 B』。"
+   },
+   {
+    "what": "Connector 支援範圍的單元測試（claude args／parser／never fabricate consent；codex 通知正規化／approval retry／exec fallback）",
+    "command": "cd /Users/user/Workspace/claude-lab/adaptive-interaction && cargo test -p interaction-agent-gateway",
+    "expected": "全綠；claude_session_args 相關測試顯示 --model／--max-turns 只在 spec 有值時出現，佐證 C-14『runtime 從不設定』的缺口。"
+   },
+   {
+    "what": "token 守門單元測試（證明 session／agent token 不能 POST report／messages＝C-13）",
+    "command": "cd /Users/user/Workspace/claude-lab/adaptive-interaction && cargo test -p interaction-api --lib -- session_scoped_token_interrupts_only_its_own_session legacy_agent_token_cannot_interrupt_any_agent_session --nocapture",
+    "expected": "通過；對照 crates/interaction-api/src/lib.rs:430-467 的白名單即可確認 report／messages 的 POST 不在其中。"
+   },
+   {
+    "what": "同種兩 session 的投遞隔離實測（C-02 目前只有靜態推論的關鍵環）",
+    "command": "export INTERACT_AI_HOME=$(mktemp -d /tmp/c02home.XXXXXX); export INTERACT_AI_CLAUDE_BIN=/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime/tests/fixtures/fake_claude.sh; WA=$(mktemp -d /tmp/c02a.XXXXXX); WB=$(mktemp -d /tmp/c02b.XXXXXX); echo slow > $WA/fake-mode; echo slow > $WB/fake-mode; cargo build --manifest-path /Users/user/Workspace/claude-lab/adaptive-interaction/Cargo.toml -p interaction-cli; /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai serve & sleep 3; T=$(cat $INTERACT_AI_HOME/state/api-token); A=$(curl -s -X POST 127.0.0.1:8787/v1/agent-sessions -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -d \"{\\\"agentId\\\":\\\"claude-code\\\",\\\"workdir\\\":\\\"$WA\\\"}\" | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"sessionId\"])'); B=$(curl -s -X POST 127.0.0.1:8787/v1/agent-sessions -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -d \"{\\\"agentId\\\":\\\"claude-code\\\",\\\"workdir\\\":\\\"$WB\\\"}\" | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"sessionId\"])'); curl -s -X POST 127.0.0.1:8787/v1/agent-sessions/$A/messages -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -d '{\"kind\":\"task\",\"body\":{\"task\":\"AAA-marker\"}}' >/dev/null; curl -s -X POST 127.0.0.1:8787/v1/agent-sessions/$B/messages -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -d '{\"kind\":\"task\",\"body\":{\"task\":\"BBB-marker\"}}' >/dev/null; sleep 2; grep -c AAA-marker $WA/fake-input; grep -c AAA-marker $WB/fake-input; grep -c BBB-marker $WB/fake-input; cat $WA/fake-argv",
+    "expected": "$WA/fake-input 只含 AAA-marker、$WB/fake-input 只含 BBB-marker（依序 1／0／1）；fake-argv 顯示各自 workdir。任一交叉即為 C-02 的實證缺陷。跑完記得 kill 掉 serve。"
+   },
+   {
+    "what": "關閉 A 不影響 B 的子程序（C-08 自承缺測）",
+    "command": "# 沿用上一條的 daemon 與 $A／$B，但兩個 workdir 的 fake-mode 改成 hang：echo hang > $WA/fake-mode; echo hang > $WB/fake-mode（重新建立兩個 session 後）curl -s -X POST 127.0.0.1:8787/v1/agent-sessions/$A/close -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -d '{\"reason\":\"probe\"}' >/dev/null; sleep 2; kill -0 $(cat $WA/fake-pid) 2>/dev/null && echo A-ALIVE || echo A-DEAD; kill -0 $(cat $WB/fake-pid) 2>/dev/null && echo B-ALIVE || echo B-DEAD",
+    "expected": "A-DEAD 且 B-ALIVE，且之後仍能對 B 送任務（POST /messages 回 200 且帶 deliveredAt）。"
+   },
+   {
+    "what": "model 欄位被靜默忽略（C-14）",
+    "command": "# 沿用同一 daemon：curl -s -o /dev/null -w '%{http_code}\\n' -X POST 127.0.0.1:8787/v1/agent-sessions -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -d \"{\\\"agentId\\\":\\\"claude-code\\\",\\\"workdir\\\":\\\"$WA\\\",\\\"model\\\":\\\"opus-probe\\\"}\"; grep -c -- '--model' $WA/fake-argv",
+    "expected": "HTTP 200/201（未知欄位不被拒），但 fake-argv 內 --model 出現 0 次 ⇒ 設定被靜默丟掉。"
+   },
+   {
+    "what": "未知／未安裝 agentId 仍能建立出永遠不會執行的工作（C-20）",
+    "command": "# 沿用同一 daemon：curl -s -X POST 127.0.0.1:8787/v1/agent-sessions -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -d '{\"agentId\":\"agent.coder\"}'; curl -s 127.0.0.1:8787/v1/activity/inbox -H \"Authorization: Bearer $T\" | python3 -c 'import sys,json;d=json.load(sys.stdin);print([(i[\"kind\"],i[\"status\"],i.get(\"agentId\")) for i in d.get(\"items\",[]) if i[\"kind\"]==\"agent-session\"])'",
+    "expected": "建立成功（200），inbox 出現 agent-session／agentId=agent.coder；對它送 task 回 200 但沒有 deliveredAt（永遠不會有 agent）。這是 C-20 的誠實度證據。"
+   },
+   {
+    "what": "同一 provider thread 被兩個仍 open 的 session 重複掛載（C-10 裁決指出的缺口）",
+    "command": "# 沿用同一 daemon；fake_claude 的 provider session id 固定為 fake-123：curl -s -X POST 127.0.0.1:8787/v1/agent-sessions -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -d \"{\\\"agentId\\\":\\\"claude-code\\\",\\\"workdir\\\":\\\"$WA\\\",\\\"resumeProviderSessionId\\\":\\\"fake-123\\\"}\" | head -c 400",
+    "expected": "回 200 並產生第二個 open session（無 dedup、無『原 session 必須先關閉』檢查）。跨 agent 誤續接另設 INTERACT_AI_CODEX_BIN=…/fake_codex.sh 建 codex session 後，用其 thread id 搭 agentId=claude-code 建立，預期同樣被放行（之後才在子程序層失敗）。"
+   },
+   {
+    "what": "waiting-for-input 在真實流程中永遠不出現（C-11）",
+    "command": "# 沿用同一 daemon：curl -sN 127.0.0.1:8787/v1/events -H \"Authorization: Bearer $T\" & sleep 1; curl -s -X POST 127.0.0.1:8787/v1/agent-sessions/$A/messages -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -d '{\"kind\":\"task\",\"body\":{\"task\":\"probe\"}}' >/dev/null; sleep 3; curl -s -X POST 127.0.0.1:8787/v1/agent-sessions/$A/report -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -d '{\"event\":\"waiting-for-input\",\"payload\":{}}'",
+    "expected": "SSE 只會出現 working／claimed-completed 一類狀態，永遠沒有 waiting-input；只有人類手動 POST report 才造得出該狀態 ⇒ 佐證 defined-only。"
+   },
+   {
+    "what": "瀏覽器層的同時多 session 證據（2 codex＋2 claude，fixture）",
+    "command": "cd /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop && pnpm test:e2e -- evidence.spec.ts",
+    "expected": "evidence.spec.ts:336-372 的並存情境通過（active／waiting-for-consent／claimed-completed 各自到位）。注意這是 fixture agent，不得標成 real-agent。"
+   },
+   {
+    "what": "CLI 驗收（訊息預算硬上限、estop 後拒絕建立）",
+    "command": "cd /Users/user/Workspace/claude-lab/adaptive-interaction && ./scripts/v03-cli-e2e.sh",
+    "expected": "PASS 行涵蓋第 4 則訊息非 0 退出（scripts/v03-cli-e2e.sh:182-190）與 estop 後建立被拒（:673-678）。它只用 fake claude、沒有 codex 段落 ⇒ 異種並存在 CLI 層 not-run。"
+   },
+   {
+    "what": "codex app-server schema 漂移（鎖 0.149.1 vs 本機 0.153.4）",
+    "command": "cd /Users/user/Workspace/claude-lab/adaptive-interaction && codex --version && sed -n '1,12p' crates/interaction-agent-gateway/src/codex.rs && ls /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/matrix/codex-schema-0.153.4",
+    "expected": "版本不一致直接可見；scratchpad 內已有 0.153.4 的 schema 匯出可供 thread/resume 與 turn/completed 形狀比對。這條是 environment-probe，不得當成 repo 測試證據。"
+   }
+  ]
+ }
+}

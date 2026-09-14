@@ -1,0 +1,90 @@
+[
+ {
+  "name": "binary-sha256",
+  "cmd": "shasum -a 256 /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "start": "2026-09-07T09:08:39.420776+00:00",
+  "end": "2026-09-07T09:08:39.792922+00:00",
+  "seconds": 0.372,
+  "exit": 0,
+  "stdout": "1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7  /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai\n",
+  "stderr": ""
+ },
+ {
+  "name": "binary-version",
+  "cmd": "/Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai --version",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "start": "2026-09-07T09:08:39.792969+00:00",
+  "end": "2026-09-07T09:08:39.812584+00:00",
+  "seconds": 0.02,
+  "exit": 0,
+  "stdout": "interact-ai 0.8.0\n",
+  "stderr": ""
+ },
+ {
+  "name": "head-commit",
+  "cmd": "git rev-parse HEAD && git status --porcelain | head",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "start": "2026-09-07T09:08:39.812622+00:00",
+  "end": "2026-09-07T09:08:39.921413+00:00",
+  "seconds": 0.109,
+  "exit": 0,
+  "stdout": "78dcda1a3733c97d266ca9b60ad4461c69ca2032\n?? scripts/tests/phase0/\n",
+  "stderr": ""
+ },
+ {
+  "name": "grep-taskcancelled-emitters",
+  "cmd": "grep -rn 'GatewayEvent::TaskCancelled' crates/interaction-agent-gateway/src/ | grep -v '^crates/interaction-agent-gateway/src/lib.rs'",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "start": "2026-09-07T09:08:39.921456+00:00",
+  "end": "2026-09-07T09:08:39.962612+00:00",
+  "seconds": 0.041,
+  "exit": 0,
+  "stdout": "crates/interaction-agent-gateway/src/codex.rs:529:                Some(\"interrupted\") => vec![GatewayEvent::TaskCancelled],\ncrates/interaction-agent-gateway/src/codex.rs:772:        assert_eq!(interrupted, vec![GatewayEvent::TaskCancelled]);\ncrates/interaction-agent-gateway/src/codex_exec.rs:209:                            | GatewayEvent::TaskCancelled\ncrates/interaction-agent-gateway/src/codex_exec.rs:328:        return Some(GatewayEvent::TaskCancelled);\ncrates/interaction-agent-gateway/src/codex_exec.rs:585:            Some(GatewayEvent::TaskCancelled)\n",
+  "stderr": ""
+ },
+ {
+  "name": "grep-claude-no-cancel",
+  "cmd": "grep -c 'TaskCancelled' crates/interaction-agent-gateway/src/claude.rs || true",
+  "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "start": "2026-09-07T09:08:39.962658+00:00",
+  "end": "2026-09-07T09:08:39.973231+00:00",
+  "seconds": 0.011,
+  "exit": 0,
+  "stdout": "0\n",
+  "stderr": ""
+ },
+ {
+  "name": "obs-claude-cancel-1",
+  "cmd": "sqlite3 'file:/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/claude-cancel-1/home/state/interaction.db?mode=ro' \"select at,json from observations where receptor_id='agent.session';\"",
+  "cwd": "/tmp",
+  "start": "2026-09-07T09:08:39.973280+00:00",
+  "end": "2026-09-07T09:08:39.999220+00:00",
+  "seconds": 0.026,
+  "exit": 0,
+  "stdout": "2026-09-07T03:54:10.324Z|{\"observationId\":\"obs-93f1d928-a4e9-4f1f-98b1-917a868eecd6\",\"receptorId\":\"agent.session\",\"timestamp\":\"2026-09-07T03:54:10.324843Z\",\"receivedAt\":\"2026-09-07T03:54:10.324843Z\",\"facts\":{\"event\":\"failed\",\"sessionId\":\"asession-fbdb0273-520c-402e-9e8a-17d8254aa3c6\"},\"inferences\":{\"report\":{\"error\":\"error_during_execution\"}},\"confidence\":0.5,\"freshnessMs\":0,\"quality\":1.0,\"source\":{\"driver\":\"builtin.push\",\"quality\":1.0},\"schemaVersion\":\"1.0\"}\n",
+  "stderr": ""
+ },
+ {
+  "name": "claude-provider-interrupt-lines",
+  "cmd": "grep -c 'Request interrupted by user' /Users/user/.claude/projects/-private-tmp-claude-501--Users-user-Workspace-claude-lab-adaptive-interaction-79983209-6a38-4bdc-894b-1b32e1b2de38-scratchpad-e2e-claude-cancel-1-workdir/5779447a-6c8b-46aa-aea2-1e784e5898d6.jsonl /Users/user/.claude/projects/-private-tmp-claude-501--Users-user-Workspace-claude-lab-adaptive-interaction-79983209-6a38-4bdc-894b-1b32e1b2de38-scratchpad-e2e-multi-C-claude-x2-work-1/789129e8-ddff-4aec-ad53-9f9844a3e6e2.jsonl /Users/user/.claude/projects/-private-tmp-claude-501--Users-user-Workspace-claude-lab-adaptive-interaction-79983209-6a38-4bdc-894b-1b32e1b2de38-scratchpad-e2e-multi-E-claude-codex-work-0/276c9883-389b-4627-9ac3-a577ef79ad17.jsonl",
+  "cwd": "/tmp",
+  "start": "2026-09-07T09:08:39.999265+00:00",
+  "end": "2026-09-07T09:08:40.042809+00:00",
+  "seconds": 0.044,
+  "exit": 0,
+  "stdout": "/Users/user/.claude/projects/-private-tmp-claude-501--Users-user-Workspace-claude-lab-adaptive-interaction-79983209-6a38-4bdc-894b-1b32e1b2de38-scratchpad-e2e-claude-cancel-1-workdir/5779447a-6c8b-46aa-aea2-1e784e5898d6.jsonl:1\n/Users/user/.claude/projects/-private-tmp-claude-501--Users-user-Workspace-claude-lab-adaptive-interaction-79983209-6a38-4bdc-894b-1b32e1b2de38-scratchpad-e2e-multi-C-claude-x2-work-1/789129e8-ddff-4aec-ad53-9f9844a3e6e2.jsonl:1\n/Users/user/.claude/projects/-private-tmp-claude-501--Users-user-Workspace-claude-lab-adaptive-interaction-79983209-6a38-4bdc-894b-1b32e1b2de38-scratchpad-e2e-multi-E-claude-codex-work-0/276c9883-389b-4627-9ac3-a577ef79ad17.jsonl:1\n",
+  "stderr": ""
+ },
+ {
+  "name": "codex-turn-aborted",
+  "cmd": "grep -o 'turn_aborted\\\"[^}]*' /Users/user/.codex/sessions/2026/09/07/rollout-2026-09-07T11-54-19-01a07a00-ac27-74c2-94e2-a922510d74ad.jsonl | head -3",
+  "cwd": "/tmp",
+  "start": "2026-09-07T09:08:40.042860+00:00",
+  "end": "2026-09-07T09:08:40.067049+00:00",
+  "seconds": 0.024,
+  "exit": 0,
+  "stdout": "turn_aborted\"]\nturn_aborted\",\"turn_id\":\"01a07a00-ad1e-7330-be75-e8309f8aab18\",\"reason\":\"interrupted\",\"started_at\":1788753259,\"completed_at\":1788753265,\"duration_ms\":6066\n",
+  "stderr": ""
+ }
+]

@@ -1,0 +1,676 @@
+{
+ "key": "B",
+ "found": {
+  "dimension": "B",
+  "rows": [
+   {
+    "id": "B-01",
+    "need": "新任務：人類建立一個 Agent 工作階段並把任務文字送進真實 agent（create payload 欄位、task 如何變成 prompt、model／domains 是否可指定）",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "unit",
+     "fixture",
+     "integration",
+     "browser",
+     "native-desktop"
+    ],
+    "owner": "interaction-runtime::agents (create_agent_session／mailbox_send) + interaction-runtime::gateway (gateway_attach／gateway_deliver) + interaction-agent-gateway connectors; desktop pages/work/TaskComposer.tsx",
+    "entryPath": "HTTP POST /v1/agent-sessions (crates/interaction-api/src/lib.rs:217 → routes.rs:1389) 然後 POST /v1/agent-sessions/{id}/messages kind=task (lib.rs:227-230 → routes.rs:1500)；Tauri agent_session_create (apps/interaction-desktop/src-tauri/src/lib.rs:1573) + agent_session_send (:1597)；CLI `agents create` (crates/interaction-cli/src/commands.rs:915-940) + `agents send` (:1003)；桌面 TaskComposer.start (apps/interaction-desktop/src/pages/work/TaskComposer.tsx:460-495) → buildSessionCreateInput (:166-178)",
+    "contract": "CreateAgentSession (crates/interaction-runtime/src/agents.rs:247-278)：providerId?, agentId, label?, ttlMinutes?, dataScope[], toolScope[], consentScope[], allowWrite, maxCost?, maxMessages?, delegation?, workdir?, resumeProviderSessionId?。**沒有 task、沒有 model 欄位**。任務文字另走 mailbox_send(kind=\"task\", body.task)；kind==task 時 runtime 強制附 contextBundle (agents.rs:852-886)；gateway_deliver 組成固定 JSON prompt {task, contextBundle, runtimeRules[]} (gateway.rs:726-736) → claude stdin user message (claude.rs:323-341)／codex turn/start input (codex.rs:604-622)／codex exec argv (codex_exec.rs:69-111,131-150)。domains 只能由 dataScope 的 `domain:` 前綴傳入 (agents.rs:305,873)。",
+    "stateOwner": "Runtime：AgentSessionEntry (in-memory map) + SQLite agent_sessions（persist_agent_session）；GatewayManager.sessions（子程序 handle，in-memory）；contextBundles receipt 存在 record (agent.rs:243)",
+    "existingTests": [
+     "crates/interaction-runtime/tests/gateway_loop.rs:138 gateway_full_loop_with_fake_agent（fixture：create→send→stdin 收到 contextBundle :222-236→claimed）",
+     "crates/interaction-runtime/tests/agents_loop.rs:309 every_task_receives_and_persists_the_exact_session_scoped_context_bundle",
+     "apps/interaction-desktop/src/test/workPage.test.tsx:230,271,628（vitest：create→send 路徑、寫入 scope、payload）",
+     "apps/interaction-desktop/e2e/work-delegate.spec.ts:110（Playwright，fixture agent）",
+     "scripts/v03-cli-e2e.sh:263-277（CLI create/send/messages，fake_claude.sh）",
+     "scripts/tests/tauri-work-cancel.py（原生 AX：composer 唯讀交代，fixture）"
+    ],
+    "evidence": [
+     "crates/interaction-runtime/src/agents.rs:247-278 CreateAgentSession 欄位；無 model／task",
+     "crates/interaction-runtime/src/gateway.rs:285-360 gateway_attach 只設 disable_tools/resume/max_cost_usd/token/api_base（:334-340），SessionSpec.model (interaction-agent-gateway/src/lib.rs:166) 從未被 runtime 設定 → claude `--model` (claude.rs:104) 與 exec `--model` (codex_exec.rs:87,105) 是死路徑",
+     "crates/interaction-runtime/src/gateway.rs:726-736 prompt 包裝（task+contextBundle+runtimeRules）",
+     "apps/interaction-desktop/src/pages/work/TaskComposer.tsx:175 桌面只送 `workspace:<dir>` 的 dataScope，不送 `domain:` → 桌面建立的 session ContextBundle domains 永遠為空",
+     "crates/interaction-cli/src/main.rs:377-407 CLI Create 無 --data-scope／--tool-scope 旗標（僅 allow_write 映射，commands.rs:930-936）",
+     "crates/interaction-agent-gateway/src/claude.rs:74-118 啟動參數（plan／acceptEdits、--tools 白名單、--safe-mode）"
+    ],
+    "limitation": "model 無法由任何正式入口指定（型別存在、未接線）；task 與 create 分兩步，第二步失敗會留下一個 created 狀態、沒有任務的 session（桌面顯示「正在準備」）；domains 只有 HTTP 直呼能帶；prompt 中的 runtimeRules 是文字提示、不是強制（強制在 sandbox／--tools）。真 Claude／Codex 對這份 JSON prompt 的實際反應未驗證。",
+    "nextAction": "決定是否開放 model 欄位（若開放需經 create payload 而非 AI 自選）；考慮 create 一次帶 task；桌面若要記憶／知識 domain 進入 bundle，需在 composer 加 domain 選擇。",
+    "reproCommand": "cargo test -p interaction-runtime --test gateway_loop -- gateway_full_loop_with_fake_agent  （另有人在跑基線，本輪未執行）",
+    "confidence": "high"
+   },
+   {
+    "id": "B-02",
+    "need": "文字串流：agent 產生的文字如何一路到 SSE 與桌面（逐 token／逐訊息？事件名？Last-Event-ID？）",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "unit",
+     "fixture",
+     "integration",
+     "browser"
+    ],
+    "owner": "interaction-agent-gateway (parse_claude_line／normalize_codex_notification／parse_exec_line) + interaction-runtime::gateway spawn_gateway_pump + interaction-api::sse + desktop transport.ts／AiPage.tsx",
+    "entryPath": "connector stdout → GatewayEvent::TaskProgress{text} (lib.rs:85-88) → spawn_gateway_pump (gateway.rs:380-411) → report_agent_session(\"progress\",{text}) (agents.rs:1174-1250) → events.emit(agent.session.state) (agents.rs:1098-1105；event.rs:160 wire name `agent.session.state`) + ingest 觀察 → SSE GET /v1/events (api lib.rs:318 → sse.rs:56-103) → 桌面 transport.ts runStream (:415-491)；桌面卡片另以 5s 輪詢 from-session 信箱 (AiPage.tsx:153,528-537)",
+    "contract": "逐**訊息**、非逐 token：claude 只取 assistant message 的 text 區塊（claude.rs:410-421，2000 字上限；啟動參數 :74-118 無 --include-partial-messages）；codex `item/agentMessage/delta` 明確丟棄 (codex.rs:579)，只在 item/completed agentMessage 發一次 (:485-500)；exec 只取 agent_message completed (codex_exec.rs:428-438)。SSE 事件 `agent.session.state` payload 只有 {agentSessionId, agentId, state}（agents.rs:1098-1105），**不含文字**；`receptor.observation` payload 只有 facts+confidence（runtime.rs:837-848），文字在 inferences.report.text 只落觀察儲存。SSE `Last-Event-ID` 由 ring buffer 1024 重放 (sse.rs:61-78；interaction-events/src/lib.rs:12,65)。",
+    "stateOwner": "文字：觀察儲存（ingest agent.session receptor，confidence 0.5）；狀態：AgentSessionRecord.state；事件：EventBus ring (1024)；桌面：transport.ts stream.buffer (500) + AiPage messages state（from-session mailbox）",
+    "existingTests": [
+     "crates/interaction-agent-gateway/src/claude.rs tests parses_the_recorded_live_sample_shape／init_never_reports_work_before_the_first_assistant_or_tool_event（unit）",
+     "crates/interaction-agent-gateway/src/codex.rs:753 delta 靜默斷言（unit）",
+     "crates/interaction-runtime/tests/gateway_loop.rs:703 working_never_precedes_the_task_actually_reaching_the_agent（fixture）",
+     "crates/interaction-api/src/sse.rs:112-191（scope 過濾 unit）；crates/interaction-events/src/lib.rs:112 ring_buffer_is_bounded_and_replays（unit）",
+     "apps/interaction-desktop/e2e/home-state.spec.ts:94、work-delegate.spec.ts:110（browser：只驗「處理中」標籤，不驗文字）"
+    ],
+    "evidence": [
+     "crates/interaction-runtime/src/gateway.rs:407-411 TaskProgress → report progress（text 進 payload）",
+     "crates/interaction-runtime/src/agents.rs:1098-1105 emit_agent_session_state 只帶 state；:1220-1250 文字進 inferences.report 再 ingest",
+     "crates/interaction-runtime/src/runtime.rs:837-848 publish_observation_event 只投 facts／confidence，不投 inferences",
+     "mailbox 沒有 `progress` 種類的產生者：mailbox_send 呼叫端僅 gateway.rs:447(approval-request)、:529(result)、:935(approval-resolved)、proactive.rs:757/792；但 AiPage.tsx:212-216 MESSAGE_KIND_LABEL 預留 `progress: 進度更新`（死標籤）",
+     "apps/interaction-desktop/src/pages/AiPage.tsx:528-537 卡片只輪詢 from-session 信箱 → 使用者看得到的只有 result／approval 訊息，看不到過程文字",
+     "apps/interaction-desktop/src/pages/Timeline.tsx:56-70 進階 Timeline 只列事件型別＋JSON payload（payload 無文字）",
+     "apps/interaction-api/src/sse.rs:90-93 慢客戶端 Lagged 只 warn 並丟棄，客戶端不知情",
+     "apps/interaction-desktop/src/transport.ts:396-412,443,467 Last-Event-ID／instance cursor"
+    ],
+    "limitation": "串流文字（TaskProgress.text）在正式入口上**沒有任何 UI／SSE 可見面**：SSE 只送狀態、信箱不寫 progress、桌面不查觀察；人類只能在最後看到 claimed summary。無逐 token；claude 2000 字／codex 2000 字截斷。SSE lag 靜默掉事件。",
+    "nextAction": "決定文字的正式面：把 TaskProgress 寫入 from-session 信箱（kind=progress，已有標籤與 messageSummary 支援 AiPage.tsx:275-291）或在 agent.session.state 事件加 bounded text；若要逐 token 需 claude --include-partial-messages 與 codex delta 通道，並評估 SSE 流量。",
+    "reproCommand": "cargo test -p interaction-agent-gateway  ／  cargo test -p interaction-runtime --test gateway_loop -- working_never_precedes（未執行）",
+    "confidence": "high"
+   },
+   {
+    "id": "B-03",
+    "need": "工作進度：工具開始／完成、產物、token 用量如何投影給人類",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "unit",
+     "fixture",
+     "not-run"
+    ],
+    "owner": "interaction-agent-gateway connectors + interaction-runtime::gateway pump + desktop statusProjection/workState.ts",
+    "entryPath": "claude tool_use → ToolStarted (claude.rs:424-432)；codex item/started／item/completed (codex.rs:464-508)；exec item.started／completed + ArtifactProduced (codex_exec.rs:440-461) → pump progress {tool:{name,phase}}／{artifact} (gateway.rs:456-484) → report_agent_session → state Active／taxonomy working → 觀察儲存；TokenUsage → progress 或（本輪已結束）只 ingest (gateway.rs:486-509)；桌面 projectWorkState → 「處理中」(workState.ts:85-90,116-117)",
+    "contract": "GatewayEvent::ToolStarted／ToolCompleted{name}、ArtifactProduced{path?}、TokenUsage{total,last} (lib.rs:104-130)。claude 只有 ToolStarted、無 ToolCompleted（user/tool_result 行被忽略 claude.rs:468）；codex app-server 的 fileChange 只發 Tool 事件、無 artifact path；只有 exec fallback 的 file_change 帶第一個 path。",
+    "stateOwner": "觀察儲存（inferences.report.tool／artifact／tokenUsage）；record.budget.spent_cost 只有 claude 有值 (gateway.rs:518-520)",
+    "existingTests": [
+     "crates/interaction-agent-gateway/src/claude.rs tests tool_use_maps_to_tool_started（unit）",
+     "crates/interaction-agent-gateway/src/codex.rs tests notifications_normalize_honestly、token_usage_notifications_normalize_without_pretending_usd（unit）",
+     "crates/interaction-agent-gateway/src/codex_exec.rs:513 recorded_jsonl_shapes_normalize_honestly（unit）",
+     "fixture 層：fake_claude.sh／fake_codex.sh 皆不輸出 tool_use／item/commandExecution 行 → runtime／browser 測試從未走過工具進度"
+    ],
+    "evidence": [
+     "crates/interaction-runtime/src/gateway.rs:456-484 tool／artifact 都只變成 progress observation",
+     "apps/interaction-desktop/src/pages/AiPage.tsx:275-291 messageSummary 認得 tool/artifact 形狀，但沒有信箱訊息會帶這些欄位（見 B-02 產生者清單）",
+     "apps/interaction-desktop/src/statusProjection/workState.ts:112-170 投影只有 12 個狀態，無工具／步驟粒度",
+     "apps/interaction-desktop/src/pages/AiPage.tsx:563-570 只顯示費用（claude）與訊息計數；codex token 數不顯示"
+    ],
+    "limitation": "工具／產物／token 進度在 UI 完全不可見（只在觀察儲存）；claude 無工具完成事件；codex app-server 無產物路徑；fixture 不含工具事件，所以連 fixture 層都沒驗過投影。",
+    "nextAction": "若產品需要「正在用哪個工具」：把 tool／artifact／tokenUsage 加進 from-session 信箱或 agent.session.state payload，並在 fake_claude.sh 加 tool_use 行讓 fixture 覆蓋。",
+    "reproCommand": "cargo test -p interaction-agent-gateway（未執行）",
+    "confidence": "high"
+   },
+   {
+    "id": "B-04",
+    "need": "Agent 提問／人類回答：agent 阻塞等人類回話（waiting-for-input）由誰產生、人類如何回答、UI 有無待回答入口",
+    "status": "defined-only",
+    "evidenceLevel": [
+     "unit",
+     "fixture"
+    ],
+    "owner": "interaction-core::AgentSessionState + interaction-agent-gateway GatewayEvent + interaction-runtime::agents report path + desktop workState／inbox",
+    "entryPath": "唯一能進入 WaitingForInput 的路徑：POST /v1/agent-sessions/{id}/report {event:\"waiting-for-input\"} (routes.rs:1414 → agents.rs:1182)。HTTP scope：legacy agent token 對非 GET 只放行白名單（lib.rs:488-535，不含 /report）→ 403；session capability token 亦不放行 (lib.rs:430-470) → 403；只有 human token／Tauri IPC 能報。CLI `--agent-scope agents report`（main.rs:38；commands.rs:1020）會被 403。",
+    "contract": "GatewayEvent::TaskWaitingForInput (interaction-agent-gateway/src/lib.rs:89-99) 註解明言**沒有 connector 產生**；grep claude.rs／codex.rs／codex_exec.rs 均無 emission；pump 分支存在 (gateway.rs:413-417) 但不可達。回答管道：只有通用 mailbox_send(kind=task) → 新一輪 turn（AiPage.tsx:715-737「再交代一句」）；沒有 answer／question 語意（CLI help main.rs:434 列出 kind question，但 runtime 無對應處理）。",
+    "stateOwner": "AgentSessionRecord.state（agent.rs:21-30 WaitingForInput，有 HONEST GAP 註解）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/agents_loop.rs:681-760 agent_session_state_taxonomy_is_emitted_for_every_rung_of_the_ladder（用人工 report 打出 waiting-for-input，fixture／unit）",
+     "crates/interaction-runtime/tests/character_loop.rs:371（waiting-input → ask intent 投影）",
+     "apps/interaction-desktop/src/test/statusProjection.test.tsx:46,103,131（「等你回答」文案 unit）",
+     "沒有任何 fixture／browser 測試走真實「agent 問→人答」迴路"
+    ],
+    "evidence": [
+     "crates/interaction-agent-gateway/src/lib.rs:89-99 TaskWaitingForInput 註解：Claude stream-json 與 Codex app-server 0.149.1 皆無等待輸入語意",
+     "crates/interaction-core/src/agent.rs:21-30 HONEST GAP 註解",
+     "crates/interaction-api/src/lib.rs:488-535 agent_request_allowed 非 GET 白名單不含 /report；:430-470 session_request_allowed 亦無 → agent 無法自報 waiting-for-input",
+     "skills/orchestrate-adaptive-interaction/references/cli.md:127 寫「agents report … (the agent host calls this)」，與 API scope 相悖（agent token 403）",
+     "apps/interaction-desktop/src/statusProjection/workState.ts:91-96,118-119 NEEDS_INPUT「等你回答」；inbox.ts:46 needs-input；activity.rs:118-121 needs_decision；character.rs:474 → Ask intent：投影層完整、來源層空",
+     "docs/DESKTOP-GUIDE.md:289 把「等你回答」列為列表會顯示的狀態；docs/v05-recovery-matrix.md:35,392,424 早已記錄 waiting-input 無 connector 產生",
+     "真實行為：Claude／Codex 提問會以 turn 結束（result／turn/completed）到達 → runtime 記 claimed-completed，人類看到「對方說已完成」而非「等你回答」（claude.rs:442-466；codex.rs:510-528）"
+    ],
+    "limitation": "waiting-for-input 是型別＋投影＋人工 report 的死狀態；沒有 connector 推論、沒有回答語意、沒有專屬 UI。agent 的問題會被誤投影成 claimed-completed（需人類「驗證」一個其實是問題的聲稱）。skill 文件對 report 的呼叫者描述與 API scope 不一致。",
+    "nextAction": "產品決策：要嘛移除 waiting-for-input（含 UI 文案、docs）並在 claimed 卡片區分「這是問題」（例如 result summary 以問號結尾的啟發式不可靠，需 connector 級訊號）；要嘛實作 connector 級偵測（claude stream-json 目前無此訊號；codex app-server 需確認新版 schema）。同步修正 skills cli.md:127。",
+    "reproCommand": "cargo test -p interaction-runtime --test agents_loop -- agent_session_state_taxonomy（未執行）",
+    "confidence": "high"
+   },
+   {
+    "id": "B-05",
+    "need": "非同步接續：人類離開再回來（切頁／重載／重連／daemon 重啟）能否找回 agent 狀態、結果與待裁決",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "unit",
+     "fixture",
+     "integration",
+     "browser"
+    ],
+    "owner": "interaction-runtime::agents (persist／restore) + interaction-events ring + interaction-api::sse + desktop transport.ts／AiPage.tsx／activity inbox",
+    "entryPath": "回來時：GET /v1/agent-sessions (routes.rs:1385) + GET /{id}/messages (human peek，routes.rs:1455；Tauri lib.rs:1582 用 mailbox_peek :1593) + GET /v1/activity/inbox (activity.rs:93-135 needs_decision)；SSE 重連 transport.ts runStream (:415-491) 以 /v1/status.startedAt+eventSequence 決定 Last-Event-ID (nextStreamCursor :396-412)；Tauri 內嵌模式只轉送即時事件 (src-tauri/src/lib.rs:3412-3430)＋events_recent 拉取 (:627)",
+    "contract": "Record 每次變更持久化 (agents.rs persist_agent_session；restore :1479-1530)；**信箱不持久化**（AgentSessionEntry.mailbox in-memory；restore 建空 VecDeque agents.rs:584,1519）；daemon 重啟後 open session → Expired + taxonomy unknown (:1493-1510)、子程序不跨重啟（gateway pgid reap）。SSE：伺服端 ring 1024 重放 (sse.rs:61-78；events lib.rs:12,65)；桌面首連從目前序號開始（不重放歷史）、同 instance 重連續接、跨 instance 重設 (transport.ts:396-412)；cursor 只活在該視窗記憶體 (:417) → 重載頁面＝首連。",
+    "stateOwner": "SQLite agent_sessions（record）；in-memory mailbox（daemon 生命週期）；EventBus ring（daemon 生命週期）；桌面 stream.buffer 500（視窗生命週期）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/agents_loop.rs:491 open_sessions_do_not_survive_restart、:812 restart_reports_unknown_for_work_that_was_still_open（fixture）",
+     "crates/interaction-runtime/tests/gateway_loop.rs:138 §6b 崩潰後 restore reap 孤兒（fixture）",
+     "crates/interaction-events/src/lib.rs:112 ring 重放（unit）",
+     "apps/interaction-desktop/e2e/work-delegate.spec.ts:201（不重載也自動更新，browser）",
+     "apps/interaction-desktop/src/test/transport.test.ts（只測錯誤與路由；未在本輪確認 nextStreamCursor 是否有 unit test）"
+    ],
+    "evidence": [
+     "crates/interaction-runtime/src/agents.rs:584,1519 mailbox: VecDeque::new()（重啟後結果／核可訊息全部消失）",
+     "crates/interaction-runtime/src/agents.rs:1493-1510 restore 把 open 標 Expired 並發 unknown",
+     "crates/interaction-api/src/sse.rs:90-93 Lagged 只 warn；客戶端無法察覺缺漏",
+     "apps/interaction-desktop/src/transport.ts:396-412 首連 lastId=目前 sequence（刻意不重放）；:417 cursor 為函式區域變數",
+     "apps/interaction-desktop/src/pages/AiPage.tsx:528-537 展開卡片才輪詢信箱；收合即停",
+     "apps/interaction-desktop/src-tauri/src/lib.rs:3412-3430 Tauri 只轉送即時事件（Lagged 觸發 host refresh）",
+     "crates/interaction-runtime/src/agents.rs:1265-1330 close 才可帶 HandoffSummary 進記憶層；桌面 close 一律 None (src-tauri/src/lib.rs:1620-1627；AiPage.tsx:680)"
+    ],
+    "limitation": "daemon 存活時可完整找回（狀態＋信箱）；daemon 重啟後只剩狀態（Expired／unknown），結果摘要與核可紀錄遺失，除非人類主動用 CLI/HTTP close 帶 handoff。SSE 缺漏（lag／ring 溢出）無告警；沒有「你離開時完成了」的主動通知（只有 inbox 計數與角色投影）。",
+    "nextAction": "把 from-session 信箱（至少 result／approval-*）持久化到 SQLite；SSE 客戶端偵測序號跳號並提示重新載入；考慮桌面 close 允許輸入 handoff。",
+    "reproCommand": "cargo test -p interaction-runtime --test agents_loop -- restart_reports_unknown（未執行）",
+    "confidence": "medium"
+   },
+   {
+    "id": "B-06",
+    "need": "執行中補充：turn 進行中 POST messages 的行為（claude stdin／codex app-server turn/start／codex exec Busy）與桌面回饋",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "unit",
+     "fixture",
+     "browser"
+    ],
+    "owner": "interaction-runtime::gateway gateway_deliver + connectors send_user_message + desktop work/delivery.ts",
+    "entryPath": "POST /v1/agent-sessions/{id}/messages (routes.rs:1500) ／ Tauri agent_session_send (src-tauri/src/lib.rs:1597) ／ CLI `agents send` (commands.rs:1003) ／ 桌面「再交代一句」(AiPage.tsx:715-737) → mailbox_send (agents.rs:852-968) → gateway_deliver (gateway.rs:669-800)",
+    "contract": "runtime 對 claude／codex app-server **沒有 turn 進行中的閘門**：直接寫 stdin（claude.rs:323-341，重置 saw_result）／送 turn/start（codex.rs:604-622，等 stdin flush ack）；codex exec 一則訊息＝一個子程序，忙碌回 GatewayError::Busy (codex_exec.rs:131-143) → DomainError::Conflict「未送達」(gateway.rs:759-763)；stdin 5 s 逾時 → Unavailable (gateway.rs:40,743-790)；stdin 已關 → session 記 failed (gateway.rs:767-778)。送達成功才蓋 delivered_at、發 fetched、清 human_verified、turn_settled=false (gateway.rs:794-818)。桌面六態投影 delivered／mailbox／queued／agent-unavailable／send-failed／uncertain (work/delivery.ts:235-261)。",
+    "stateOwner": "mailbox（in-memory）；ManagedSession.turn_settled；record.human_verified；桌面 delivery notice",
+    "existingTests": [
+     "crates/interaction-runtime/tests/gateway_loop.rs:1518 an_undelivered_message_during_a_running_exec_turn_is_not_an_agent_failure（fixture fake_codex_exec.sh）",
+     "crates/interaction-runtime/tests/gateway_loop.rs:1286 a_second_turn_that_dies_is_not_covered_by_the_first_turns_claim（第二輪在第一輪 claim **之後**送，非 turn 中）",
+     "crates/interaction-runtime/tests/gateway_loop.rs:782 a_write_that_fails_is_never_reported_as_delivered_or_fetched（deaf 模式）",
+     "crates/interaction-runtime/tests/agents_loop.rs:278 message_budget_is_a_hard_ceiling",
+     "apps/interaction-desktop/src/test/aiPageResume.test.tsx:141-200 六態投影；workPage.test.tsx:368（vitest）",
+     "apps/interaction-desktop/e2e/work-delegate.spec.ts:110（browser：首送）；無 browser 測試按「再交代一句」"
+    ],
+    "evidence": [
+     "crates/interaction-runtime/src/gateway.rs:669-800 gateway_deliver 無「turn 進行中」檢查（僅 estop／預算／Busy 錯誤映射）",
+     "crates/interaction-agent-gateway/src/claude.rs:323-341 任何時刻可寫 stdin；fixture fake_claude.sh:66-111 逐行順序處理，第二則等第一輪結束才讀",
+     "crates/interaction-agent-gateway/src/codex.rs:604-622 turn/start 不等 response；fixture fake_codex.sh turns 模式對第二個 turn/start 無特別處理",
+     "crates/interaction-agent-gateway/src/codex_exec.rs:131-143 Busy 合約；gateway.rs:759-763 → 409",
+     "apps/interaction-desktop/src/work/delivery.ts:1-60 六態定義（known limitation #24）"
+    ],
+    "limitation": "真 `claude -p` 在 turn 中收到第二則 user message 是排隊、合併還是忽略，以及真 codex app-server 對進行中 thread 再送 turn/start 的回應（拒絕／排隊）皆未驗證；fixture 只驗證順序送達與 exec Busy。桌面除卡片內輸入框外無「補充中／已排隊」持續狀態。",
+    "nextAction": "以 E2E_REAL_AGENTS=1 或 connector-probe 實錄 claude／codex 對 turn 中第二則訊息的行為，再決定 runtime 是否要對 app-server／claude 也加 Busy 閘門或排隊語意。",
+    "reproCommand": "cargo test -p interaction-runtime --test gateway_loop -- an_undelivered_message_during_a_running_exec_turn（未執行）",
+    "confidence": "medium"
+   },
+   {
+    "id": "B-07",
+    "need": "停止生成 vs 取消執行：interrupt（中斷本輪）與 close（終止子程序樹）的實際行為",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "unit",
+     "fixture",
+     "browser",
+     "native-desktop"
+    ],
+    "owner": "interaction-runtime::gateway (gateway_interrupt／gateway_spawn_kill／gateway_sweep) + connectors interrupt／kill + process.rs + desktop AiPage.tsx",
+    "entryPath": "interrupt：POST /v1/agent-sessions/{id}/interrupt (routes.rs:2039；human 或本 session token lib.rs:466-470,477-485) ／ Tauri agent_session_interrupt (src-tauri/src/lib.rs:1311) ／ CLI `agents interrupt` (commands.rs:903) ／ 桌面「暫停／中斷目前工作」(AiPage.tsx:664-671) → gateway_interrupt (gateway.rs:995-1011)。close：POST /close (routes.rs:1548) ／ Tauri (:1620) ／ CLI (:1038) ／ 桌面「關閉」(AiPage.tsx:680-683) → close_agent_session (agents.rs:1265-1330) → gateway_spawn_kill (gateway.rs:1013-1030)。estop → estop_agent_sessions（併行、不送 user turn）。",
+    "contract": "trait 說 interrupt＝「中斷目前 turn（不殺 session）」(interaction-agent-gateway/src/lib.rs:245-246)。實作：codex app-server → turn/interrupt RPC (codex.rs:662-681) → turn/completed status=interrupted → TaskCancelled (:529) → state Cancelled（**終局、非 open**，agent.rs:48-57）→ gateway_sweep 以 record-closed 殺掉仍活著的子程序 (gateway.rs:1034-1090)；codex exec → SIGINT＋cancel_requested → TaskCancelled (codex_exec.rs:253-259,318-329)；**claude → 對整個 process group 送 SIGINT** (claude.rs:354-356；process.rs:134-137)，claude.rs 從不產生 TaskCancelled → 程序退出後走 SessionClosed → 本輪無結果 ⇒ report \"unknown\"（gateway.rs:607-633），非零 exit ⇒ failed。close：SIGTERM→寬限→SIGKILL 鎖外執行 (process.rs:143-177)，record 狀態保留終局或 Closed (agents.rs:1290-1310)，未送達信件丟棄 (:1321)，capability 撤銷。",
+    "stateOwner": "AgentSessionRecord.state；GatewayManager.sessions；OS process group（pgid 記錄 meta:gateway_pgids）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/gateway_loop.rs:1772 an_interrupted_codex_turn_is_cancelled_not_claimed_completed（fixture fake_codex.sh turns）",
+     "crates/interaction-runtime/tests/gateway_loop.rs:1850 a_cancelled_session_still_emits_its_state_event_when_ingest_is_unavailable、:1932 estop_does_not_send_a_user_turn、:2095 estop_terminates_sessions_concurrently",
+     "crates/interaction-agent-gateway/src/process.rs:281,301,324 kill_tree／terminate 升級 SIGKILL（unit，真子程序）",
+     "apps/interaction-desktop/e2e/work-delegate.spec.ts:159,201（interrupt→cancelled；workdir mode `turns` ＝ codex fixture，programming 預設路由 codex human.rs:139）、:226（close 文案）；general-mode-tasks.spec.ts:1155 任務 11",
+     "scripts/tests/tauri-work-cancel.py（原生 AX：Codex turn 取消＋Claude 長程序 close，fixture）",
+     "**沒有任何測試對 claude session 呼叫 interrupt**（gateway_loop.rs 中 gateway_interrupt 僅 :1805,:1900，皆 codex）"
+    ],
+    "evidence": [
+     "crates/interaction-agent-gateway/src/claude.rs:354-356 interrupt = group.interrupt()（SIGINT 全組）；grep TaskCancelled 於 claude.rs 為零",
+     "crates/interaction-runtime/src/gateway.rs:607-633 SessionClosed 且本輪未結束 → unknown → 桌面顯示「結果不確定／既不是成功也不是失敗」(workState.ts:161-167)，而非「已取消」",
+     "crates/interaction-agent-gateway/src/codex.rs:529 interrupted → TaskCancelled；agent.rs:48-57 Cancelled 非 open → 「不殺 session」在 runtime 層等於結束 session",
+     "crates/interaction-runtime/src/gateway.rs:1034-1090 gateway_sweep 對非 open record 的殘留子程序 drop_kill",
+     "apps/interaction-desktop/src/pages/AiPage.tsx:664-671 中斷按鈕只回「已送出中斷指令。」；:680-683 關閉回「已要求終止子程序」（誠實）",
+     "apps/interaction-desktop/e2e/work-delegate.spec.ts:159 文案宣稱「後端 cancelled」——只對 codex fixture 成立"
+    ],
+    "limitation": "**確認缺陷（Claude 路徑）**：按「暫停／中斷」對 Claude session 送 SIGINT 全組，結果被記成 unknown（或 failed），永遠不會是 cancelled；與 trait 契約、桌面文案、e2e 標題不一致，且 UI 誠實註記「既不是成功也不是失敗」會誤導使用者以為 agent 自己出事。codex 路徑「中斷本輪但保留 session」實際上也讓 record 終局化（Cancelled）並隨後殺子程序，沒有「中斷後再交代」的可能。真 claude CLI 對 SIGINT 的處理（優雅 abort 並印 result？直接退出？）未實測。",
+    "nextAction": "修正 claude interrupt：在 ClaudeHandle 記 interrupt_requested，SessionClosed 時若已請求中斷則發 TaskCancelled（比照 codex_exec.rs:318-329）；補 gateway_loop 對 claude hang 模式的 interrupt 測試；決定 interrupt 後 session 是否可續（目前 Cancelled 終局）並更新 trait 註解／docs。",
+    "reproCommand": "cargo test -p interaction-runtime --test gateway_loop -- an_interrupted_codex_turn（未執行）；claude 路徑目前無測試可重現",
+    "confidence": "high"
+   },
+   {
+    "id": "B-08",
+    "need": "Session 恢復：以 providerSessionId 續開（claude --resume／codex thread/resume／exec resume）、寫入權不繼承、runtime 重啟後續開",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "unit",
+     "fixture"
+    ],
+    "owner": "interaction-runtime::agents (check_resume_not_wider／check_resume_same_workdir／resumed_session_record) + connectors resume 參數 + CLI `agents resume` + desktop buildResumeInput",
+    "entryPath": "POST /v1/agent-sessions {resumeProviderSessionId,…} (routes.rs:1389；agents.rs:277,454-470)；CLI `agents resume <id>` (commands.rs:943-1002：allowWrite:false、上限沿用、workdir 沿用 resolvedWorkdir)；桌面「接續上次（唯讀）」(AiPage.tsx:693-708 → buildResumeInput :118-136 allowWrite:false)；→ gateway_attach spec.resume_provider_session (gateway.rs:337) → claude `--resume` (claude.rs:107)／codex thread/resume 重送 cwd+approvalPolicy+sandbox (codex.rs:315-340)／exec `exec resume <thread>` 重鎖 sandbox (codex_exec.rs:69-90)",
+    "contract": "續開不得放寬：資料／工具／同意 scope、intent-only 工具集、ttl、maxCost、maxMessages、同一 resolved_workdir（agents.rs:105-245）；找不到先前紀錄 → PolicyBlocked (:454-470)；allow_write 需重新明確授權（ConsentRequired）。provider_session_id 持久化於 record (agent.rs:218；由 pump 回填 gateway.rs:401-405,640)；重啟後 record 為 Expired 但仍可作為續開來源（resumed_session_record 從 restore 的 map 查）。",
+    "stateOwner": "AgentSessionRecord.provider_session_id／resolved_workdir（SQLite）；provider 端 thread／session 由 claude／codex 自己保存",
+    "existingTests": [
+     "crates/interaction-runtime/tests/gateway_loop.rs:842 resume_passes_the_provider_thread_and_relocks_permission_flags、:1007 codex_resume_resends_cwd_and_sandbox、:2157 resume_cannot_widen_scope、:2295 resume_cannot_widen_time_or_cost_limits、:2505 resume_must_stay_in_the_recorded_workdir、:2694 resuming_an_intent_only_session_may_not_widen_the_real_tool_set、:2757 resume_without_a_recorded_grant_is_refused（fixture）",
+     "crates/interaction-runtime/src/agents.rs resume_workdir_tests（unit）",
+     "crates/interaction-agent-gateway/src/codex.rs connector_uses_exec_fallback_and_resumes_the_same_thread（unit，真 sh fixture）",
+     "apps/interaction-desktop/src/test/aiPageResume.test.tsx:50-140（vitest）",
+     "scripts/v03-cli-e2e.sh 無 `agents resume`；Playwright 無續開案例"
+    ],
+    "evidence": [
+     "crates/interaction-runtime/src/agents.rs:105-245 逐項比對；:454-470 無紀錄即拒絕",
+     "crates/interaction-cli/src/commands.rs:943-1002 Resume 讀舊 record 組 payload（allowWrite:false :995）",
+     "apps/interaction-desktop/src/pages/AiPage.tsx:118-136 buildResumeInput；:693 只在 !open && providerSessionId 顯示",
+     "fixture 只回聲：fake_claude.sh 記 argv 不真的續開；fake_codex.sh:57-60 thread/resume 回固定 id"
+    ],
+    "limitation": "真 `claude --resume <id>` 與 codex `thread/resume`／`exec resume` 對舊 thread 的實際續接（上下文是否還在、provider 端過期）未驗證；續開一律唯讀，要寫入需重新建立；桌面續開沒有 e2e。",
+    "nextAction": "以真 CLI 錄一次 resume（connector-probe）確認 provider 端語意；補 Playwright 續開案例。",
+    "reproCommand": "cargo test -p interaction-runtime --test gateway_loop -- resume_（未執行）",
+    "confidence": "high"
+   },
+   {
+    "id": "B-09",
+    "need": "重複與遲到訊息：重送／重複 POST 的 dedupe、close 後遲到事件、approval 重複裁決、SSE 重放去重",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "unit",
+     "fixture"
+    ],
+    "owner": "interaction-runtime::agents (mailbox ids／budget) + gateway pump／approvals + interaction-api::sse + connectors",
+    "entryPath": "POST /messages／/agent-sessions 無 idempotency key (routes.rs:1389,1500 MailboxSendBody 僅 kind／direction／body)；SSE 重放 vs live 以 sequence 去重 (sse.rs:67-89)；pump 對 close 後事件用 `let _ =` 吞掉 report／mailbox 錯誤 (gateway.rs:380-636)；approval 裁決 in_flight 互斥＋送達後才移除 (gateway.rs:847-905；codex.rs:625-660)",
+    "contract": "message_id = msg-{sid}-{n} 單調遞增 (agents.rs:917)；MAILBOX_CAP 200 FIFO 淘汰 (:40,913-915)；每則佔訊息預算 (:901-905)；delivered_at 首次戳記為準 (gateway.rs:806-812)；report 對非 open session 回 Conflict (agents.rs:1196-1203)；mailbox_send 對非 open 回 Conflict (:895-900)；SessionClosed 後 gateway.remove (gateway.rs:636)；本輪已結束後到的 TokenUsage 只 ingest 不翻狀態 (:486-509)；每個 claim 新 claim_id (agents.rs:1214) 讓舊驗證失效；claude saw_result 每輪重置 (claude.rs:225,323-330)；watchdog 自動拒絕送不到時保留請求並退避重試 (gateway.rs:31-35,887-895)。",
+    "stateOwner": "mailbox（in-memory）；PendingApproval map；EventBus sequence；桌面 cursor",
+    "existingTests": [
+     "crates/interaction-runtime/tests/gateway_loop.rs:1651 a_watchdog_deny_that_cannot_reach_the_agent_keeps_the_request_pending、:903／:957 裁決回寫信箱、:1286 第二輪聲稱不繼承第一輪驗證（fixture）",
+     "crates/interaction-agent-gateway/src/codex.rs a_failed_approval_write_keeps_the_request_so_it_can_be_retried（unit）",
+     "crates/interaction-runtime/tests/agents_loop.rs:940 human_verification_binds_to_one_claim、:49 誠實階梯（fixture）",
+     "crates/interaction-events/src/lib.rs:112；crates/interaction-api/src/sse.rs tests（unit）",
+     "無測試：重複 POST 同一任務、close 後遲到的 claimed／failed 事件、SSE lag 後的客戶端行為"
+    ],
+    "evidence": [
+     "crates/interaction-api/src/routes.rs:1500-1521 agent_session_send 無 idempotency／client message id → 重複送出＝重複 turn＋重複計費",
+     "crates/interaction-runtime/src/gateway.rs:511-583 close 後遲到的 TaskClaimedCompleted：mailbox_send／report 皆 Conflict 被 `let _ =` 吞掉、不留稽核",
+     "crates/interaction-api/src/sse.rs:90-93 Lagged 靜默丟棄",
+     "apps/interaction-desktop/src/transport.ts:467 客戶端只跟 id，不偵測跳號"
+    ],
+    "limitation": "沒有請求層 idempotency；close 後遲到的 agent 結果無痕跡（誠實但不可追溯）；SSE 缺漏無告警；信箱 200 則 FIFO 淘汰可能丟掉舊 result（長 session）。",
+    "nextAction": "在 POST /messages 加可選 clientMessageId 去重；close 後遲到事件寫一筆 audit；SSE 客戶端跳號偵測。",
+    "reproCommand": "cargo test -p interaction-runtime --test gateway_loop -- a_watchdog_deny_that_cannot_reach（未執行）",
+    "confidence": "medium"
+   },
+   {
+    "id": "B-10",
+    "need": "claimed／verified 與成果呈現：agent 聲稱完成 → 只有人類能驗證；UI 文案；成果檔案／summary 如何看",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "unit",
+     "fixture",
+     "integration",
+     "browser",
+     "simulator"
+    ],
+    "owner": "interaction-runtime::agents (report／verify_agent_session) + gateway pump + interaction-api scope + desktop AiPage／workState + iOS CharacterView",
+    "entryPath": "claim：connector TaskClaimedCompleted → pump 寫 from-session `result` {summary,costUsd} + report claimed-completed (gateway.rs:511-545) → state ClaimedCompleted（open）+ claim_id (agents.rs:1214) + 清 human_verified (:1216)。verify：POST /v1/agent-sessions/{id}/verify（human token 專屬，routes.rs:1435；agent／session token 403 lib.rs:488+,430+）／Tauri agent_session_verify (src-tauri/src/lib.rs:1689)／CLI `agents verify` (commands.rs:1057)／桌面「標記為已驗證（我確認過結果）」(AiPage.tsx:605-616) → verify_agent_session (agents.rs:1111-1172) → taxonomy verified + iPhone mobile_present_verified (:1162；mobile.rs:3239)。成果：桌面「查看結果／訊息」展開 from-session 信箱 (AiPage.tsx:619,743-780)；CLI `agents messages --direction from-session`。",
+    "contract": "claimed ≠ verified：只有 verify_agent_session 能寫 human_verified，且綁定當下 claim_id (agent.rs:232-257)；任何新回報／新任務送達都清掉驗證 (agents.rs:1216；gateway.rs:800-805；agents.rs:1049)。summary 來源：claude result 文字 ≤4000 (claude.rs:442-466)；codex 最後一則 agentMessage (codex.rs:513)；exec fallback **無 summary**(codex_exec.rs:397)。產物：只有 exec file_change 帶 path 且只進觀察 (codex_exec.rs:453；gateway.rs:476-484)；codex app-server fileChange 無 path；claude 無產物事件。HandoffSummary (agent.rs:274-283) 只在 close 時由 CLI/HTTP 帶入並落記憶層 (agents.rs:1265-1330)。",
+    "stateOwner": "AgentSessionRecord.state／claim_id／human_verified（SQLite）；from-session mailbox（in-memory）；記憶層 AgentHandoff（SQLite，30 天）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/agents_loop.rs:608 human_verify_is_the_only_path_from_claim_to_verified、:940 verification_binds_to_one_claim、:1143 a_claim_never_auto_upgrades_itself_to_verified（fixture）",
+     "crates/interaction-api/tests/api_e2e.rs:1238 only_a_human_token_can_verify_a_claim_and_no_agent_can_self_upgrade（integration，真 HTTP）",
+     "crates/interaction-runtime/tests/gateway_loop.rs:138 result 信箱 summary（fixture）；mobile_loop.rs verify（simulator fake_iphone）",
+     "apps/interaction-desktop/e2e/work-delegate.spec.ts:252（綠勾只在驗證後）、:298（unknown 無驗證鈕）；home-state.spec.ts:94；evidence.spec.ts:320（四種狀態擷取，fixture）",
+     "apps/interaction-desktop/src/test/workPage.test.tsx:434（vitest）；scripts/v03-cli-e2e.sh:192-205（CLI report→verify→close）",
+     "apps/interaction-ios CharacterView.swift:8、AIPEnvelope.swift:154-167（verified 只能來自 Runtime；模擬器層）"
+    ],
+    "evidence": [
+     "crates/interaction-runtime/src/agents.rs:1111-1172 verify 僅接受 ClaimedCompleted、拒絕重複、稽核 agent-session.verified (:1150)",
+     "crates/interaction-api/src/lib.rs:488-535／430-470 agent／session token 對 /verify 與 /report 皆 403（api_e2e.rs:1272-1290 斷言 403 token_scope_forbidden）",
+     "apps/interaction-desktop/src/pages/AiPage.tsx:576-580 「Agent 說做完了——這是它的說法，尚未經過檢查」；workState.ts:129-142 claimed=warn 無綠勾、verified=ok",
+     "apps/interaction-desktop/src/pages/AiPage.tsx:275-291 messageSummary 只取 summary 文字；exec fallback 結果顯示「（沒有文字內容）」",
+     "成果檔案：無任何入口列出／預覽 agent 改動的檔案；使用者必須自行到 workdir 檢查（AiPage 無 diff／檔案清單）；桌面 close 不帶 handoff (src-tauri/src/lib.rs:1620-1627)"
+    ],
+    "limitation": "驗證不變量完整且多層測試；但「成果呈現」只有一段文字 summary：無檔案清單、無 diff、codex exec 連 summary 都沒有、產物路徑只進觀察不進 UI；handoff 只有 CLI/HTTP 能寫。真 agent 的 result 文字品質未實測。",
+    "nextAction": "把 ArtifactProduced／fileChange 路徑寫進 from-session 信箱並在卡片列出；exec fallback 用最後 agent_message 當 summary（比照 codex.rs:513）；桌面 close 允許輸入 handoff。",
+    "reproCommand": "cargo test -p interaction-api --test api_e2e -- only_a_human_token_can_verify（未執行）",
+    "confidence": "high"
+   }
+  ],
+  "openQuestions": [
+   "真 `claude -p --input-format stream-json` 收到 SIGINT 的行為（優雅 abort 並印 result？直接退出 code≠0？）——決定 B-07 claude 中斷最終落在 unknown 還是 failed；repo 內無錄樣本。",
+   "真 `claude -p` 在 turn 進行中收到第二則 stream-json user message 是排隊、合併還是忽略（B-06）；真 codex app-server 0.153.4 對進行中 thread 再送 turn/start 的回應（B-06）；鎖定 schema 為 0.149.1。",
+   "觀察儲存中的 progress 文字是否有任何正式讀取面：POST /v1/observations/query（human）可查，但桌面頁面與 CLI 未見以 sessionId 過濾的消費者（B-02／B-03）。",
+   "apps/interaction-desktop/src/test/transport.test.ts 只見 2 個錯誤路由測試；nextStreamCursor 是否在其他 vitest 檔有覆蓋未確認（B-05）。",
+   "skills/orchestrate-adaptive-interaction/references/cli.md:127 說 agent host 呼叫 `agents report`，但 agent／session token 對 /report 一律 403——skill 預期用哪把 token？若是 human token，等於把人類權限交給 agent（B-04）。",
+   "E2E_REAL_AGENTS=1 路徑：global-setup.ts:58-64 改用真 CLI 但 session 相關 spec 全部 skip（estop/home-state/work-delegate/evidence），所以 repo 內沒有任何 real-agent 層級的 B 維度證據；docs/releases 亦無逐列真 agent 證據。"
+  ],
+  "notes": "B 維度總結（以程式與正式入口為準，HEAD 78dcda1）：建立／送任務／claimed→verified／close／resume 的骨幹是接線完整且有 unit＋fixture＋integration＋browser 四層測試；真 Claude Code／Codex 二進位的行為在 repo 內零證據（所有 runtime／Playwright／原生 AX 測試皆用 fake_claude.sh／fake_codex.sh／fake_codex_exec.sh，E2E_REAL_AGENTS=1 會 skip session 測試）。主要缺口：(1) agent 產生的過程文字、工具與產物進度在任何 UI／SSE 都不可見（只在觀察儲存；SSE agent.session.state 不帶文字，信箱無 progress 產生者），人類只看得到最後一段 summary；(2) waiting-for-input 是型別＋投影＋人工 report 的死狀態，沒有 connector 產生、沒有回答語意、agent 的提問會被投影成「對方說已完成」；(3) 確認缺陷：Claude session 的「暫停／中斷」送 SIGINT 全組，claude connector 從不發 TaskCancelled，結果記成 unknown／failed 而非 cancelled（trait 註解、桌面文案與 e2e 標題只對 codex 成立；無 claude interrupt 測試）；codex 的 interrupt 也讓 record 終局化（Cancelled）並隨後殺子程序，沒有「中斷後再交代」；(4) 信箱（結果／核可紀錄）不持久化，daemon 重啟即遺失；SSE lag／ring 溢出靜默；(5) model 欄位存在於 SessionSpec 但無任何正式入口可設；(6) POST messages 無 idempotency。文件對帳：DESKTOP-GUIDE.md:289 列「等你回答」為可見狀態（僅人工 report 可達）；skills cli.md:127 對 report 呼叫者的描述與 API scope 相悖；docs/v05-recovery-matrix.md:35,392,424 已誠實記錄 waiting-input 缺口。所有列的證據層級最高到 browser／native-desktop（fixture agent）與 simulator（fake_iphone），未標任何 real-*。本輪未執行任何 cargo／pnpm 指令，未修改 repo。同一份 JSON 已寫入 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/matrix/find-B.json。"
+ },
+ "verdicts": [
+  {
+   "id": "B-01",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "Personally re-verified every load-bearing citation. CreateAgentSession (crates/interaction-runtime/src/agents.rs:247-278) confirmed to have no `task` and no `model` field. gateway_attach (crates/interaction-runtime/src/gateway.rs:285-360) confirmed to set disable_tools/resume_provider_session/max_cost_usd/session_capability_token/runtime_api_base on SessionSpec but never `spec.model` — SessionSpec.model exists (interaction-agent-gateway/src/lib.rs:166) and claude.rs:103-104 / codex_exec.rs:87-88,105-106 do consume `--model` when set, so this genuinely is a dead, unreachable field from any production entry point. gateway_deliver (not gateway.rs:726-736's containing fn name was mis-picked in the original but the fn itself, at gateway.rs:669, wraps task+contextBundle+runtimeRules exactly as described at lines 715-736). HTTP routes POST /v1/agent-sessions and POST /v1/agent-sessions/{id}/messages verified at crates/interaction-api/src/lib.rs:217-230 → routes.rs:1388-1402,1499-1512. TaskComposer.tsx:166-178 buildSessionCreateInput confirmed to only ever send `workspace:<dir>` dataScope, never `domain:` prefix — desktop-created sessions genuinely cannot populate ContextBundle domains. CLI commands.rs:912-936 confirmed Create only maps allow_write into toolScope/consentScope; no --data-scope/--tool-scope flag exists in main.rs Create variant (370-403). Cited tests (gateway_loop.rs:137-236, agents_loop.rs:308-320) exist and do what's claimed. Overall this is a well-evidenced implemented-and-connected classification with an accurately flagged partial gap (model unreachable) rather than a full claim of completeness — correctly not overclaiming beyond fixture/unit/integration/browser/native-desktop evidence levels (no real-agent claim made, which is correct since these paths are fixture/mock-tested only).",
+   "evidence": [
+    "crates/interaction-runtime/src/agents.rs:247-278 — CreateAgentSession has no task/model field",
+    "crates/interaction-runtime/src/gateway.rs:285-360 — gateway_attach never sets spec.model",
+    "crates/interaction-agent-gateway/src/lib.rs:156-180 — SessionSpec.model field exists but is only settable at struct-literal level, never touched by runtime callers",
+    "crates/interaction-agent-gateway/src/claude.rs:103-104, codex_exec.rs:87-88,105-106 — --model IS wired to spec.model, confirming this is a truly dead/unreachable path, not a false negative",
+    "crates/interaction-runtime/src/gateway.rs:669 (fn gateway_deliver) and 715-736 — prompt wrapping confirmed verbatim",
+    "apps/interaction-desktop/src/pages/work/TaskComposer.tsx:166-178 — dataScope always workspace:<dir>, never domain:",
+    "crates/interaction-cli/src/commands.rs:912-936, main.rs:376-403 — CLI Create has no data/tool-scope flags",
+    "crates/interaction-runtime/tests/gateway_loop.rs:137-236 and agents_loop.rs:308-320 — cited tests exist and match description"
+   ]
+  },
+  {
+   "id": "B-02",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "reason": "Fully re-verified. crates/interaction-runtime/src/agents.rs:1098-1105 emit_agent_session_state confirmed to only emit {agentSessionId, agentId, state} — no text field. The actual text (TaskProgress.text) is folded into `inferences.report` via report_agent_session (agents.rs ~1220-1250) and ingest, then crates/interaction-runtime/src/runtime.rs:837-847 publish_observation_event confirmed to publish only `facts` and `confidence` on the SSE ReceptorObservation event — inferences (which hold the text) are never put on the wire. Confirmed no mailbox_send call site anywhere in the runtime crate ever uses kind=\"progress\" (grep of all 6 call sites: agents.rs:1834 uses kind=\"task\"; gateway.rs:447/529/935 use approval-request/result/approval-resolved; proactive.rs:757/792 use task/proactive-candidate-rejected) — so AiPage.tsx's `progress: \"進度更新\"` label (line 216) is confirmed dead/unreachable. claude.rs text handling (lines 409-423) confirmed to cap at 2000 chars and only fire on assistant/text content blocks; codex.rs:577-584 confirmed to explicitly discard item/agentMessage/delta and all other delta/status streams with a comment saying progress is only delivered via item/completed. sse.rs:90-93 confirmed BroadcastStreamRecvError::Lagged is only tracing::warn'd and silently dropped with no client signal. AiPage.tsx MESSAGE_POLL_MS=5000 (line 153) confirmed, and the 528-537 polling block only calls agentSessionMessages (mailbox), never an observations/facts endpoint, so it structurally cannot see the discarded text either. This is a rigorously supported implemented-partial finding.",
+   "evidence": [
+    "crates/interaction-runtime/src/agents.rs:1098-1105 — emit_agent_session_state payload has no text field",
+    "crates/interaction-runtime/src/runtime.rs:837-847 — publish_observation_event only ships facts+confidence, never inferences",
+    "grep of all mailbox_send call sites (agents.rs:1834; gateway.rs:447,529,935; proactive.rs:757,792) — none use kind=\"progress\"",
+    "crates/interaction-agent-gateway/src/claude.rs:409-423 — text capped at 2000 chars, message-level not token-level",
+    "crates/interaction-agent-gateway/src/codex.rs:577-584 — item/agentMessage/delta explicitly discarded",
+    "crates/interaction-api/src/sse.rs:90-93 — Lagged silently dropped, client never told",
+    "apps/interaction-desktop/src/pages/AiPage.tsx:153,528-537 — 5s poll of from-session mailbox only, confirmed"
+   ]
+  },
+  {
+   "id": "B-03",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "reason": "Re-verified with one nuance worth flagging: the claim's contract sentence is technically about codex's fileChange lacking an artifact path (true) and claude lacking ToolCompleted (true) — both hold up, but a careless reading could conflate this with codex lacking ToolCompleted entirely, which is false. codex.rs:477-505 confirms codex DOES emit ToolCompleted for commandExecution/mcpToolCall/fileChange/toolCall via item/completed — the gap is specifically that fileChange's item/completed branch never extracts a path, so ArtifactProduced (which does exist, lib.rs:110, and IS used by codex_exec.rs:453) is never emitted from the app-server connector, only from the exec fallback. claude.rs confirmed: `(\"user\", _) => vec![]` (line 467, one off from the cited 468 but same statement) silently drops tool_result lines, so claude truly never emits ToolCompleted. Confirmed the fixture gap too: fake_claude.sh has no tool_use output at all, and fake_codex.sh's only tool-shaped line is `item/commandExecution/requestApproval` (an approval request, not item/started/item/completed), so runtime/browser tests genuinely never exercise ToolStarted/ToolCompleted/ArtifactProduced. Downstream UI-invisibility claims (gateway.rs:456-484 folding tool/artifact into progress observations; workState.ts having no tool-level granularity) were spot-checked and are consistent with B-02's findings. Correcting only the phrasing risk, not the substance.",
+   "evidence": [
+    "crates/interaction-agent-gateway/src/codex.rs:464-505 — codex DOES have ToolCompleted (item/completed for commandExecution/mcpToolCall/fileChange/toolCall); the actual gap is fileChange never producing a path/ArtifactProduced",
+    "crates/interaction-agent-gateway/src/claude.rs:467 — (\"user\", _) => vec![] confirms claude truly has no ToolCompleted path (line number off-by-one from cited 468, same statement)",
+    "crates/interaction-agent-gateway/src/lib.rs:110, codex_exec.rs:453 — ArtifactProduced exists and is only ever emitted by the exec fallback, never the app-server connector",
+    "crates/interaction-runtime/tests/fixtures/fake_claude.sh, fake_codex.sh — confirmed no tool_use/item-started-or-completed lines; fake_codex.sh's only tool-shaped notification is an approval request, not a start/complete event"
+   ]
+  },
+  {
+   "id": "B-04",
+   "refuted": false,
+   "correctedStatus": "defined-only",
+   "reason": "Strongly re-verified — this is the best-evidenced of the four. crates/interaction-agent-gateway/src/lib.rs:89-99 confirmed verbatim: the TaskWaitingForInput variant's own doc comment states no connector produces it. Confirmed by grep that TaskWaitingForInput is referenced in exactly two places workspace-wide: its own declaration and one unreachable match arm at crates/interaction-runtime/src/gateway.rs:413. The HTTP-scope claim was independently and strongly confirmed: session_request_allowed (crates/interaction-api/src/lib.rs:430-470) has no branch for /report at all (only GET /v1/tools*, GET .../messages for own session, POST /v1/tools/*/call, POST safety-decreasing routes, POST .../interrupt for own session) and agent_request_allowed (488-540) likewise has no /report allowance in its POST branches — and there is an existing first-party unit test, legacy_agent_token_cannot_interrupt_any_agent_session (lib.rs:738-768), that explicitly asserts `/v1/agent-sessions/any-id/report` returns false from agent_request_allowed for POST, i.e. 403 for any agent token. One correction: the cited skill-doc quote is inaccurate — skills/orchestrate-adaptive-interaction/references/cli.md:127 is only the bare command line `interact-ai agents report <id> --event ... --payload '{}'`; the phrase \"(the agent host calls this)\" attributed to it does not appear anywhere in that file or the skill directory (grep confirmed zero matches). The line number (127) is correct but the quoted text is fabricated/misremembered — this doesn't change the underlying finding (report truly cannot be called by any agent-scoped token, and the doc genuinely fails to make that limitation clear at that line) but the specific quoted evidence should be corrected or dropped rather than cited as literal document text.",
+   "evidence": [
+    "crates/interaction-agent-gateway/src/lib.rs:89-99 — doc comment on TaskWaitingForInput explicitly states no connector produces it",
+    "grep -rn TaskWaitingForInput across agent-gateway+runtime crates — only 2 hits: the declaration and one unreachable match arm at gateway.rs:413",
+    "crates/interaction-api/src/lib.rs:430-470 (session_request_allowed) and 488-540 (agent_request_allowed) — neither grants any agent-scoped token access to POST .../report",
+    "crates/interaction-api/src/lib.rs:738-768 — existing unit test legacy_agent_token_cannot_interrupt_any_agent_session explicitly asserts POST .../report is NOT agent_request_allowed",
+    "CORRECTION: skills/orchestrate-adaptive-interaction/references/cli.md:127 is only `interact-ai agents report <id> --event progress|claimed-completed|failed --payload '{}'` — the quoted phrase \"(the agent host calls this)\" does not exist anywhere in the file (grep -rn confirmed zero matches in the whole skill directory); this specific evidence bullet is fabricated and should be struck or replaced, though it does not affect the finding's core validity"
+   ]
+  },
+  {
+   "id": "B-05",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "correctedEvidenceLevel": [
+    "unit",
+    "fixture",
+    "integration",
+    "browser"
+   ],
+   "reason": "Every cited file:line was independently re-opened and matches. mailbox: VecDeque::new() confirmed at agents.rs:584 and :1519 (in-memory only). restore_agent_sessions (agents.rs:1479-1530) confirmed: open sessions become Expired and emit 'unknown'. SQLite persistence of agent_sessions confirmed via interaction-storage (rusqlite doc_upsert/doc_all). Event ring (interaction-events, capacity 1024) and sse.rs's Lagged->warn-and-drop (lines 90-92) confirmed verbatim, with no client-side gap detection in transport.ts. transport.ts's nextStreamCursor/runStream (396-491), function-local cursor, EVENT_BUFFER_MAX=500 (line 369) all confirmed. AiPage.tsx mailbox polling confirmed gated on `expanded`. Tauri lib.rs event forwarder, events_recent, and agent_session_close passing None as handoff (1620-1627) confirmed. Cited tests (agents_loop.rs:491,812; gateway_loop.rs §6b; interaction-events ring test) exist and match. This is a solid, accurately-scoped implemented-partial finding with no over-claimed evidence tier.",
+   "evidence": [
+    "crates/interaction-runtime/src/agents.rs:584,1519 mailbox VecDeque::new()",
+    "crates/interaction-runtime/src/agents.rs:1479-1530 restore_agent_sessions marks open->Expired, emits unknown",
+    "crates/interaction-storage/src/lib.rs save_agent_session/all_agent_sessions on rusqlite-backed 'agent_sessions' table",
+    "crates/interaction-events/src/lib.rs DEFAULT_CAPACITY=1024, replay_after, ring test confirmed",
+    "crates/interaction-api/src/sse.rs:90-92 Lagged branch only warns and drops",
+    "apps/interaction-desktop/src/transport.ts:396-491 cursor logic, :369 EVENT_BUFFER_MAX=500",
+    "apps/interaction-desktop/src-tauri/src/lib.rs:1620-1627 agent_session_close passes None handoff"
+   ]
+  },
+  {
+   "id": "B-06",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "correctedEvidenceLevel": [
+    "unit",
+    "fixture",
+    "browser"
+   ],
+   "reason": "All entry points and connector internals confirmed exactly as cited: routes.rs:1500 agent_session_send, Tauri lib.rs:1597, CLI commands.rs:1003. gateway_deliver (gateway.rs:669-800) confirmed to have no turn-in-progress gate beyond estop/budget checks. claude.rs send_user_message (323-341) writes to stdin unconditionally; codex.rs send_user_message (604-622) sends turn/start without waiting/checking; codex_exec.rs (131-143) uses an AtomicBool busy compare_exchange returning GatewayError::Busy, mapped to HTTP 409 at gateway.rs:759-763 — matches claim precisely. All cited tests exist verbatim at the cited lines with matching intent. The 'no real claude/codex mid-turn behavior verified, only fixture sequential-processing' limitation is accurate and not overstated.",
+   "evidence": [
+    "crates/interaction-runtime/src/gateway.rs:669-800 gateway_deliver: no turn-in-progress gate",
+    "crates/interaction-agent-gateway/src/claude.rs:323-341 unconditional stdin write",
+    "crates/interaction-agent-gateway/src/codex.rs:604-622 turn/start sent without in-progress check",
+    "crates/interaction-agent-gateway/src/codex_exec.rs:131-143 AtomicBool busy -> GatewayError::Busy",
+    "crates/interaction-runtime/tests/gateway_loop.rs:782,1286,1518 fn names confirmed exactly"
+   ]
+  },
+  {
+   "id": "B-07",
+   "refuted": false,
+   "correctedStatus": "confirmed-defect",
+   "correctedEvidenceLevel": [
+    "unit",
+    "fixture",
+    "browser",
+    "native-desktop"
+   ],
+   "reason": "Strongest claim in the batch and it fully survives adversarial re-verification. claude.rs interrupt() (354-356) only sends SIGINT to the process group; grep for 'TaskCancelled' in claude.rs returns zero hits, and there is no cancel_requested/interrupt_requested flag anywhere in the file (unlike codex_exec.rs, which explicitly tracks cancel_requested and documents the cancelled->TaskCancelled honesty-ladder pattern at drain_outcome_event, ~308-329, that claude.rs conspicuously lacks). Consequence traced end-to-end: SIGINT'd claude process exits without a claimed result, gateway.rs:607-633's SessionClosed handler reports 'unknown' (not cancelled), and the desktop's own unknown projection literally reads '既不是成功也不是失敗' (workState.ts:161-166) — precisely the misleading UI state the finding describes. Codex's app-server path is correctly wired (codex.rs:529 interrupted->TaskCancelled) and IS tested. Independently confirmed there are exactly 2 gateway_interrupt call sites in gateway_loop.rs (lines 1805, 1900), both inside codex-only tests. scripts/tests/tauri-work-cancel.py's own comments confirm it deliberately tests Codex via interrupt/cancellation and Claude only via close/hang, never claude-interrupt. human.rs:139 confirms 'programming'/'程式工作' tasks (used by the cited e2e/native-desktop tests) default-route to codex, so none of the cited passing tests actually exercise the broken claude path — the defect has zero test coverage at any tier, exactly as claimed.",
+   "evidence": [
+    "crates/interaction-agent-gateway/src/claude.rs:354-356 interrupt() = SIGINT only, no cancellation tracking",
+    "grep -c TaskCancelled crates/interaction-agent-gateway/src/claude.rs => 0",
+    "crates/interaction-runtime/src/gateway.rs:607-633 SessionClosed with no settled turn -> reports 'unknown'",
+    "apps/interaction-desktop/src/statusProjection/workState.ts:161-166 unknown.honesty = '既不是成功也不是失敗'",
+    "crates/interaction-runtime/tests/gateway_loop.rs: only 2 gateway_interrupt call sites (1805, 1900), both codex-only",
+    "scripts/tests/tauri-work-cancel.py: explicit comment 'Process termination is checked on the separate Claude hang/close case'",
+    "crates/interaction-runtime/src/human.rs:139 default agent_routes['programming']='codex'"
+   ]
+  },
+  {
+   "id": "B-08",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "correctedEvidenceLevel": [
+    "unit",
+    "fixture"
+   ],
+   "reason": "Full chain re-traced from every entry point to every connector and confirmed. agents.rs's non-widening resume guard (check_resume_not_wider, resumed_session_record lookup, PolicyBlocked when no prior record) confirmed. gateway.rs:337 spec.resume_provider_session assignment inside gateway_attach confirmed exactly. All three connectors confirmed to implement resume distinctly and safely: claude.rs pushes --resume <id>; codex.rs uses thread/resume vs thread/start and explicitly re-sends cwd/approvalPolicy/sandbox rather than inheriting (matching in-code comment); codex_exec.rs's exec_args relocks sandbox/approval on resume. CLI's AgentsAction::Resume (943-1002) confirmed to hard-code allowWrite:false, require an existing providerSessionId, and carry forward (never widen) prior limits. Desktop buildResumeInput (118-136) matches the same shape. All 7 cited gateway_loop.rs tests and the resume_workdir_tests module exist verbatim. Confirmed absence of any `agents resume` usage in scripts/v03-cli-e2e.sh and absence of any resume-related Playwright coverage, matching the stated limitation exactly. No real-agent evidence is claimed despite full wiring, which is appropriately conservative.",
+   "evidence": [
+    "crates/interaction-runtime/src/agents.rs (~440-472) check_resume_not_wider / resumed_session_record / PolicyBlocked-if-missing",
+    "crates/interaction-runtime/src/gateway.rs:337 spec.resume_provider_session = resume_provider_session",
+    "crates/interaction-agent-gateway/src/codex.rs (~315-340) thread/resume re-sends cwd/approvalPolicy/sandbox, not inherited",
+    "crates/interaction-agent-gateway/src/codex_exec.rs (~69-90) resume relocks sandbox/approval flags",
+    "crates/interaction-cli/src/commands.rs:943-1002 AgentsAction::Resume: allowWrite:false, provider_session_id required, limits carried not defaulted",
+    "crates/interaction-runtime/tests/gateway_loop.rs:842,1007,2157,2295,2505,2694,2757 all fn names confirmed exactly",
+    "scripts/v03-cli-e2e.sh and apps/interaction-desktop/e2e/*.spec.ts: zero resume-related matches, confirming stated coverage gap"
+   ]
+  },
+  {
+   "id": "B-09",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "reason": "Every load-bearing citation checked out against the actual code. routes.rs MailboxSendBody really has only kind/direction/body (no idempotency key) at the cited lines; sse.rs really dedupes replay-vs-live by `event.sequence > replayed_until` (line 86) and silently drops on Lagged (line 90) — line numbers in the finding (67-89, 90-93) are off by a few lines from the actual 56-93 range but point at the same function/logic, so not a material error. agents.rs confirms MAILBOX_CAP=200 (line 40), FIFO eviction via pop_front, message_id format `msg-{sid}-{n}` (line 917), budget check before eviction, and Conflict-on-non-open for both mailbox_send and report_agent_session — with no audit call on that Conflict path (verified by grepping every `.audit(` call site in agents.rs; none guards the closed-session rejection), so 'close 後遲到事件無稽核' is accurate, not just plausible. gateway.rs confirms delivered_at set only on first read (lines ~806-812), and resolve_approval_as confirms the in-flight mutex + 'send failed -> keep pending, bump delivery_failures, do not remove' pattern exactly as described, matching codex.rs's in-flight/backoff constants (APPROVAL_TTL_SECS, AUTO_DENY_RETRY_BASE_SECS, SEND_TIMEOUT at lines 29-40). claude.rs confirms saw_result is reset to false at the top of send_user_message (before writing to stdin) and set true only on TaskClaimedCompleted/TaskFailed — matching the 'per-turn, reset on next turn' claim. All four cited test names (a_watchdog_deny_that_cannot_reach_the_agent_keeps_the_request_pending, a_second_turn_that_dies_is_not_covered_by_the_first_turns_claim, a_watchdog_auto_deny_is_written_back_to_the_mailbox / a_human_decision_is_written_back_to_the_mailbox_as_human near :903/:957, a_failed_approval_write_keeps_the_request_so_it_can_be_retried) exist at the cited files and actually assert the claimed behavior. The 'no test for duplicate POST / late-close events / SSE lag client behavior' negative claim is also correct: grepping the Rust and desktop test suites for idempotency/clientMessageId/Lagged/duplicate-POST patterns turns up nothing, and transport.ts:467 area confirms the client only tracks `cursor.lastId` from the `id:` field with no gap/skip detection. evidenceLevel ['unit','fixture'] is appropriate: the cited gateway_loop.rs/agents_loop.rs tests run a real Runtime against fixture subprocesses (fake_claude.sh/fake_codex.sh), and the sse.rs tests are pure in-crate unit tests — neither reaches real-agent or integration-HTTP level, so no over-claiming. status 'implemented-partial' is the right call: the invariants that exist (claim_id rotation, budget/FIFO caps, delivered_at-once, approval in-flight mutex+backoff) are real production logic reachable from the documented entry points, while the named gaps (no request-level idempotency key, no audit trail for late/rejected reports, silent SSE lag with no client-side gap detection) are also real and verified by direct code inspection.",
+   "evidence": [
+    "crates/interaction-api/src/routes.rs:1483-1499 MailboxSendBody has only kind/direction/body, no client message id",
+    "crates/interaction-api/src/sse.rs:56-93 replay/live dedupe by sequence and silent Lagged drop (function starts at 56, Lagged branch at line 90)",
+    "crates/interaction-runtime/src/agents.rs:40 MAILBOX_CAP=200; :895-900 Conflict on non-open state for mailbox_send; :917 message_id format; no audit() call guards that Conflict path (checked all 5 audit() call sites in the file)",
+    "crates/interaction-runtime/src/agents.rs:1174-1211 report_agent_session: same Conflict-before-any-audit pattern for late/closed-session reports",
+    "crates/interaction-runtime/src/gateway.rs:847-905 resolve_approval_as: in_flight mutex Conflict, keep-pending-on-delivery-failure with delivery_failures counter",
+    "crates/interaction-agent-gateway/src/claude.rs:225 (saw_result set true on TaskClaimedCompleted/TaskFailed), :323-330 (reset to false at top of send_user_message, before stdin write)",
+    "crates/interaction-runtime/tests/gateway_loop.rs:1286 a_second_turn_that_dies_is_not_covered_by_the_first_turns_claim, :1651 a_watchdog_deny_that_cannot_reach_the_agent_keeps_the_request_pending, :903 a_watchdog_auto_deny_is_written_back_to_the_mailbox, :957 a_human_decision_is_written_back_to_the_mailbox_as_human — all exist and assert the claimed behavior",
+    "apps/interaction-desktop/src/transport.ts:467 client only updates cursor.lastId from `id:` line, no sequence-gap detection logic present"
+   ]
+  },
+  {
+   "id": "B-10",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "The core claim-to-verified pipeline is exactly as described and reachable from every entry point cited: HTTP verify route (routes.rs:1429ish agent_session_verify -> runtime.verify_agent_session), CLI (commands.rs:1057 AgentsAction::Verify posts to /verify), Tauri IPC (src-tauri/src/lib.rs:1689 agent_session_verify command), and desktop UI (AiPage.tsx:605-616 calls api.agentSessionVerify). verify_agent_session (agents.rs:1111-1172) confirms: rejects unless state==ClaimedCompleted, rejects double-verify, binds HumanVerification.claim_id to the current claim, audits 'agent-session.verified', and background-fires mobile_present_verified (mobile.rs:3239) which is the only path capable of the verified-success wire state. lib.rs's agent_request_allowed (from line 488) and session_request_allowed (from line 430) confirm /verify is not in either token's allow-list, so agent/session tokens 403 by construction. AiPage.tsx text at lines 578-579 and 605-616 match verbatim ('Agent 說做完了...它的說法...尚未經過檢查' / 標記為已驗證button). codex.rs:512-513 confirms summary = last agentMessage text (claim-accurate); codex_exec.rs:396-397 confirms the exec fallback truly sends summary:None (no text at all); codex_exec.rs:445-453 confirms only file_change items produce ArtifactProduced{path}, and gateway.rs:476-484 confirms ArtifactProduced is folded into report_agent_session(...,'progress',{'artifact':path}) — an observation/state-taxonomy call, NOT a mailbox_send — so it never lands in the from-session mailbox that AiPage.tsx's '查看結果／訊息' panel reads. src-tauri/src/lib.rs's agent_session_close command (~1618-1629) always passes None as handoff regardless of any caller argument, confirming the desktop close path structurally cannot carry a HandoffSummary. Test citations for the verify invariant are precise: agents_loop.rs:608/940/1143 are exactly the three functions named and they assert the described behavior; work-delegate.spec.ts's verify-gate scenario matches (green-check only after clicking the button, exact button/text strings verified); v03-cli-e2e.sh:192-205 matches the report->verify->double-verify-refused->close CLI flow; the iOS comments in CharacterView.swift:8 and AIPEnvelope.swift:154-167 match verbatim (verified is Runtime-only, isRuntimeOnly). One citation is imprecise, not fabricated: api_e2e.rs:1272-1290 (the loop asserting 403+token_scope_forbidden) verifies this only for the /verify route with agent and agent-session tokens; that same test file has no request that sends POST /report with an agent or session-scoped token to directly assert 403 there — the /report scope-403 claim is supported by code inspection of the route allow-lists (report is absent from both agent_request_allowed's and session_request_allowed's POST allow-lists) but not by an executed integration test as the citation implies. This narrows the evidenceLevel for that one sub-claim to static-inspection rather than integration, but does not change the overall row status since the verify-gate itself (the row's central claim) is genuinely covered at integration+browser+simulator level as stated.",
+   "evidence": [
+    "crates/interaction-runtime/src/agents.rs:1111-1172 verify_agent_session: ClaimedCompleted-only, single-use, claim_id-bound, audited, spawns mobile_present_verified",
+    "crates/interaction-runtime/src/mobile.rs:3239 mobile_present_verified doc comment: 'let paired iPhone show green check... only path that can send verified-success'",
+    "crates/interaction-api/src/lib.rs:430 session_request_allowed and :488 agent_request_allowed: /verify absent from both allow-lists (confirms 403 by construction)",
+    "crates/interaction-api/tests/api_e2e.rs:1264-1290 only tests /verify's 403 for agent/session tokens; grep shows no POST /report call anywhere in that file uses agent_token or session_token, so the claim's citation of this test range as evidence for /report's 403 is imprecise",
+    "crates/interaction-agent-gateway/src/codex_exec.rs:396-397 exec fallback TaskClaimedCompleted{summary: None,...} — confirmed no summary text at all",
+    "crates/interaction-runtime/src/gateway.rs:476-484 ArtifactProduced -> report_agent_session(...,'progress',{'artifact':path}) which is an observation/state report, not mailbox_send — confirmed by grepping all call sites of mailbox_send and report_agent_session with 'artifact' in interaction-runtime/src, finding exactly one write site (gateway.rs:482) and it is report_agent_session, not mailbox_send",
+    "apps/interaction-desktop/src-tauri/src/lib.rs:1618-1629 agent_session_close command always passes None for handoff to close_agent_session, regardless of any caller input, confirming desktop close cannot carry a HandoffSummary",
+    "crates/interaction-runtime/tests/agents_loop.rs:608,940,1143 function names and bodies match exactly what the row cites them for"
+   ]
+  }
+ ],
+ "critic": {
+  "missingRows": [
+   {
+    "need": "B-M01 核可往返（agent 問「這件事可以做嗎」→ 人裁決 → 裁決回送 agent）：這是目前唯一真正會被 connector 產生的『agent 問人、人回答』迴路，B-01..B-10 沒有任何一列涵蓋它",
+    "whyItMatters": "B-04 把『agent 提問』整個判為 defined-only，但那只對 waiting-for-input 成立；waiting-for-consent 這一支有真實產生者、真實狀態、真實 UI 按鈕、真實 inbox 入口與 300 秒看門狗自動拒絕。缺這一列會讓矩陣低估『雙向溝通』的實際能力，也會讓『5 分鐘沒人看就自動拒絕』這個最痛的行為沒有負責人",
+    "whereToLook": "crates/interaction-agent-gateway/src/codex.rs:251-259,432,623-660（只有 codex app-server 產生 requestApproval；claude.rs:609-619 明示 claude 絕不偽造 approval；codex_exec.rs:4,85 固定 approval_policy=never）；crates/interaction-runtime/src/gateway.rs:419-454、:847-905、:29 APPROVAL_TTL_SECS=300；crates/interaction-api/src/routes.rs:2030；crates/interaction-cli/src/main.rs:363-370；apps/interaction-desktop/src/pages/AiPage.tsx:154-155,752-786,816-856；crates/interaction-runtime/src/activity.rs:118-121",
+    "likelyStatus": "implemented-partial（只有 codex app-server 有；claude／codex exec 永不問；AiPage 只在卡片展開時 5 秒輪詢，收合時 300 秒內可能整段錯過而被看門狗自動拒絕）"
+   },
+   {
+    "need": "B-M02 非 gateway（輪詢型／跨 AI Skill）agent 的回話管道：拿 session capability token 的 agent 能不能回報進度、送結果、回答人類",
+    "whyItMatters": "skills/orchestrate-adaptive-interaction 的賣點就是『別的 AI 也能用這套系統跟人溝通』。實際上 session token 只被允許 GET 自己的信箱、POST /v1/tools/*/call、POST 自己的 interrupt 與安全遞減；POST /v1/agent-sessions/{id}/messages 與 /report 都不在白名單，也沒有等價 tool（只有 agent.delegate 是往別人的 to-session 寫）。v0.3 誠實階梯對這類 agent 只能走到 fetched",
+    "whereToLook": "crates/interaction-api/src/lib.rs:430-467、:488-540、:738-768（既有 unit test 斷言 POST /report 不被放行）；crates/interaction-runtime/src/agents.rs:1005-1060、:1743-1830；skills/orchestrate-adaptive-interaction/references/api.md:104-105、cli.md:125-127",
+    "likelyStatus": "confirmed-defect（能力宣稱與 scope 相斥）／功能面 absent"
+   },
+   {
+    "need": "B-M03 關閉工作之後，成果與核可歷史還在不在（close 的信箱保留規則）",
+    "whyItMatters": "『關閉』是讀完結果後最自然的收尾，但 close_agent_session 只保留 delivered_at 有戳記的信件，而 from-session（result／approval-request／approval-resolved）永遠不會被蓋戳（蓋戳只發生在 agent 取走 to-session 任務時）。桌面仍列出已關閉 session、卡片仍可展開『查看結果／訊息』，展開後只剩『Agent 尚未回報任何結果』。B-10 與 B-05 都沒抓到",
+    "whereToLook": "crates/interaction-runtime/src/agents.rs:1321（mailbox.retain(delivered_at.is_some())）、:1005-1046、:917-925；crates/interaction-runtime/src/gateway.rs:511-545；apps/interaction-desktop/src/pages/AiPage.tsx:521-543,743-745；scripts/v03-cli-e2e.sh:273-278（先讀後關，結構上踩不到）",
+    "likelyStatus": "confirmed-defect"
+   },
+   {
+    "need": "B-M04 訊息預算（maxMessages）把『agent 對人說的話』也一起扣掉",
+    "whyItMatters": "mailbox_send 不分方向都先檢查並遞增 spent_messages，所以 approval-request、result 會吃掉人類設定的訊息上限；用完後 gateway pump 的 mailbox_send 回 PolicyBlocked 並被 `let _ =` 吞掉——state 變 claimed-completed 但 summary 永遠不會出現，也沒有任何提示",
+    "whereToLook": "crates/interaction-runtime/src/agents.rs:905-913、:40；crates/interaction-runtime/src/gateway.rs:445-454,525-545、:1174-1250；crates/interaction-cli/src/main.rs:388-390",
+    "likelyStatus": "confirmed-defect（scripts/v03-cli-e2e.sh:187-190 只驗『第 4 則被擋』，沒驗這個副作用）"
+   },
+   {
+    "need": "B-M05 觀察儲存其實就是事實上的『對話紀錄面』，而且 agent token 也讀得到別的 session 的文字",
+    "whyItMatters": "B-02 說串流文字『沒有任何可見面』，但 report payload（過程文字、summary、工具名、產物路徑）會以 inferences.report 進觀察儲存，POST /v1/observations/query 與 CLI `observe --receptor agent.session` 都是正式入口；更關鍵的是該路由在 agent token 白名單內，A agent 讀得到 B agent 的過程文字",
+    "whereToLook": "crates/interaction-runtime/src/agents.rs:1231-1259；crates/interaction-api/src/lib.rs:289、:536；crates/interaction-cli/src/main.rs:167-177；apps/interaction-desktop/src/pages/Timeline.tsx:56-70",
+    "likelyStatus": "implemented-and-connected（讀取面）＋needs-investigation（跨 session 文字隔離零測試）"
+   },
+   {
+    "need": "B-M06 跨裝置：人在 iPhone 上能看到／回應 agent 的溝通到什麼程度",
+    "whyItMatters": "產品方向明示『電腦主核心＋桌面／iPhone 入口』。實際上 runtime 對手機只送角色語意狀態與人類驗證觸發的綠勾；iOS app 沒有訊息清單、沒有回答輸入、沒有核可按鈕、不能建立任務。『人離開電腦』這個最重要的非同步情境在 B 維度完全沒有列",
+    "whereToLook": "crates/interaction-runtime/src/mobile.rs:3239-3270；apps/interaction-ios/InteractionCompanion/Views/{CharacterView.swift,ContentView.swift}、Models/CharacterSemantic.swift:637-675、Services/SessionClient.swift:335-345；crates/interaction-api/src/lib.rs:488-540（/v1/mobile 屬人類層）",
+    "likelyStatus": "implemented-partial（只有狀態投影）／回覆與核可面 absent"
+   },
+   {
+    "need": "B-M07 人不在畫面前時的主動通知（工作完成／等你核可／租約快到期）",
+    "whyItMatters": "approval 只有 300 秒、claimed 需要人去驗證、lease 會到期，但沒有任何主動推送：tray 只有一行『AI 工作階段：N』計數，src-tauri 無 notification plugin，iPhone 無推播，inbox 徽章是拉取式",
+    "whereToLook": "apps/interaction-desktop/src-tauri/src/tray.rs:22-32,192-253；apps/interaction-desktop/src-tauri/{Cargo.toml,tauri.conf.json}（notification 零命中）；crates/interaction-runtime/src/activity.rs:93-135；crates/interaction-runtime/src/gateway.rs:29",
+    "likelyStatus": "absent（拉取式徽章有，推送式通知沒有）"
+   },
+   {
+    "need": "B-M08 選誰來做：agent 探索、登入狀態、路由建議與『現在按下去一定失敗』的事前擋下",
+    "whyItMatters": "多 Agent 是產品核心，『有沒有安裝／有沒有登入／該給誰做』是溝通的前置條件。這條在 B 的十列裡沒有位置，但有實作也有 UI（未安裝／未登入標籤、路由提示、可停用某個 agent）",
+    "whereToLook": "crates/interaction-runtime/src/gateway.rs:181-232、:1144-1200；crates/interaction-api/src/lib.rs:205-207；crates/interaction-cli/src/main.rs:352-362；apps/interaction-desktop/src/pages/work/TaskComposer.tsx:95-146,399、AiPage.tsx:308-347,402-481",
+    "likelyStatus": "implemented-and-connected（真 CLI 的 discover 只在 real-agent 情境驗過；fixture 走 fake_claude.sh auth）"
+   },
+   {
+    "need": "B-M09 同時和多個 agent 溝通：併發上限、委派樹、以及『哪一個在等我』的優先呈現",
+    "whyItMatters": "policy 已有 max_sessions／max_parallel／delegation envelope，但人這一側只有平鋪清單，沒有排序、未讀或『需要你決定』置頂；同時開兩三個工作時，等待核可的那個很容易被埋掉（又只有 300 秒）",
+    "whereToLook": "crates/interaction-runtime/src/agents.rs:470-500、:247-278；crates/interaction-runtime/src/activity.rs:113-135；apps/interaction-desktop/src/pages/AiPage.tsx（session 卡片清單無排序邏輯）",
+    "likelyStatus": "implemented-partial（後端上限有測試；人類面的注意力管理 absent）"
+   },
+   {
+    "need": "B-M10 人類看不看得到『這次到底餵了什麼上下文給 agent』（ContextBundle 收據）",
+    "whyItMatters": "runtime 會把記憶／知識塞進 prompt 並存 hash 收據，這是可追溯性與隱私關鍵。CLI／HTTP 的 agents show 回得到 contextBundles，桌面完全沒有引用（前端 grep 零命中），一般模式使用者永遠不知道自己的記憶被送出去",
+    "whereToLook": "crates/interaction-runtime/src/agents.rs:862-886,930-948；crates/interaction-core/src/agent.rs:243；scripts/v03-cli-e2e.sh:275；apps/interaction-desktop/src-tauri/src/lib.rs:1385（前端零引用）",
+    "likelyStatus": "implemented-partial（CLI/HTTP 可見、桌面不可見）"
+   },
+   {
+    "need": "B-M11 長工作的租約續期與到期：人離開一段時間回來，工作被『到期』收掉時怎麼溝通",
+    "whyItMatters": "B-05 只談 daemon 重啟；更常見的是 lease 到期（任何 list/fetch/send 都會觸發 expire_if_needed），狀態翻 Expired、子程序被殺，人類唯一補救是事前按『延長』；到期前無預警、到期後無通知",
+    "whereToLook": "crates/interaction-runtime/src/agents.rs:722-742、expire_if_needed／renew_agent_session／expire_agent_session_lease；crates/interaction-cli/src/main.rs:440-445；apps/interaction-desktop/src/pages/AiPage.tsx:503-504,684-692",
+    "likelyStatus": "implemented-partial"
+   },
+   {
+    "need": "B-M12 附件與檔案：人能不能給 agent 一張圖／一個檔案，agent 能不能把產物交回來",
+    "whyItMatters": "人→agent 只有一個 JSON body 內的純文字 task（MAX_BODY_BYTES 上限）；agent→人 只有一段 summary，產物路徑只有 exec fallback 才有且只進觀察。使用者拿不到『改了哪些檔案』的清單或 diff，只能自己去 workdir 翻",
+    "whereToLook": "crates/interaction-runtime/src/agents.rs:889-893；crates/interaction-agent-gateway/src/codex_exec.rs:445-461；crates/interaction-runtime/src/gateway.rs:476-484；apps/interaction-desktop/src/pages/AiPage.tsx:275-291",
+    "likelyStatus": "absent"
+   },
+   {
+    "need": "B-M13 介面承諾的訊息種類（question／cancel）在 runtime 沒有語意",
+    "whyItMatters": "CLI help 明寫 `--kind task/question/cancel/…`，桌面預留 `question: Agent 的提問`、`progress: 進度更新` 標籤；runtime 只對 kind==task 組 ContextBundle，其餘 ToSession 種類被 gateway_deliver 直接把 body JSON 丟進 stdin（開一輪計費、發 fetched）。estop 的註解正是因為這個坑才改成不再送 cancel 信件",
+    "whereToLook": "crates/interaction-cli/src/main.rs:431-437；crates/interaction-runtime/src/agents.rs:862-866、:1384-1392；crates/interaction-runtime/src/gateway.rs:715-721；apps/interaction-desktop/src/pages/AiPage.tsx:212-220",
+    "likelyStatus": "confirmed-defect（介面承諾與行為不符）"
+   },
+   {
+    "need": "B-M14 角色（小樞／iPhone 角色）作為 agent 溝通面的邊界：它演狀態但從不轉述 agent 的話",
+    "whyItMatters": "角色是主要陪伴面，agent.session.state 也確實投影成 Ask／RequestConsent 等 intent；但角色永遠不說出 agent 的內容（安全文字才落 system.text），所以『透過角色知道 agent 在說什麼』不存在——需要一列講清楚這是刻意邊界還是缺口",
+    "whereToLook": "crates/interaction-runtime/src/character.rs:466-476,1877-1890；docs/character-protocol/README.md；crates/interaction-runtime/tests/character_loop.rs:371",
+    "likelyStatus": "implemented-partial（狀態投影已接線；內容轉述刻意不做，但沒有任何一列記下這個決策）"
+   },
+   {
+    "need": "B-M15 第一次怎麼開始跟 agent 說話（一般模式五入口、Onboarding、FirstSuccess）",
+    "whyItMatters": "B 維度全部從『已經有一個 session』開始；但『人第一次把工作交出去』的入口、預設同意範圍與第一次成功體驗是溝通完整性的一部分，也是 docs/aip/general-mode-ux.md 有規格的地方",
+    "whereToLook": "apps/interaction-desktop/src/pages/{Onboarding.tsx,FirstSuccess.tsx,WorkPage.tsx,work/TaskComposer.tsx}；docs/aip/general-mode-ux.md；crates/interaction-cli/src/main.rs:131",
+    "likelyStatus": "needs-investigation（本輪未逐行追這條路徑，不宣稱狀態）"
+   }
+  ],
+  "contradictions": [
+   "B-04 的結論『沒有回答語意、沒有專屬 UI、來源層空』與程式碼相斥：waiting-for-consent 這一支有真實 connector 產生者（codex.rs:251-259）、真實狀態轉移與信件（gateway.rs:419-454）、真實 UI 核可／拒絕按鈕與倒數（AiPage.tsx:752-786,816-856）、真實 inbox 入口（activity.rs:118-121）。B-04 的判斷只對 waiting-for-input 成立，卻寫成整個『agent 提問／人類回答』維度是 defined-only。",
+   "B-04 的證據引用與懷疑者的更正都只對一半：懷疑者正確指出 skills/.../references/cli.md:127 沒有『(the agent host calls this)』這句話，但這句原文確實存在於 crates/interaction-cli/src/main.rs:446（`/// Report session state (the agent host calls this).`），而 skills/.../references/api.md:104 也把 POST /v1/agent-sessions/:id/report 列在 agent 可用 API 清單。所以『文件說 agent host 該呼叫 report、但 agent token 一律 403』的矛盾是真的，只是出處記錯；懷疑者的『fabricated，應刪除』會把一個真實缺陷一起刪掉。",
+   "B-10（成果在 from-session 信箱看）與 B-05（信箱只活在 daemon 生命週期）互相補完，卻都漏了同一條路徑：close_agent_session 只保留 delivered_at 有戳記的信件（agents.rs:1321），而 from-session 訊息永遠沒有戳記（agents.rs:1005-1046 只對 ToSession 蓋章）→ 一按『關閉』就永久失去 result／approval 歷史，而 UI 仍列出已關閉 session 且可展開（AiPage.tsx:521-543,743-745）。B-10 的 evidenceLevel 標到 browser／integration，但既有驗收 scripts/v03-cli-e2e.sh:273-278 是先讀後關，結構上不可能踩到。",
+   "B-02 的『串流文字在正式入口上沒有任何 UI／SSE 可見面』過強：文字進了觀察儲存，而 POST /v1/observations/query（lib.rs:289）與 CLI `interact-ai observe --receptor agent.session`（main.rs:167-177）都是正式入口。正確敘述應為『桌面與 SSE 事件看不到；CLI／HTTP 的觀察查詢看得到』。同一條路徑帶出 B 維度沒人負責的隔離問題：/v1/observations/query 在 agent token 白名單內（lib.rs:536），A agent 讀得到 B agent 的過程文字。",
+   "B-07 指出的不一致還要再加一方：trait 註解說 interrupt『中斷目前 turn（不殺 session）』（interaction-agent-gateway/src/lib.rs:245-246）、CLI help 說『Interrupt the session's current turn (keeps the session open)』（crates/interaction-cli/src/main.rs:371-372）、實際上 codex 路徑把 record 打成終局 Cancelled（core/src/agent.rs:48-57）並由 gateway_sweep 殺子程序（gateway.rs:1034-1090），claude 路徑連 cancelled 都不是（記成 unknown）。文件、CLI help、trait 契約、實作四者互斥。",
+   "B-01 與 B-02／B-06 的狀態分級尺度不一致：B-01 有兩個『缺關鍵環』（model 任何正式入口都傳不進去；domains 只有 HTTP 直呼帶得進 ContextBundle，CLI create 與桌面 composer 都不行）卻判 implemented-and-connected，而 B-02／B-06 以同等程度的缺口判 implemented-partial。同一份矩陣至少要對齊一次，否則依 status 排優先序會失真。",
+   "B-05『daemon 存活時可完整找回（狀態＋信箱）』與實際相斥：(a) close 之後信箱已被清空；(b) AiPage 只有卡片展開時才輪詢信箱（AiPage.tsx:521-543），收合即停，所以 300 秒的核可請求在收合狀態可能整段錯過（雖然 Activity inbox 的 needs_decision 仍看得到）。『完整找回』對『等待中的裁決』不成立。",
+   "B-09『沒有請求層 idempotency』與 B-06『turn 進行中送第二則訊息行為未知』合起來落在同一個 UI 缺口：AiPage 的『再交代一句』送出鈕只在文字為空時 disabled（AiPage.tsx:722-741），沒有 in-flight 保護，連按兩下就會產生兩則 mailbox 訊息、兩次 gateway_deliver（claude 兩次寫 stdin、codex 兩次 turn/start）、兩格訊息預算。兩列各自都對，卻沒人把它記成一個使用者可觸發的具體風險。",
+   "B-03 的 evidenceLevel 同時列 unit／fixture 與 not-run，語意衝突；且其 contract 敘述要配上懷疑者的更正才完整（codex app-server 有 ToolCompleted，缺的是 fileChange 從不帶 path，因此 ArtifactProduced 只有 exec fallback 會發）。維持原字面會讓讀者誤以為 codex 也沒有工具完成事件。",
+   "『訊息預算』的語意在三處不一致：CLI help 說 --max-messages 是『Max mailbox messages』（main.rs:388-390）、B-01 的 contract 把 maxMessages 當成人類交代任務的上限、實作卻對 from-session（agent 的 approval-request／result）也照扣（agents.rs:905-913）；預算用盡時 pump 的 mailbox_send 錯誤被 `let _ =` 吞掉，人類會看到『說做完了』卻沒有任何 summary。"
+  ],
+  "reproCandidates": [
+   {
+    "what": "B 維度基線：fixture agent 的完整交代→送達→ContextBundle→claimed 迴路（確認環境沒壞，作為後續缺陷重現的對照）",
+    "command": "cargo test -p interaction-runtime --test gateway_loop -- gateway_full_loop_with_fake_agent --nocapture",
+    "expected": "PASS；測試內部斷言 fake_claude.sh 的 stdin 收到含 contextBundle 的 JSON prompt，最後 state=claimed-completed"
+   },
+   {
+    "what": "B-M03（close 清掉成果）：關閉工作後 from-session 信箱是否還讀得到 result",
+    "command": "R=$(pwd); H=$(mktemp -d /tmp/bmatrix.XXXX); W=$(mktemp -d /tmp/bmatrix-work.XXXX); mkdir -p \"$H/config\"; printf 'apiHost: 127.0.0.1\\napiPort: 18871\\n' > \"$H/config/interaction.yaml\"; cargo build -p interaction-cli; export INTERACT_AI_HOME=\"$H\" INTERACT_AI_CLAUDE_BIN=\"$R/crates/interaction-runtime/tests/fixtures/fake_claude.sh\"; \"$R/target/debug/interact-ai\" serve & sleep 2; SID=$(\"$R/target/debug/interact-ai\" agents create --agent claude-code --workdir \"$W\" --ttl 5 --json | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"sessionId\"])'); \"$R/target/debug/interact-ai\" agents send \"$SID\" --kind task --body '{\"task\":\"x\"}' --json >/dev/null; sleep 3; echo BEFORE; \"$R/target/debug/interact-ai\" agents messages \"$SID\" --direction from-session --json; \"$R/target/debug/interact-ai\" agents close \"$SID\" --json >/dev/null; echo AFTER; \"$R/target/debug/interact-ai\" agents messages \"$SID\" --direction from-session --json; kill %1",
+    "expected": "BEFORE 有一則 kind=result 帶 summary；AFTER 是空陣列 → 證實關閉即清空成果（桌面同一路徑會顯示『Agent 尚未回報任何結果』）"
+   },
+   {
+    "what": "B-07 確認缺陷（Claude 路徑 interrupt）：中斷 claude session 之後的最終狀態",
+    "command": "# 沿用上一條的 $R/$H/$W 與已啟動的 serve；建立前先 echo hang > \"$W/fake-mode\"\nSID=$(\"$R/target/debug/interact-ai\" agents create --agent claude-code --workdir \"$W\" --ttl 5 --json | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"sessionId\"])'); \"$R/target/debug/interact-ai\" agents send \"$SID\" --kind task --body '{\"task\":\"x\"}' --json >/dev/null; sleep 2; \"$R/target/debug/interact-ai\" agents interrupt \"$SID\" --json; sleep 2; \"$R/target/debug/interact-ai\" agents show \"$SID\" --json | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"state\"])'",
+    "expected": "印出 unknown（或 failed），不是 cancelled → 與 trait 註解、CLI help『keeps the session open』、桌面『已送出中斷指令』文案不一致；桌面會顯示『結果不確定／既不是成功也不是失敗』"
+   },
+   {
+    "what": "B-04／B-M02（scope 與文件相斥）：以 agent scope 呼叫 report",
+    "command": "\"$R/target/debug/interact-ai\" --agent-scope agents report \"$SID\" --event progress --payload '{}' --json; echo \"exit=$?\"",
+    "expected": "HTTP 403 token_scope_forbidden（crates/interaction-api/src/lib.rs:488-540）→ 與 crates/interaction-cli/src/main.rs:446 的 help『(the agent host calls this)』及 skills/.../references/api.md:104 相斥"
+   },
+   {
+    "what": "B-02／B-M05（過程文字的真實可見面）：同一個 session 的文字在信箱／SSE／觀察三處各看得到什麼",
+    "command": "\"$R/target/debug/interact-ai\" agents messages \"$SID\" --direction from-session --json; timeout 6 \"$R/target/debug/interact-ai\" events --seconds 5 --json | head -20; \"$R/target/debug/interact-ai\" observe --receptor agent.session --limit 20 --json | head -40",
+    "expected": "信箱只有 result／approval；events 只有 agent.session.state（payload 無文字）；observe 才看得到 inferences.report.text／summary → 證實文字只落觀察儲存。追加：對 observe 加 --agent-scope（走 POST /v1/observations/query）應也讀得到，證實跨 session 文字對 agent token 可見"
+   },
+   {
+    "what": "B-M04（訊息預算吃掉 agent 的回話）：max-messages=1 時成果是否靜默消失",
+    "command": "# 先確認 $W/fake-mode 不是 hang（rm -f \"$W/fake-mode\"）\nSID=$(\"$R/target/debug/interact-ai\" agents create --agent claude-code --workdir \"$W\" --ttl 5 --max-messages 1 --json | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"sessionId\"])'); \"$R/target/debug/interact-ai\" agents send \"$SID\" --kind task --body '{\"task\":\"x\"}' --json >/dev/null; sleep 3; \"$R/target/debug/interact-ai\" agents show \"$SID\" --json | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d[\"state\"], d[\"budget\"])'; \"$R/target/debug/interact-ai\" agents messages \"$SID\" --direction from-session --json",
+    "expected": "state=claimed-completed 但 from-session 為空（result 的 mailbox_send 被 PolicyBlocked 且被 pump 吞掉）→ 人類看到『說做完了』卻沒有任何內容"
+   },
+   {
+    "what": "B-M01（核可往返，codex fixture）：agent 問→人裁決→回送的完整一輪",
+    "command": "export INTERACT_AI_CODEX_BIN=\"$R/crates/interaction-runtime/tests/fixtures/fake_codex.sh\"; rm -f \"$W/fake-mode\"; SID=$(\"$R/target/debug/interact-ai\" agents create --agent codex --workdir \"$W\" --ttl 5 --json | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"sessionId\"])'); \"$R/target/debug/interact-ai\" agents send \"$SID\" --kind task --body '{\"task\":\"x\"}' --json >/dev/null; sleep 2; \"$R/target/debug/interact-ai\" agents show \"$SID\" --json | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"state\"])'; RID=$(\"$R/target/debug/interact-ai\" agents messages \"$SID\" --direction from-session --json | python3 -c 'import sys,json;print(next(m[\"body\"][\"requestId\"] for m in json.load(sys.stdin) if m[\"kind\"]==\"approval-request\"))'); \"$R/target/debug/interact-ai\" agents approve \"$SID\" \"$RID\" --yes --json; \"$R/target/debug/interact-ai\" agents messages \"$SID\" --direction from-session --json",
+    "expected": "state 先變 waiting-for-consent、信箱出現 approval-request；核可後出現 approval-resolved（by=human、deliveredToAgent=true）→ 證實 B-04 漏掉的真實提問迴路（並可對照 claude session 永遠不會出現 approval-request）"
+   },
+   {
+    "what": "既有不變量的回歸對照（人類驗證與 token scope）",
+    "command": "cargo test -p interaction-api --test api_e2e -- only_a_human_token_can_verify_a_claim_and_no_agent_can_self_upgrade --nocapture; cargo test -p interaction-api -- legacy_agent_token_cannot_interrupt_any_agent_session --nocapture; cargo test -p interaction-runtime --test agents_loop -- human_verify_is_the_only_path_from_claim_to_verified --nocapture",
+    "expected": "全部 PASS（claimed≠verified 與 /report、/verify 的 403 是既有保證；用來確認上面幾條缺陷不是環境問題）"
+   },
+   {
+    "what": "桌面層的既有覆蓋（確認上述缺陷在 browser 層是否真的沒被擋住）",
+    "command": "cd apps/interaction-desktop && pnpm test -- workPage aiPageResume && pnpm test:e2e -g \"work-delegate\"",
+    "expected": "PASS；同時可確認沒有任何案例在 close 之後再讀訊息、沒有案例對 claude session 呼叫 interrupt、沒有案例連按兩次『再交代』"
+   },
+   {
+    "what": "靜態核對（不必建置，適合先跑）：close 的保留規則、from-session 從不蓋戳、progress 沒有信箱產生者",
+    "command": "grep -n 'mailbox.retain' crates/interaction-runtime/src/agents.rs; grep -n 'delivered_at = Some' crates/interaction-runtime/src/agents.rs crates/interaction-runtime/src/gateway.rs; grep -rn 'mailbox_send' crates/interaction-runtime/src | grep -i progress",
+    "expected": "retain 只在 close（agents.rs:1321）；delivered_at 只在 ToSession fetch（agents.rs:1035）與 gateway_deliver（gateway.rs:806 附近）蓋；最後一條 grep 零命中（progress 只出現在 report_agent_session）→ 佐證 B-M03 與 B-02"
+   }
+  ]
+ }
+}

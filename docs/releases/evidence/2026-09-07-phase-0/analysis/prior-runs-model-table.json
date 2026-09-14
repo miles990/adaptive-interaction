@@ -1,0 +1,156 @@
+[
+ {
+  "run": "claude-cancel-1",
+  "agent": "claude-code",
+  "providerSessionId": "5779447a-6c8b-46aa-aea2-1e784e5898d6",
+  "finalState": "failed",
+  "gatewaySpentCost": 0.0,
+  "model": "unknown",
+  "permissionMode": "plan",
+  "usage": {}
+ },
+ {
+  "run": "claude-smoke-1",
+  "agent": "claude-code",
+  "providerSessionId": "d125b0fc-5d22-4837-a446-b15ec098a44b",
+  "finalState": "claimed-completed",
+  "gatewaySpentCost": 0.14471075000000003,
+  "model": "claude-fable-5-1",
+  "permissionMode": "plan",
+  "usage": {
+   "input_tokens": 38,
+   "output_tokens": 997,
+   "cache_read_input_tokens": 16939,
+   "cache_creation_input_tokens": 17606
+  }
+ },
+ {
+  "run": "codex-cancel-1",
+  "agent": "codex",
+  "providerSessionId": "01a07a00-ac27-74c2-94e2-a922510d74ad",
+  "finalState": "cancelled",
+  "gatewaySpentCost": 0.0,
+  "model": "gpt-6-astra",
+  "effort": "medium",
+  "approval": "untrusted",
+  "sandbox": "read-only",
+  "lastTokenUsage": "none"
+ },
+ {
+  "run": "codex-smoke-1",
+  "agent": "codex",
+  "providerSessionId": "01a079f8-6f42-7141-b935-9805fd6603f6",
+  "finalState": "waiting-for-consent",
+  "gatewaySpentCost": 0.0,
+  "model": "gpt-6-astra",
+  "effort": "medium",
+  "approval": "untrusted",
+  "sandbox": "read-only",
+  "lastTokenUsage": "\"total_token_usage\":{\"input_tokens\":24760,\"cached_input_tokens\":12928,\"cache_write_input_tokens\":0,\"output_tokens\":54,\"reasoning_output_tokens\":0,\"total_tokens\":24814}"
+ },
+ {
+  "run": "codex-smoke-2",
+  "agent": "codex",
+  "providerSessionId": "01a079fd-9402-79a2-b831-4241b7452d62",
+  "finalState": "claimed-completed",
+  "gatewaySpentCost": 0.0,
+  "model": "gpt-6-astra",
+  "effort": "medium",
+  "approval": "untrusted",
+  "sandbox": "read-only",
+  "lastTokenUsage": "\"total_token_usage\":{\"input_tokens\":50002,\"cached_input_tokens\":37632,\"cache_write_input_tokens\":0,\"output_tokens\":76,\"reasoning_output_tokens\":0,\"total_tokens\":50078}"
+ },
+ {
+  "run": "multi-C-claude-x2",
+  "agent": "claude-code",
+  "providerSessionId": "408c217d-a7a1-4e30-be8c-1a48997ef78e",
+  "finalState": "claimed-completed",
+  "gatewaySpentCost": 0.13904424999999998,
+  "model": "claude-fable-5-1",
+  "permissionMode": "plan",
+  "usage": {
+   "input_tokens": 38,
+   "output_tokens": 748,
+   "cache_read_input_tokens": 16945,
+   "cache_creation_input_tokens": 17553
+  }
+ },
+ {
+  "run": "multi-C-claude-x2",
+  "agent": "claude-code",
+  "providerSessionId": "789129e8-ddff-4aec-ad53-9f9844a3e6e2",
+  "finalState": "failed",
+  "gatewaySpentCost": 0.0,
+  "model": "unknown",
+  "permissionMode": "plan",
+  "usage": {}
+ },
+ {
+  "run": "multi-D-codex-x2",
+  "agent": "codex",
+  "providerSessionId": "01a07a02-f448-7e40-a81e-3a0e19d5d947",
+  "finalState": "claimed-completed",
+  "gatewaySpentCost": 0.0,
+  "model": "gpt-6-astra",
+  "effort": "medium",
+  "approval": "untrusted",
+  "sandbox": "read-only",
+  "lastTokenUsage": "\"total_token_usage\":{\"input_tokens\":50020,\"cached_input_tokens\":37632,\"cache_write_input_tokens\":0,\"output_tokens\":64,\"reasoning_output_tokens\":0,\"total_tokens\":50084}"
+ },
+ {
+  "run": "multi-D-codex-x2",
+  "agent": "codex",
+  "providerSessionId": "01a07a02-f58b-70d1-8bf3-5cf0ec43de04",
+  "finalState": "cancelled",
+  "gatewaySpentCost": 0.0,
+  "model": "gpt-6-astra",
+  "effort": "medium",
+  "approval": "untrusted",
+  "sandbox": "read-only",
+  "lastTokenUsage": "none"
+ },
+ {
+  "run": "multi-E-claude-codex",
+  "agent": "claude-code",
+  "providerSessionId": "276c9883-389b-4627-9ac3-a577ef79ad17",
+  "finalState": "failed",
+  "gatewaySpentCost": 0.0,
+  "model": "unknown",
+  "permissionMode": "plan",
+  "usage": {}
+ },
+ {
+  "run": "multi-E-claude-codex",
+  "agent": "codex",
+  "providerSessionId": "01a07a03-368c-72e0-9990-fe5919d6546c",
+  "finalState": "claimed-completed",
+  "gatewaySpentCost": 0.0,
+  "model": "gpt-6-astra",
+  "effort": "medium",
+  "approval": "untrusted",
+  "sandbox": "read-only",
+  "lastTokenUsage": "\"total_token_usage\":{\"input_tokens\":50022,\"cached_input_tokens\":25856,\"cache_write_input_tokens\":0,\"output_tokens\":62,\"reasoning_output_tokens\":0,\"total_tokens\":50084}"
+ },
+ {
+  "run": "restart-claude-kill",
+  "agent": "claude-code",
+  "providerSessionId": "bd7e523b-b4da-4359-8108-595583bac9e6",
+  "finalState": "expired",
+  "gatewaySpentCost": null,
+  "model": "unknown",
+  "permissionMode": "plan",
+  "usage": {}
+ },
+ {
+  "run": "restart-codex-kill",
+  "agent": "codex",
+  "providerSessionId": "01a07a04-8e4e-7892-9ee5-264d4ab0193f",
+  "finalState": "expired",
+  "gatewaySpentCost": null,
+  "model": "gpt-6-astra",
+  "effort": "",
+  "approval": "",
+  "sandbox": "",
+  "lastTokenUsage": "none"
+ }
+]

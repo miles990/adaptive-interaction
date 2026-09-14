@@ -1,5 +1,7 @@
 # Capability Completion Matrix（v0.4 歷史文件）
 
+> 現況以 [階段 0 能力恢復矩陣](releases/phase-0-capability-recovery-matrix.md) 為準；本檔保留為 v0.4 當時的歷史紀錄。
+
 > **已被 v0.5 取代**：本矩陣衡量的是 v0.4 治理平台的完成度（25/25），不代表角色遊戲性、
 > 真實硬體與 iPhone 的完成度。v0.5 的誠實基線與收尾請看 `docs/v05-capability-gap-matrix.md`
 > 與 `docs/v05-recovery-matrix.md`。

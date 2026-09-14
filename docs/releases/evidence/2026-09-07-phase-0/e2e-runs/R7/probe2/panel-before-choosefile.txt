@@ -1,0 +1,5 @@
+WINDOW: Open subrole=AXDialog
+WINDOW: PROBE-START subrole=AXStandardWindow
+WINDOW: Interaction Control Center subrole=AXStandardWindow
+OPEN-PANEL children:
+  AXSplitGroup | missing value

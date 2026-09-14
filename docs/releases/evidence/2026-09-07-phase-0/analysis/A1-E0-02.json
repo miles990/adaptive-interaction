@@ -1,0 +1,173 @@
+{
+  "group": "E0-02 real-agent raw-data analysis (previous round, same HEAD/binary)",
+  "notes": "This is a post-hoc analysis pass only: no daemons/agents were spawned in this turn. All evidence is re-read from /private/tmp/.../79983209-.../scratchpad/e2e/{claude-smoke-1,codex-smoke-1,codex-smoke-2}/{result.json,sse.jsonl,daemon.log,workdir/NOTES.md} plus provider-local logs (~/.claude/projects, ~/.codex/sessions) and the APPROVAL_TTL_SECS constant read from crates/interaction-runtime/src/gateway.rs. Three cases: E0-02-claude (claude-code, claimed-completed in 11.2s), E0-02-codex-noapprove (codex, stuck waiting-for-consent because harness never approved; run stopped at 303.34s wall, 8s before the 300s auto-deny deadline measured from the approval-request's own creation time), E0-02-codex-approve (codex, --approve approve, claimed-completed in 17.0s). None of the three final records carries a 'verified' field at all (not false/null -- the field is simply absent from the AgentSession record's JSON shape), which is itself an honesty-ladder observation worth flagging, not just a defect search.",
+  "cases": [
+    {
+      "id": "E0-02-claude",
+      "scenario": "Real claude-code agent session: dispatch a read-only task (read NOTES.md, answer its first heading in one Traditional-Chinese sentence, no file modification) through POST /v1/agent-sessions + POST .../messages, observe SSE + mailbox to claimed-completed, verify against ground truth.",
+      "agentOrSurface": "HTTP API -> interaction-runtime AgentGateway -> claude-code connector (claude -p --input-format stream-json --output-format stream-json --safe-mode, plan permission mode)",
+      "evidenceLevel": "real-agent",
+      "precondition": "Isolated daemon (INTERACT_AI_HOME=.../claude-smoke-1/home, port 18912-family), workdir contains NOTES.md with first heading '# 階段零煙霧測試'. allowWrite=false, no toolScope/consentScope granted (plan/read-only agent).",
+      "steps": [
+        "POST /v1/agent-sessions {agentId: claude-code, label: phase0-smoke, workdir, allowWrite:false, ttlMinutes default} -> createRecord state=created, sessionId=asession-40d338b5-...",
+        "POST .../messages {kind: task, body:{task: '請讀取目前工作目錄裡的 NOTES.md，用一句話（繁體中文）回答檔案的第一個標題是什麼。不要修改任何檔案。'}}",
+        "Stream GET /v1/events (SSE, Bearer) for the session lifetime (~11.2s wall)",
+        "Poll GET .../messages?direction=from-session and GET .../messages?direction=to-session",
+        "GET final session record, GET /v1/status, GET /v1/audit tail",
+        "Read workdir/NOTES.md directly as ground truth for the task answer"
+      ],
+      "expected": {
+        "ui": "n/a (headless HTTP/SSE harness, no desktop UI exercised in this run)",
+        "coreState": "AgentSession record transitions created -> active/working -> claimed-completed; from-session mailbox holds exactly one 'result' message whose summary states the correct first heading; contextBundle recorded on the to-session task message; budget.spentCost/spentMessages reflect real usage",
+        "effect": "No file in workdir modified (allowWrite=false, task explicitly forbids edits); SSE shows session lifecycle events; character.session.truth audit trail progresses queued -> working -> claimed"
+      },
+      "result": "completed",
+      "actual": "createRecord state=created at 2026-09-07T03:44:22.830Z. to-session task message msg-...-1 delivered 2026-09-07T03:44:23.080Z with contextBundle.includes=[] (empty -- no memory/knowledge context was actually injected), limits{maxBytes:49152,maxItems:24,scanLimit:1000,scanLimitReached:false}. from-session mailbox has exactly ONE message: kind=result, body.summary='NOTES.md 的第一個標題是「階段零煙霧測試」。', body.costUsd=0.14471075, created 2026-09-07T03:44:31.570Z (~8.5s after task delivery). Ground truth (workdir/NOTES.md line 1) is '# 階段零煙霧測試' -- the agent's answer is correct, verbatim match. Final record: state=claimed-completed, budget.spentCost=0.14471075, budget.spentMessages=2, providerSessionId=d125b0fc-5d22-4837-a446-b15ec098a44b, claimId=claim-8fc87e49-.... No 'verified' key anywhere in the final record JSON (checked full key list: agentId, allowWrite, budget, claimId, consentScope, contextBundles, createdAt, dataScope, label, lease, providerId, providerSessionId, resolvedWorkdir, sessionId, state, toolScope -- 15 keys, none named verified). auditTail shows character.session.truth revisions: queued(2) -> working(3, x4 repeated events) -> claimed(4), i.e. the *character* truth projection independently tracks 'claimed' (not 'verified') as the terminal honest label, consistent with claimed-completed != verified by design -- but there is no companion verified:true/false/null field a caller could read to know verification was never attempted. SSE stream: 112 total lines: capability.changed x55, receptor.registered x20, actuator.registered x14, agent.session.state x7, provider.registered x5, receptor.observation x5, character.session.state x3, character.system-text x2, session.started x1. No per-token or per-chunk streaming events, no explicit 'tool started'/'tool completed' events distinguishable from the generic agent.session.state transitions -- progress is coarse-grained state-machine only. Provider-local log confirms actualModel=claude-fable-5-1, permissionMode=plan (from ~/.claude/projects/.../d125b0fc-....jsonl, 15 lines).",
+      "evidence": [
+        "e2e/claude-smoke-1/result.json: createRecord, taskSend, final, messages-from-session, messages-to-session, status, auditTail keys",
+        "e2e/claude-smoke-1/workdir/NOTES.md line 1: '# 階段零煙霧測試'",
+        "e2e/claude-smoke-1/sse.jsonl: 112 lines, event-name histogram computed by this analysis",
+        "~/.claude/projects/-private-tmp-claude-501--Users-user-Workspace-claude-lab-adaptive-interaction-79983209-6a38-4bdc-894b-1b32e1b2de38-scratchpad-e2e-claude-smoke-1-workdir/d125b0fc-5d22-4837-a446-b15ec098a44b.jsonl: model=claude-fable-5-1, permissionMode=plan",
+        "crates/interaction-runtime/src/gateway.rs (final AgentSession JSON shape has no verified field, confirmed by exhaustive key dump of result.json.final)"
+      ],
+      "observations": [
+        "Task correctness verified against ground truth by direct file read: the agent's one-sentence answer is exactly right.",
+        "SSE granularity is coarse: only lifecycle/state and general capability-registration noise, no tool-level or token-level streaming visible to a consumer of this endpoint for claude-code sessions.",
+        "contextBundle.includes was empty for this task -- no memory/knowledge was pulled in, so the contextBundle mechanism itself was not exercised beyond its envelope/limits fields.",
+        "Cost was captured (spentCost=0.14471075, spentMessages=2) directly from the agent's own reported result body, giving a real (not estimated) cost figure for this run.",
+        "'claimed-completed' is a claim only: the audit trail's own truth label is literally 'claimed', and there is no verified field for a caller to consult -- this matches the repo's honesty-ladder principle in spirit (claimed != verified) but the record schema does not expose a verified:false/null the way the task brief implies it should be checkable."
+      ],
+      "productDefects": [],
+      "limitations": "This is a re-analysis of prior-round data, not a fresh run; no independent re-execution against the daemon was performed in this turn. Whether a verified field exists elsewhere in the schema (e.g. only set after an explicit POST .../verify call, which was never made in this run) was not tested -- absence in this record does not rule out the field existing under other conditions.",
+      "cleanup": "None needed (read-only analysis of existing files; no processes spawned by this turn).",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+        "binaryIdentity": "target/debug/interact-ai version 0.8.0, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7",
+        "agent": "claude-code",
+        "connectorVersion": "claude 2.1.263 (Claude Code), claude -p --input-format stream-json --output-format stream-json --safe-mode",
+        "requestedModel": "not-specifiable-via-gateway",
+        "actualModel": "claude-fable-5-1",
+        "actualModelSource": "provider-local-log (not via gateway)",
+        "reasoning": "n/a (Claude connector does not report a reasoning-effort field; permissionMode=plan captured instead)",
+        "newOrResumed": "new (providerSessionId d125b0fc-... created fresh, no resumeProviderSessionId in createRecord)",
+        "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/claude-smoke-1/workdir",
+        "authorization": "human token (INTERACT_AI_HOME .../claude-smoke-1/home/state/api-token), allowWrite=false, toolScope=[], consentScope=[]",
+        "durationSeconds": 11.2,
+        "costOrTokens": "spentCost=0.14471075 USD, spentMessages=2 (source: agent-reported costUsd in from-session result message body, mirrored into budget.spentCost)"
+      }
+    },
+    {
+      "id": "E0-02-codex-noapprove",
+      "scenario": "Real codex agent session with the harness NOT approving the resulting command-execution approval request: dispatch the same read-only NOTES.md task, observe the session get stuck at waiting-for-consent, and determine whether the 300s auto-deny watchdog is exercised.",
+      "agentOrSurface": "HTTP API -> interaction-runtime AgentGateway -> codex connector (codex app-server JSON-RPC v2, sandbox_policy=read-only, approval_policy=untrusted)",
+      "evidenceLevel": "real-agent",
+      "precondition": "Isolated daemon (INTERACT_AI_HOME=.../codex-smoke-1/home, port from prior round), workdir contains NOTES.md with first heading '# 階段零煙霧測試'. allowWrite=false. Harness ran with no --approve flag, i.e. never called POST .../approve.",
+      "steps": [
+        "POST /v1/agent-sessions {agentId: codex, ...} -> createRecord state=created, sessionId=asession-033ce8d3-...",
+        "POST .../messages {kind: task, body:{task: same NOTES.md question}}",
+        "codex issues item/commandExecution/requestApproval for '/bin/zsh -lc \"cat NOTES.md\"' -- this reaches the gateway as an approval-request mailbox message at 2026-09-07T03:45:30.630Z, session state -> waiting-for-consent",
+        "Harness does NOT call POST .../approve; instead polls SSE/mailbox/status and daemon.log up to a 180s-per-turn / harness wall-clock budget",
+        "Harness stops the daemon at wallSeconds=303.34 (measured from session creation, 2026-09-07T03:45:19.102Z), i.e. around 2026-09-07T03:50:22.44Z",
+        "Capture final record state, auditTail, SSE tail for keep-alive cadence"
+      ],
+      "expected": {
+        "ui": "n/a (headless)",
+        "coreState": "Session stays in waiting-for-consent (never auto-approved -- AI cannot self-consent). If left running past APPROVAL_TTL_SECS=300s from the approval-request's own creation, the gateway_sweep watchdog should auto-deny it (state stays waiting-for-consent or moves per resolve_approval_as('watchdog', approve=false) path) and report progress/waiting-for-consent with approvalAutoDenied + delivered:true/false.",
+        "effect": "No command actually executes (cat NOTES.md never runs) since approval was never granted; no file changes; codex remains blocked pending a decision it cannot make itself."
+      },
+      "result": "correctly-blocked",
+      "actual": "Session correctly halted at waiting-for-consent per the 'AI 不可授予 consent' invariant: the approval-request mailbox message (msg-...-2) recorded body.summary='codex 請求核可：item/commandExecution/requestApproval \"/bin/zsh -lc '\\''cat NOTES.md'\\''\"' at 2026-09-07T03:45:30.630Z, and the final record's state is still 'waiting-for-consent' with budget.spentMessages=2, spentCost=0.0 (no result ever produced, correctly -- nothing was claimed as completed). auditTail's last entry is character.session.truth revision=4 truth='waiting-consent' at the same timestamp, matching the API-level state. HOWEVER: the auto-deny watchdog (APPROVAL_TTL_SECS=300s constant at crates/interaction-runtime/src/gateway.rs:29, enforced every runtime tick via gateway_sweep() at crates/interaction-runtime/src/runtime.rs:2419) was NOT observed firing in this data. The approval's deadline (per gateway.rs:427, deadline = created_at + approval_ttl_secs) is 2026-09-07T03:50:30.630Z (approval created 03:45:30.630 + 300s), but the harness stopped the daemon at ~03:50:22.44Z -- about 8 seconds BEFORE the deadline. SSE keep-alive lines (every 15s) run up to 2026-09-07T03:50:15.670Z and then stop; there is no approval-resolved / approvalAutoDenied mailbox message anywhere in messages-from-session (only the single approval-request message exists), and no watchdog-actor entry appears in auditTail. So the watchdog behavior is UNCONFIRMED by this dataset -- the run simply ended too early to observe it, this is a harness/data gap, not evidence the watchdog is broken. Codex sandbox correctly required approval for a bare 'cat' inside a read-only sandbox with approval_policy=untrusted, matching the documented connector behavior (COMMON facts: 'so even cat NOTES.md 都會要求核可').",
+      "evidence": [
+        "e2e/codex-smoke-1/result.json: final.state='waiting-for-consent', messages-from-session (single approval-request message, requestId '0'), budget.spentCost=0.0, budget.spentMessages=2, wallSeconds=303.34",
+        "e2e/codex-smoke-1/result.json: auditTail (9 entries), last = character.session.truth truth='waiting-consent' at 2026-09-07T03:45:30.630Z",
+        "e2e/codex-smoke-1/sse.jsonl: 19 unlabeled keep-alive lines at 15s cadence, last at 2026-09-07T03:50:15.670Z (8s before the 03:50:30.630Z approval deadline)",
+        "crates/interaction-runtime/src/gateway.rs:28-29 (APPROVAL_TTL_SECS=300, doc comment 'approval 無人裁決的自動拒絕時限'), gateway.rs:427 (deadline = now + approval_ttl_secs at approval-request creation), gateway.rs:1034-1105 (gateway_sweep denies any approval past deadline via resolve_approval_as(..., 'watchdog'))",
+        "crates/interaction-runtime/src/runtime.rs:2419 (runtime.gateway_sweep().await called on every ticker tick inside the daemon's main loop, i.e. it is automatic, not something the harness needed to trigger)",
+        "~/.codex/sessions/2026/09/07/rollout-2026-09-07T11-45-19-01a079f8-6f42-7141-b935-9805fd6603f6.jsonl: approval_policy='untrusted', sandbox_policy={'type':'read-only',...}, model='gpt-6-astra', reasoning_effort='medium'"
+      ],
+      "observations": [
+        "This is a correct block, not a bug: the gateway never auto-approved and the record never claims completion it did not reach -- state honestly stuck at waiting-for-consent with spentCost=0.0.",
+        "The 300s auto-deny watchdog logic exists in code and runs automatically every daemon tick (no external trigger needed), but this specific run's harness stopped ~8s short of the deadline, so the auto-deny path itself was NOT exercised or captured in this dataset -- it remains a code-level (static) confirmation only, not an observed runtime behavior in E0-02.",
+        "SSE for codex shows the same coarse state-only granularity as claude, plus explicit keep-alive heartbeat lines every 15s (which claude-smoke-1's SSE did not need to use, since that run finished in 11.2s).",
+        "providerSessionId 01a079f8-6f42-7141-b935-9805fd6603f6 traced to ~/.codex/sessions/2026/09/07/rollout-2026-09-07T11-45-19-01a079f8-6f42-7141-b935-9805fd6603f6.jsonl."
+      ],
+      "productDefects": [],
+      "limitations": "Cannot confirm or deny whether gateway_sweep's auto-deny actually fires correctly at T+300s from this dataset alone -- the harness run ended ~8s before the deadline. A dedicated follow-up run that waits past 300s from the approval-request's creation (not from session creation) would be needed to observe the auto-deny transition directly; this analysis pass did not run one (no new daemons were spawned in this turn per the task's instructions).",
+      "cleanup": "None needed (read-only analysis; the source daemon from the prior round was already stopped before this turn began).",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+        "binaryIdentity": "target/debug/interact-ai version 0.8.0, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7",
+        "agent": "codex",
+        "connectorVersion": "codex-cli 0.153.4, codex app-server JSON-RPC v2, approval_policy=untrusted, sandbox_policy={type: read-only}",
+        "requestedModel": "not-specifiable-via-gateway",
+        "actualModel": "gpt-6-astra",
+        "actualModelSource": "provider-local-log (not via gateway)",
+        "reasoning": "reasoning_effort=medium (from ~/.codex/sessions/.../rollout-2026-09-07T11-45-19-01a079f8-....jsonl)",
+        "newOrResumed": "new (providerSessionId 01a079f8-6f42-7141-b935-9805fd6603f6 created fresh)",
+        "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/codex-smoke-1/workdir",
+        "authorization": "human token, allowWrite=false, toolScope=[], consentScope=[]; approval never granted by harness",
+        "durationSeconds": 303.34,
+        "costOrTokens": "spentCost=0.0, spentMessages=2 (codex connector does not report a cost figure the way claude-code's result body does; no result message was ever produced since the command never ran)"
+      }
+    },
+    {
+      "id": "E0-02-codex-approve",
+      "scenario": "Real codex agent session with the harness explicitly approving (--approve approve) the resulting command-execution approval request, to observe the full created->waiting-for-consent->claimed-completed path.",
+      "agentOrSurface": "HTTP API -> interaction-runtime AgentGateway -> codex connector (codex app-server JSON-RPC v2, sandbox_policy=read-only, approval_policy=untrusted)",
+      "evidenceLevel": "real-agent",
+      "precondition": "Isolated daemon (INTERACT_AI_HOME=.../codex-smoke-2/home), same NOTES.md workdir/task as the other two cases. Harness configured to POST .../approve {requestId, approve:true} as soon as an approval-request mailbox message appears.",
+      "steps": [
+        "POST /v1/agent-sessions -> createRecord state=created, sessionId=asession-4a349f9e-...",
+        "POST .../messages {kind: task, body:{task: same NOTES.md question}}",
+        "codex issues approval-request for '/bin/zsh -lc \"cat NOTES.md\"' at 2026-09-07T03:51:04.392Z",
+        "Harness POSTs .../approve {requestId:'0', approve:true} -- approval-resolved mailbox message recorded 2026-09-07T03:51:04.612Z (220ms turnaround)",
+        "codex executes cat NOTES.md, produces its answer; from-session 'result' message at 2026-09-07T03:51:11.180Z",
+        "Capture final record, compare summary against ground truth"
+      ],
+      "expected": {
+        "ui": "n/a (headless)",
+        "coreState": "created -> waiting-for-consent -> (approved) -> active/working -> claimed-completed; mailbox holds approval-request, approval-resolved, and result messages in order; result.summary matches ground truth",
+        "effect": "No file modification (allowWrite=false); cat NOTES.md executes read-only inside the sandboxed subprocess"
+      },
+      "result": "completed",
+      "actual": "Full happy path observed. Mailbox (messages-from-session) has exactly 3 entries in order: (1) approval-request requestId='0' summary=\"codex 請求核可：item/commandExecution/requestApproval \\\"/bin/zsh -lc 'cat NOTES.md'\\\"\" at 03:51:04.392Z; (2) approval-resolved {approved:true, by:'human', decision:'approved', deliveredToAgent:true, requestId:'0', stillPending:false} at 03:51:04.612Z (confirms the codex wire value used for approve was accepted by codex 0.153.4's v2 schema -- 'accept' semantics succeeded, not tested here for the deny/'reject' path); (3) result {summary:'檔案的第一個標題是「階段零煙霧測試」。'} at 03:51:11.180Z. Ground truth (workdir/NOTES.md line 1 = '# 階段零煙霧測試') matches the agent's summary exactly. Final record: state=claimed-completed, claimId=claim-53400ca0-..., budget.spentCost=0.0 (codex connector never reports a cost figure, unlike claude-code), budget.spentMessages=4, providerSessionId=01a079fd-9402-79a2-b831-4241b7452d62, wallSeconds=17.01. No 'verified' field in the final record (same absence pattern as the claude case). SSE: agent.session.state x12, receptor.observation x10, capability.changed x55, actuator.registered x14, receptor.registered x20, provider.registered x5, character.session.state x5, character.system-text x3, session.started x1 -- roughly double the state-transition volume of the claude run (12 vs 7) because of the extra approval-request/approval-resolved state hops, but still no per-token streaming.",
+      "evidence": [
+        "e2e/codex-smoke-2/result.json: final.state='claimed-completed', messages-from-session (3 ordered entries: approval-request, approval-resolved, result), budget.spentCost=0.0, budget.spentMessages=4, wallSeconds=17.01",
+        "e2e/codex-smoke-2/workdir/NOTES.md line 1: '# 階段零煙霧測試' (matches agent's summary verbatim)",
+        "e2e/codex-smoke-2/sse.jsonl: 125 lines, event-name histogram computed by this analysis",
+        "~/.codex/sessions/2026/09/07/rollout-2026-09-07T11-50-56-01a079fd-9402-79a2-b831-4241b7452d62.jsonl: model='gpt-6-astra', reasoning_effort='medium', approval_policy='untrusted', sandbox_policy={type:'read-only'}",
+        "crates/interaction-agent-gateway/src/codex.rs:643-644 (wire value 'accept' sent on approve=true -- this run's approval-resolved.approved:true / deliveredToAgent:true confirms it was accepted by codex 0.153.4)"
+      ],
+      "observations": [
+        "Task correctness verified against ground truth: correct, verbatim-consistent one-sentence answer.",
+        "Human-in-the-loop approval round-trip measured at 220ms (03:51:04.392 -> 03:51:04.612) for the resolve+deliver step, well within the 5s SEND_TIMEOUT constant.",
+        "codex's budget.spentCost stayed 0.0 even on a successful completion -- unlike claude-code, the codex connector in this repo does not surface a per-session cost figure into budget.spentCost, so cost accounting is asymmetric across the two supported agents.",
+        "Only the approve=true wire path ('accept') was exercised across all three cases in this dataset; the deny/'reject' path noted as a COMMON open question ('reject' 是否被接受要實測) was NOT tested by any of these three runs and remains unverified."
+      ],
+      "productDefects": [],
+      "limitations": "Only the approve=true path was exercised; approve=false ('reject' wire value) was not tested in this round's raw data, so its acceptance by codex 0.153.4's v2 schema remains unconfirmed by direct observation (open question carried from COMMON facts).",
+      "cleanup": "None needed (read-only analysis).",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+        "binaryIdentity": "target/debug/interact-ai version 0.8.0, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7",
+        "agent": "codex",
+        "connectorVersion": "codex-cli 0.153.4, codex app-server JSON-RPC v2, approval_policy=untrusted, sandbox_policy={type: read-only}",
+        "requestedModel": "not-specifiable-via-gateway",
+        "actualModel": "gpt-6-astra",
+        "actualModelSource": "provider-local-log (not via gateway)",
+        "reasoning": "reasoning_effort=medium (from ~/.codex/sessions/.../rollout-2026-09-07T11-50-56-01a079fd-....jsonl)",
+        "newOrResumed": "new (providerSessionId 01a079fd-9402-79a2-b831-4241b7452d62 created fresh)",
+        "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/codex-smoke-2/workdir",
+        "authorization": "human token, allowWrite=false, toolScope=[], consentScope=[]; approval explicitly granted by harness via POST .../approve {approve:true}",
+        "durationSeconds": 17.01,
+        "costOrTokens": "spentCost=0.0, spentMessages=4 (codex connector does not report a cost figure into budget.spentCost even on successful completion)"
+      }
+    }
+  ],
+  "commands": [],
+  "openQuestions": [
+    "Does gateway_sweep's 300s auto-deny actually fire and produce an approvalAutoDenied progress message + waiting-for-consent state with delivered:false when a codex approval request truly goes unanswered past its deadline? Not observed in E0-02 (harness stopped ~8s short of the deadline in codex-smoke-1). A dedicated run timed from the approval-request's own creation timestamp (not session start) past 300s would confirm.",
+    "Is there ANY code path that sets a 'verified' field on an AgentSession record (e.g. only after POST .../verify is explicitly called), or does the record schema simply never carry that field? All three E0-02 final records omit it entirely rather than showing false/null.",
+    "Does the codex connector's approve=false path actually send a wire value codex 0.153.4's v2 schema accepts ('reject' vs the schema's decline/cancel/etc.), given crates/interaction-agent-gateway/src/codex.rs:643-644 sends 'accept'/'reject' but the CommandExecutionApprovalDecision schema documented in COMMON only lists accept/acceptForSession/acceptWithExecpolicyAmendment/decline/cancel? Not tested in E0-02 (only approve=true was exercised)."
+  ]
+}

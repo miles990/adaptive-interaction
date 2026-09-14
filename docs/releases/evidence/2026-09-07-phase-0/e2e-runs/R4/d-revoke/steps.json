@@ -1,0 +1,367 @@
+[
+ {
+  "step": "verify",
+  "method": "POST",
+  "path": "/v1/agent-sessions/asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca/verify",
+  "status": 200,
+  "resp": {
+   "agentId": "claude-code",
+   "allowWrite": true,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.1683105,
+    "spentMessages": 2
+   },
+   "claimId": "claim-4413bca8-e3ca-48c4-b439-19f58300bbc2",
+   "consentScope": [
+    "agent-session:workspace-write"
+   ],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:06:07.545465Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請在目前工作目錄建立檔案 hello.txt，內容為 hi。",
+      "truncated": false
+     },
+     "bundleId": "bundle-b890ea1d-22df-40f5-b616-25606f6a563f",
+     "contentHash": "9d6af703c1f4ea2f14a298ca6660e023f7c1c8b3060504f2e0e53720fca0f444",
+     "generatedAt": "2026-09-07T09:06:07.545659Z",
+     "messageId": "msg-asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca-1"
+    }
+   ],
+   "createdAt": "2026-09-07T09:06:07.259080Z",
+   "dataScope": [],
+   "humanVerified": {
+    "at": "2026-09-07T09:06:59.262240Z",
+    "claimId": "claim-4413bca8-e3ca-48c4-b439-19f58300bbc2",
+    "note": "phase0 human verification: hello.txt exists with content hi"
+   },
+   "label": "E0-10-allowwrite-claude",
+   "lease": {
+    "expiresAt": "2026-09-07T09:26:07.259080Z",
+    "issuedAt": "2026-09-07T09:06:07.259080Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "providerSessionId": "e7b6974f-b93a-4774-80df-d37b6cb59dfd",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/c-claude-write/workdir",
+   "sessionId": "asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca",
+   "state": "claimed-completed",
+   "toolScope": [
+    "workspace.write"
+   ]
+  },
+  "t": "2026-09-07T09:06:59Z"
+ },
+ {
+  "step": "after-verify-get",
+  "method": "GET",
+  "path": "/v1/agent-sessions/asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca",
+  "status": 200,
+  "resp": {
+   "agentId": "claude-code",
+   "allowWrite": true,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.1683105,
+    "spentMessages": 2
+   },
+   "claimId": "claim-4413bca8-e3ca-48c4-b439-19f58300bbc2",
+   "consentScope": [
+    "agent-session:workspace-write"
+   ],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:06:07.545465Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請在目前工作目錄建立檔案 hello.txt，內容為 hi。",
+      "truncated": false
+     },
+     "bundleId": "bundle-b890ea1d-22df-40f5-b616-25606f6a563f",
+     "contentHash": "9d6af703c1f4ea2f14a298ca6660e023f7c1c8b3060504f2e0e53720fca0f444",
+     "generatedAt": "2026-09-07T09:06:07.545659Z",
+     "messageId": "msg-asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca-1"
+    }
+   ],
+   "createdAt": "2026-09-07T09:06:07.259080Z",
+   "dataScope": [],
+   "humanVerified": {
+    "at": "2026-09-07T09:06:59.262240Z",
+    "claimId": "claim-4413bca8-e3ca-48c4-b439-19f58300bbc2",
+    "note": "phase0 human verification: hello.txt exists with content hi"
+   },
+   "label": "E0-10-allowwrite-claude",
+   "lease": {
+    "expiresAt": "2026-09-07T09:26:07.259080Z",
+    "issuedAt": "2026-09-07T09:06:07.259080Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "providerSessionId": "e7b6974f-b93a-4774-80df-d37b6cb59dfd",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/c-claude-write/workdir",
+   "sessionId": "asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca",
+   "state": "claimed-completed",
+   "toolScope": [
+    "workspace.write"
+   ]
+  },
+  "t": "2026-09-07T09:06:59Z"
+ },
+ {
+  "step": "verify-twice",
+  "method": "POST",
+  "path": "/v1/agent-sessions/asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca/verify",
+  "status": 409,
+  "resp": {
+   "error": {
+    "code": "conflict",
+    "message": "conflict: agent session asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca is already verified"
+   }
+  },
+  "t": "2026-09-07T09:06:59Z"
+ },
+ {
+  "step": "close",
+  "method": "POST",
+  "path": "/v1/agent-sessions/asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca/close",
+  "status": 200,
+  "resp": {
+   "agentId": "claude-code",
+   "allowWrite": true,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.1683105,
+    "spentMessages": 2
+   },
+   "claimId": "claim-4413bca8-e3ca-48c4-b439-19f58300bbc2",
+   "closedAt": "2026-09-07T09:06:59.267131Z",
+   "consentScope": [],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:06:07.545465Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請在目前工作目錄建立檔案 hello.txt，內容為 hi。",
+      "truncated": false
+     },
+     "bundleId": "bundle-b890ea1d-22df-40f5-b616-25606f6a563f",
+     "contentHash": "9d6af703c1f4ea2f14a298ca6660e023f7c1c8b3060504f2e0e53720fca0f444",
+     "generatedAt": "2026-09-07T09:06:07.545659Z",
+     "messageId": "msg-asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca-1"
+    }
+   ],
+   "createdAt": "2026-09-07T09:06:07.259080Z",
+   "dataScope": [],
+   "detail": "phase0 revoke test (was ClaimedCompleted)",
+   "humanVerified": {
+    "at": "2026-09-07T09:06:59.262240Z",
+    "claimId": "claim-4413bca8-e3ca-48c4-b439-19f58300bbc2",
+    "note": "phase0 human verification: hello.txt exists with content hi"
+   },
+   "label": "E0-10-allowwrite-claude",
+   "lease": {
+    "expiresAt": "2026-09-07T09:26:07.259080Z",
+    "issuedAt": "2026-09-07T09:06:07.259080Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "providerSessionId": "e7b6974f-b93a-4774-80df-d37b6cb59dfd",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/c-claude-write/workdir",
+   "sessionId": "asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca",
+   "state": "closed",
+   "toolScope": [
+    "workspace.write"
+   ]
+  },
+  "t": "2026-09-07T09:06:59Z"
+ },
+ {
+  "step": "after-close-get",
+  "method": "GET",
+  "path": "/v1/agent-sessions/asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca",
+  "status": 200,
+  "resp": {
+   "agentId": "claude-code",
+   "allowWrite": true,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.1683105,
+    "spentMessages": 2
+   },
+   "claimId": "claim-4413bca8-e3ca-48c4-b439-19f58300bbc2",
+   "closedAt": "2026-09-07T09:06:59.267131Z",
+   "consentScope": [],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:06:07.545465Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請在目前工作目錄建立檔案 hello.txt，內容為 hi。",
+      "truncated": false
+     },
+     "bundleId": "bundle-b890ea1d-22df-40f5-b616-25606f6a563f",
+     "contentHash": "9d6af703c1f4ea2f14a298ca6660e023f7c1c8b3060504f2e0e53720fca0f444",
+     "generatedAt": "2026-09-07T09:06:07.545659Z",
+     "messageId": "msg-asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca-1"
+    }
+   ],
+   "createdAt": "2026-09-07T09:06:07.259080Z",
+   "dataScope": [],
+   "detail": "phase0 revoke test (was ClaimedCompleted)",
+   "humanVerified": {
+    "at": "2026-09-07T09:06:59.262240Z",
+    "claimId": "claim-4413bca8-e3ca-48c4-b439-19f58300bbc2",
+    "note": "phase0 human verification: hello.txt exists with content hi"
+   },
+   "label": "E0-10-allowwrite-claude",
+   "lease": {
+    "expiresAt": "2026-09-07T09:26:07.259080Z",
+    "issuedAt": "2026-09-07T09:06:07.259080Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "providerSessionId": "e7b6974f-b93a-4774-80df-d37b6cb59dfd",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/c-claude-write/workdir",
+   "sessionId": "asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca",
+   "state": "closed",
+   "toolScope": [
+    "workspace.write"
+   ]
+  },
+  "t": "2026-09-07T09:06:59Z"
+ },
+ {
+  "step": "post-close-message",
+  "method": "POST",
+  "path": "/v1/agent-sessions/asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca/messages",
+  "status": 409,
+  "resp": {
+   "error": {
+    "code": "conflict",
+    "message": "conflict: agent session asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca is Closed; mailbox closed"
+   }
+  },
+  "t": "2026-09-07T09:06:59Z"
+ },
+ {
+  "step": "post-close-approve",
+  "method": "POST",
+  "path": "/v1/agent-sessions/asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca/approve",
+  "status": 404,
+  "resp": {
+   "error": {
+    "code": "not_found",
+    "message": "not found: gateway session asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca"
+   }
+  },
+  "t": "2026-09-07T09:06:59Z"
+ },
+ {
+  "step": "post-close-interrupt",
+  "method": "POST",
+  "path": "/v1/agent-sessions/asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca/interrupt",
+  "status": 404,
+  "resp": {
+   "error": {
+    "code": "not_found",
+    "message": "not found: gateway session asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca"
+   }
+  },
+  "t": "2026-09-07T09:06:59Z"
+ },
+ {
+  "step": "post-close-renew",
+  "method": "POST",
+  "path": "/v1/agent-sessions/asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca/renew",
+  "status": 409,
+  "resp": {
+   "error": {
+    "code": "conflict",
+    "message": "conflict: agent session asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca is Closed; expired/closed sessions cannot be renewed"
+   }
+  },
+  "t": "2026-09-07T09:06:59Z"
+ }
+]

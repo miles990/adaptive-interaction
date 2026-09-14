@@ -1,0 +1,407 @@
+   Compiling cfg-if v1.0.4
+   Compiling memchr v2.8.3
+   Compiling itoa v1.0.18
+   Compiling core-foundation-sys v0.8.7
+   Compiling libc v0.2.189
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling once_cell v1.21.4
+   Compiling num-traits v0.2.19
+   Compiling thiserror v2.0.20
+   Compiling ref-cast v1.0.27
+   Compiling dyn-clone v1.0.20
+   Compiling pin-project-lite v0.2.17
+   Compiling log v0.4.34
+   Compiling iana-time-zone v0.1.65
+   Compiling futures-core v0.3.34
+   Compiling futures-sink v0.3.34
+   Compiling slab v0.4.12
+   Compiling futures-task v0.3.34
+   Compiling futures-io v0.3.34
+   Compiling futures-channel v0.3.34
+   Compiling tracing-core v0.1.36
+   Compiling subtle v2.6.1
+   Compiling typenum v1.20.1
+   Compiling zerocopy v0.8.56
+   Compiling ryu v1.0.23
+   Compiling smallvec v1.15.2
+   Compiling bitflags v2.13.1
+   Compiling zeroize v1.9.0
+   Compiling zerofrom v0.1.8
+   Compiling futures-util v0.3.34
+   Compiling stable_deref_trait v1.2.1
+   Compiling rustls-pki-types v1.15.1
+   Compiling hashbrown v0.17.1
+   Compiling equivalent v1.0.2
+   Compiling yoke v0.8.3
+   Compiling httparse v1.10.1
+   Compiling tracing v0.1.44
+   Compiling tower-service v0.3.3
+   Compiling untrusted v0.9.0
+   Compiling getrandom v0.4.3
+   Compiling errno v0.3.14
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.2
+   Compiling generic-array v0.14.7
+   Compiling cpufeatures v0.2.17
+   Compiling getrandom v0.2.17
+   Compiling signal-hook-registry v1.4.8
+   Compiling indexmap v2.14.0
+   Compiling zerovec v0.11.8
+   Compiling unsafe-libyaml v0.2.11
+   Compiling percent-encoding v2.3.2
+   Compiling ring v0.17.14
+   Compiling try-lock v0.2.5
+   Compiling minimal-lexical v0.2.1
+   Compiling want v0.3.1
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling tinystr v0.8.4
+   Compiling writeable v0.6.4
+   Compiling tower-layer v0.3.3
+   Compiling digest v0.10.7
+   Compiling httpdate v1.0.3
+   Compiling litemap v0.8.3
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.151
+   Compiling uuid v1.25.0
+   Compiling sha2 v0.10.9
+   Compiling icu_locale_core v2.3.0
+   Compiling potential_utf v0.1.6
+   Compiling aws-lc-sys v0.44.0
+   Compiling zerotrie v0.2.5
+   Compiling utf8_iter v1.0.4
+   Compiling bitflags v1.3.2
+   Compiling form_urlencoded v1.2.2
+   Compiling mach2 v0.4.3
+   Compiling icu_collections v2.3.0
+   Compiling chrono v0.4.45
+   Compiling bytes v1.12.1
+   Compiling serde_yaml v0.9.34+deprecated
+   Compiling scopeguard v1.2.0
+   Compiling icu_properties_data v2.3.0
+   Compiling aws-lc-rs v1.18.0
+   Compiling icu_normalizer_data v2.3.0
+   Compiling ipnet v2.12.1
+   Compiling futures-executor v0.3.34
+   Compiling tokio v1.53.1
+   Compiling futures v0.3.34
+   Compiling http v1.5.0
+   Compiling icu_provider v2.3.1
+   Compiling base64 v0.22.1
+   Compiling lock_api v0.4.14
+   Compiling ahash v0.8.12
+   Compiling schemars v1.2.2
+   Compiling ppv-lite86 v0.2.21
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling sync_wrapper v1.0.2
+   Compiling atomic-waker v1.1.2
+   Compiling hashbrown v0.14.5
+   Compiling crossbeam-utils v0.8.22
+   Compiling serde_urlencoded v0.7.1
+   Compiling webpki-roots v1.0.9
+   Compiling thiserror v1.0.69
+   Compiling rustls-webpki v0.103.15
+   Compiling objc-sys v0.3.5
+   Compiling http-body v1.1.0
+   Compiling rand_core v0.6.4
+   Compiling http-body-util v0.1.5
+   Compiling objc2-encode v4.1.0
+   Compiling getrandom v0.3.4
+   Compiling parking_lot_core v0.9.12
+   Compiling spin v0.9.9
+   Compiling rustls v0.23.43
+   Compiling idna_adapter v1.2.2
+   Compiling interaction-core v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-core)
+   Compiling interaction-character v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-character)
+   Compiling interaction-aip v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-aip)
+   Compiling idna v1.1.0
+   Compiling objc2 v0.5.2
+   Compiling rand_chacha v0.3.1
+   Compiling sha1 v0.10.7
+   Compiling socket2 v0.5.10
+   Compiling data-encoding v2.11.1
+   Compiling url v2.5.8
+   Compiling rand v0.8.8
+   Compiling flume v0.11.1
+   Compiling block2 v0.5.1
+   Compiling rand_core v0.9.5
+   Compiling rustls-webpki v0.102.8
+   Compiling security-framework-sys v2.17.0
+   Compiling core-foundation v0.9.4
+   Compiling mime v0.3.17
+   Compiling rand_chacha v0.9.0
+   Compiling objc2-foundation v0.2.2
+   Compiling rustls-pemfile v2.2.0
+   Compiling io-kit-sys v0.4.1
+   Compiling rustls v0.22.4
+   Compiling security-framework v2.11.1
+   Compiling rand v0.9.5
+   Compiling dashmap v6.2.1
+   Compiling nix v0.26.4
+   Compiling serde_path_to_error v0.1.20
+   Compiling core-foundation v0.10.1
+   Compiling static_assertions v1.1.0
+   Compiling tungstenite v0.29.0
+   Compiling axum-core v0.5.6
+   Compiling nom v7.1.3
+   Compiling hyper v1.11.0
+   Compiling interaction-session v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-session)
+   Compiling tokio-util v0.7.19
+   Compiling tower v0.5.3
+   Compiling hyper-util v0.1.20
+   Compiling tokio-rustls v0.26.4
+   Compiling tower-http v0.6.11
+   Compiling tokio-stream v0.1.19
+   Compiling tokio-rustls v0.25.0
+   Compiling objc2-core-bluetooth v0.2.2
+   Compiling rustls-native-certs v0.7.3
+   Compiling serialport v4.10.0
+   Compiling interaction-adapter-sdk v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-adapter-sdk)
+   Compiling btleplug v0.11.8
+   Compiling rumqttc v0.24.0
+   Compiling tokio-tungstenite v0.29.0
+   Compiling libloading v0.8.9
+   Compiling matchit v0.8.4
+   Compiling clang-sys v1.9.1
+   Compiling cexpr v0.6.0
+   Compiling hyper-rustls v0.27.9
+   Compiling axum v0.8.9
+   Compiling reqwest v0.12.28
+   Compiling utf8parse v0.2.2
+   Compiling humantime v2.4.0
+   Compiling anstyle-parse v1.0.0
+   Compiling colorchoice v1.0.5
+   Compiling anstyle-query v1.1.5
+   Compiling anstyle v1.0.14
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling interaction-recipe v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-recipe)
+   Compiling rustix v1.1.4
+   Compiling interaction-tool-schema v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-tool-schema)
+   Compiling anstream v1.0.0
+   Compiling clap_lex v1.1.0
+   Compiling strsim v0.11.1
+   Compiling regex-syntax v0.8.11
+   Compiling lazy_static v1.5.0
+   Compiling bindgen v0.72.1
+   Compiling interaction-adapter-declarative v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-adapter-declarative)
+   Compiling fastrand v2.5.0
+   Compiling tempfile v3.27.0
+   Compiling clap_builder v4.6.6
+   Compiling regex-automata v0.4.18
+   Compiling ahash v0.7.8
+   Compiling fnv v1.0.7
+   Compiling ucd-trie v0.1.7
+   Compiling hashbrown v0.12.3
+   Compiling http v0.2.12
+   Compiling pest v2.9.0
+   Compiling sharded-slab v0.1.7
+   Compiling tracing-log v0.2.0
+   Compiling thread_local v1.1.10
+   Compiling simd-adler32 v0.3.10
+   Compiling nu-ansi-term v0.50.3
+   Compiling http-body v0.4.6
+   Compiling libsqlite3-sys v0.30.1
+   Compiling interaction-events v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-events)
+   Compiling hashlink v0.9.1
+   Compiling adler2 v2.0.1
+   Compiling fallible-iterator v0.3.0
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling dasp_sample v0.11.0
+   Compiling miniz_oxide v0.8.9
+   Compiling crc32fast v1.5.1
+   Compiling interaction-character-shu v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-character-shu)
+   Compiling rusqlite v0.32.1
+   Compiling powerfmt v0.2.0
+   Compiling time-core v0.1.9
+   Compiling clap v4.6.6
+   Compiling pest_meta v2.9.0
+   Compiling dlv-list v0.3.0
+   Compiling matchers v0.2.0
+   Compiling num-conv v0.2.2
+   Compiling tracing-subscriber v0.3.23
+   Compiling deranged v0.5.8
+   Compiling ordered-multimap v0.4.3
+   Compiling flate2 v1.1.9
+   Compiling pin-project v1.1.13
+   Compiling metrics v0.21.1
+   Compiling crossbeam-epoch v0.9.20
+   Compiling pest_generator v2.9.0
+   Compiling hyper v0.14.32
+   Compiling fdeflate v0.3.7
+   Compiling quanta v0.11.1
+   Compiling time v0.3.55
+   Compiling hashbrown v0.13.1
+   Compiling num_cpus v1.17.0
+   Compiling quick-error v2.0.1
+   Compiling weezl v0.1.12
+   Compiling color_quant v1.1.0
+   Compiling pest_derive v2.9.0
+   Compiling zune-core v0.5.3
+   Compiling sketches-ddsketch v0.2.2
+   Compiling pxfm v0.1.30
+   Compiling linked-hash-map v0.5.6
+   Compiling byteorder v1.5.0
+   Compiling option-ext v0.2.0
+   Compiling base64 v0.13.1
+   Compiling byteorder-lite v0.1.0
+   Compiling utf-8 v0.7.6
+   Compiling dirs-sys v0.4.1
+   Compiling yaml-rust v0.4.5
+   Compiling tungstenite v0.24.0
+   Compiling image-webp v0.2.4
+   Compiling ron v0.7.1
+   Compiling metrics-util v0.15.1
+   Compiling zune-jpeg v0.5.15
+   Compiling json5 v0.4.1
+   Compiling gif v0.14.2
+   Compiling yasna v0.5.2
+   Compiling coreaudio-sys v0.2.18
+   Compiling png v0.18.1
+   Compiling axum-core v0.3.4
+   Compiling interaction-storage v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-storage)
+   Compiling tower v0.4.13
+   Compiling rust-ini v0.18.0
+   Compiling indexmap v1.9.3
+   Compiling moxcms v0.8.1
+   Compiling polling v2.8.0
+   Compiling interaction-registry v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-registry)
+   Compiling adapters-builtin v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/adapters/builtin)
+   Compiling interaction-policy v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-policy)
+   Compiling interaction-agent-gateway v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-agent-gateway)
+   Compiling webpki-roots v0.26.11
+   Compiling pem v3.0.6
+   Compiling toml_datetime v0.6.11
+   Compiling toml v0.5.11
+   Compiling serde_spanned v0.6.9
+   Compiling if-addrs v0.13.4
+   Compiling base64 v0.21.7
+   Compiling matchit v0.7.3
+   Compiling winnow v0.7.15
+   Compiling toml_write v0.1.2
+   Compiling sync_wrapper v0.1.2
+   Compiling pathdiff v0.2.3
+   Compiling bytemuck v1.25.2
+   Compiling axum v0.6.20
+   Compiling metrics-exporter-prometheus v0.12.2
+   Compiling mdns-sd v0.11.5
+   Compiling rcgen v0.13.2
+   Compiling tokio-tungstenite v0.24.0
+   Compiling dirs v5.0.1
+   Compiling parking_lot v0.12.5
+   Compiling config v0.13.4
+   Compiling hmac v0.12.1
+   Compiling qrcode v0.14.1
+   Compiling anyhow v1.0.104
+   Compiling clap_complete v4.6.9
+   Compiling interaction-e2e v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/tests/e2e)
+   Compiling toml_edit v0.22.27
+   Compiling image v0.25.10
+   Compiling coreaudio-rs v0.11.3
+   Compiling toml v0.8.23
+   Compiling cpal v0.15.3
+   Compiling rumqttd v0.19.0
+   Compiling adapters-media v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/adapters/media)
+   Compiling interaction-runtime v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+   Compiling interaction-api v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-api)
+   Compiling interaction-cli v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 52.31s
+     Running unittests src/lib.rs (target/debug/deps/adapters_builtin-798a84d99b67b684)
+     Running unittests src/lib.rs (target/debug/deps/adapters_media-2ab87b6eee4ddee2)
+     Running unittests src/lib.rs (target/debug/deps/interaction_adapter_declarative-a4a71bb7b29fbc15)
+     Running tests/aip_fragment.rs (target/debug/deps/aip_fragment-8849633af8597e04)
+     Running tests/aip_link.rs (target/debug/deps/aip_link-3652cbf01aca96b6)
+     Running tests/aip_outbound_atomicity.rs (target/debug/deps/aip_outbound_atomicity-fce31a8b841f4e88)
+     Running tests/esp32_sim_conformance.rs (target/debug/deps/esp32_sim_conformance-0dba286870a5d15e)
+     Running tests/http_loop.rs (target/debug/deps/http_loop-2e510da3d32af5f6)
+     Running tests/mqtt_loop.rs (target/debug/deps/mqtt_loop-ef1b6b22f09cc039)
+     Running tests/protocol_honesty.rs (target/debug/deps/protocol_honesty-074cebaad4c8d352)
+     Running tests/spec_safety.rs (target/debug/deps/spec_safety-f6641d09ca51f3f8)
+     Running unittests src/lib.rs (target/debug/deps/interaction_adapter_sdk-1b462e7ea8bddceb)
+     Running unittests src/lib.rs (target/debug/deps/interaction_agent_gateway-b1587e2b7c896280)
+     Running unittests src/lib.rs (target/debug/deps/interaction_aip-83b58bd8f3d21441)
+     Running tests/canonical_vectors.rs (target/debug/deps/canonical_vectors-b871bdfb8d5f9a54)
+     Running tests/conformance.rs (target/debug/deps/conformance-561cdce172592446)
+     Running unittests src/lib.rs (target/debug/deps/interaction_api-c06685fb97140222)
+     Running tests/api_e2e.rs (target/debug/deps/api_e2e-16c901d2bf37f074)
+     Running tests/consent_e2e.rs (target/debug/deps/consent_e2e-8aac37a2168b6587)
+     Running tests/providers_e2e.rs (target/debug/deps/providers_e2e-87be0fbb67fd67a9)
+     Running unittests src/lib.rs (target/debug/deps/interaction_character-e09f3350f275b0bd)
+     Running tests/conformance.rs (target/debug/deps/conformance-8d6f05453fd765f8)
+     Running tests/gateway.rs (target/debug/deps/gateway-e742503205a8ab0e)
+     Running tests/intent_capabilities_golden.rs (target/debug/deps/intent_capabilities_golden-b679996382ba37b5)
+     Running tests/manifest.rs (target/debug/deps/manifest-32e71babc7c5355b)
+     Running tests/migration_registry.rs (target/debug/deps/migration_registry-c01ee8a18812a337)
+     Running tests/negotiation.rs (target/debug/deps/negotiation-77c220e59537e623)
+     Running unittests src/lib.rs (target/debug/deps/interaction_character_shu-8a1caa850b9252e6)
+     Running tests/conformance.rs (target/debug/deps/conformance-d2ca9023d49ec369)
+     Running tests/rig_pack.rs (target/debug/deps/rig_pack-13512648d49ba18f)
+     Running unittests src/main.rs (target/debug/deps/interact_ai-3a7cff38c43fce6f)
+     Running tests/cli_e2e.rs (target/debug/deps/cli_e2e-af2c9ae15bd858a4)
+     Running tests/release_provenance.rs (target/debug/deps/release_provenance-8d288fc4bddb64f2)
+     Running unittests src/lib.rs (target/debug/deps/interaction_core-d0b9de911c14a978)
+     Running unittests src/lib.rs (target/debug/deps/interaction_e2e-62fd333640c329ff)
+     Running tests/builtin_whitelist_consistency.rs (target/debug/deps/builtin_whitelist_consistency-0227ce30c1bcd1d5)
+     Running tests/dependency_boundaries.rs (target/debug/deps/dependency_boundaries-d7cadb4d00b7ef74)
+     Running tests/golden.rs (target/debug/deps/golden-b31d1edcaad2054f)
+     Running unittests src/lib.rs (target/debug/deps/interaction_events-24c289f958f2545a)
+     Running unittests src/lib.rs (target/debug/deps/interaction_policy-b6ee792ac1b02d03)
+     Running unittests src/lib.rs (target/debug/deps/interaction_recipe-53c8cda34c9aff9c)
+     Running unittests src/lib.rs (target/debug/deps/interaction_registry-9c7468f66f3146b3)
+     Running unittests src/lib.rs (target/debug/deps/interaction_runtime-c0bd69446081e5a7)
+     Running tests/agents_loop.rs (target/debug/deps/agents_loop-a1ea9920ee155691)
+     Running tests/character_host_registry.rs (target/debug/deps/character_host_registry-c3bdb9734f44614c)
+     Running tests/character_loop.rs (target/debug/deps/character_loop-95ec8389a24d0fc5)
+     Running tests/character_session_loop.rs (target/debug/deps/character_session_loop-5f13020fa8da6c83)
+     Running tests/consent_one_shot_loop.rs (target/debug/deps/consent_one_shot_loop-4df292dc898929b1)
+     Running tests/curator_loop.rs (target/debug/deps/curator_loop-01ae1999c9bc629f)
+     Running tests/declarative_session_loop.rs (target/debug/deps/declarative_session_loop-5f66f4dced74869b)
+     Running tests/estop_parallel.rs (target/debug/deps/estop_parallel-c1d39b91c6c322c0)
+     Running tests/gateway_loop.rs (target/debug/deps/gateway_loop-d5026298650e1a9b)
+     Running tests/hardware_loop.rs (target/debug/deps/hardware_loop-b8954e1ebadf8121)
+     Running tests/human_layer.rs (target/debug/deps/human_layer-05c72f1e72128d01)
+     Running tests/knowledge_loop.rs (target/debug/deps/knowledge_loop-c6762b8b7f3c4b19)
+     Running tests/memory_loop.rs (target/debug/deps/memory_loop-31e1112ac584c131)
+     Running tests/mobile_loop.rs (target/debug/deps/mobile_loop-4107ebd9fac5904b)
+     Running tests/mqtt_rebind_loop.rs (target/debug/deps/mqtt_rebind_loop-77cc419306086853)
+     Running tests/planner_presentation.rs (target/debug/deps/planner_presentation-522a9b436c4ea5c4)
+     Running tests/presentation_loop.rs (target/debug/deps/presentation_loop-8cb4d6c1b19742a5)
+     Running tests/proactive_loop.rs (target/debug/deps/proactive_loop-e1e57b1c05c5ea88)
+     Running tests/providers_loop.rs (target/debug/deps/providers_loop-0168283fc541f169)
+     Running tests/receipt_watchdog.rs (target/debug/deps/receipt_watchdog-f7865683163a06a8)
+     Running tests/runtime_loop.rs (target/debug/deps/runtime_loop-4adcdb76e0fb0e2c)
+     Running tests/sensor_journal_review.rs (target/debug/deps/sensor_journal_review-dccfe6b689099b1e)
+     Running tests/sensors_loop.rs (target/debug/deps/sensors_loop-45d0b902edd6d8ac)
+     Running unittests src/lib.rs (target/debug/deps/interaction_session-dd467b217a5bd283)
+     Running tests/pure_functions.rs (target/debug/deps/pure_functions-c0dea2344cca9af8)
+     Running tests/receive_decision_fixtures.rs (target/debug/deps/receive_decision_fixtures-41aded5fdda5a17c)
+     Running tests/receive_decisions.rs (target/debug/deps/receive_decisions-fb5c506dc6ded6fc)
+     Running tests/receive_decisions_from_json.rs (target/debug/deps/receive_decisions_from_json-2bd37e03e4ee327b)
+     Running tests/security_matrix.rs (target/debug/deps/security_matrix-fcebfb90356e9474)
+     Running tests/semantic_contract.rs (target/debug/deps/semantic_contract-46cb03b8becfb3ac)
+     Running tests/session.rs (target/debug/deps/session-f8efc7a5a576c9a7)
+     Running tests/session_hardening.rs (target/debug/deps/session_hardening-708e74f42b5ed044)
+     Running tests/state_hash_fixtures.rs (target/debug/deps/state_hash_fixtures-2526b84001862cf1)
+     Running tests/state_semantics.rs (target/debug/deps/state_semantics-ea911bf115105afb)
+     Running unittests src/lib.rs (target/debug/deps/interaction_storage-5e0e607b9d18f7f4)
+     Running unittests src/lib.rs (target/debug/deps/interaction_tool_schema-796acc609f57e049)
+   Doc-tests adapters_builtin
+   Doc-tests adapters_media
+   Doc-tests interaction_adapter_declarative
+   Doc-tests interaction_adapter_sdk
+   Doc-tests interaction_agent_gateway
+   Doc-tests interaction_aip
+   Doc-tests interaction_api
+   Doc-tests interaction_character
+   Doc-tests interaction_character_shu
+   Doc-tests interaction_core
+   Doc-tests interaction_e2e
+   Doc-tests interaction_events
+   Doc-tests interaction_policy
+   Doc-tests interaction_recipe
+   Doc-tests interaction_registry
+   Doc-tests interaction_runtime
+   Doc-tests interaction_session
+   Doc-tests interaction_storage
+   Doc-tests interaction_tool_schema

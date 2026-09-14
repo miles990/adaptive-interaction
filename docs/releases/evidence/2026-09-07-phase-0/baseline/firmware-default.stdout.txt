@@ -1,0 +1,9 @@
+== arduino-cli compile --fqbn esp32:esp32:esp32 (ENABLE_BLE=0) ==
+Sketch 使用 939403 位元組（71%）的程式儲存空間。最大為 1310720 位元組
+全域變數使用 49924 位元組 (15%) 的動態記憶體, 保留 277756 位元組給區域變數. 最大 327680 位元組
+== artifacts ==
+-rw-r--r--@ 1 user  staff     8192  9月  7 11:38 /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T//esp32-companion-build.mhPUuv/build/boot_app0.bin
+-rw-r--r--@ 1 user  staff   939552  9月  7 11:38 /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T//esp32-companion-build.mhPUuv/build/esp32-companion.ino.bin
+-rw-r--r--@ 1 user  staff    24992  9月  7 11:38 /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T//esp32-companion-build.mhPUuv/build/esp32-companion.ino.bootloader.bin
+-rw-r--r--@ 1 user  staff  4194304  9月  7 11:38 /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T//esp32-companion-build.mhPUuv/build/esp32-companion.ino.merged.bin
+-rw-r--r--@ 1 user  staff     3072  9月  7 11:38 /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T//esp32-companion-build.mhPUuv/build/esp32-companion.ino.partitions.bin

@@ -1,0 +1,7 @@
+{"deviceId":"iphone-0164ded7","deviceToken":"5687506642a77511fe3f9dddb0a913ce674f25619c8659ecc02bf4c4a9710b60"}
+{"event":"status","micLevel":false}
+{"event":"connected"}
+{"event":"status","micLevel":true}
+{"event":"stop-all","sensors":true}
+{"event":"disconnected","reason":"requested"}
+{"event":"quit"}

@@ -1,0 +1,305 @@
+{
+ "key": "J",
+ "found": {
+  "dimension": "J",
+  "markdown": "# 維度 J：文件與現況對照\n\n查核時間：2026-09-07。基準：HEAD `78dcda1a3733c97d266ca9b60ad4461c69ca2032`（= origin/main），v0.8.0 tag → `1fa69b8fafed54687119747c652a0869cb991f89`。方法：逐份讀 README.md／AGENTS.md／CLAUDE.md／docs/ARCHITECTURE.md／docs/FEATURES.md／docs/USER-GUIDE.md／docs/DESKTOP-GUIDE.md／docs/QUICKSTART.md／docs/INSTALL.md／docs/MAINTAINERS-MAP.md／docs/capability-completion-matrix.md／docs/v05-capability-gap-matrix.md／docs/v05-recovery-matrix.md／docs/releases/next-convergence-progress.md／docs/releases/v0.8.0-*.md／docs/releases/evidence-index.json／docs/acceptance-evidence.md（首尾各 150 行）／docs/aip/README.md／docs/aip/deprecation-ledger.md，逐條與程式碼（grep／Read 實檔）及 git 事實對照；並實際跑過 scripts/tests/docs-claims.sh（純 Python／git 靜態 lint，不建置、不跑 cargo/pnpm）確認哪些宣稱已有機械保護：**188 passed / 0 failed**。\n\n## 總結\n\n這個 repo 的文件分兩層，維護程度差很多。**跟得上**（每次發版同步更新、逐字對照無矛盾）：AGENTS.md、CLAUDE.md、docs/MAINTAINERS-MAP.md、docs/aip/README.md、docs/aip/deprecation-ledger.md、docs/acceptance-evidence.md、docs/releases/evidence-index.json、docs/releases/next-convergence-progress.md、docs/releases/v0.8.0-*.md 全系列——全部引用 main 1fa69b8／v0.8.0，file:line 全部核對存在。**沒跟上**（整份文件停在 v0.6.0 或 v0.5.1，v0.7.0／v0.8.0 的實際新增內容完全沒寫進去，不只是版本號舊）：README.md（除頂部橫幅）、docs/ARCHITECTURE.md、docs/FEATURES.md、docs/USER-GUIDE.md、docs/DESKTOP-GUIDE.md。docs-claims.sh 的 188 項檢查沒有一項是「文件是否提到某版本的內容」，只檢查「已提到的版本字串旁邊有沒有配過期詞」與兩個具體探針，所以下列缺口全部不會被現有自動化擋下。\n\n## 主要 findings（詳見 JSON claims，每條附 file:line）\n\n- **J-01**：README.md 頂部橫幅是 v0.8.0，但正文（\"## v0.5\"、\"## AIP 1.0 與 Character Session\"兩個唯一的版本標題段）完全沒有 v0.8.0 的 SemanticState schema、`aip.applied/1`、sensor journal、陪伴預設恢復——`grep -c \"0.8.0\" README.md` = 1（只有頂部那一次）。\n- **J-02**：docs/ARCHITECTURE.md 標題與全文卡在「v0.6.0 已發布，2026-09-05」，最後一個章節是「## 6.6.0 Foundation」，之後沒有 v0.7.0／v0.8.0 任何章節；`grep -c \"0.8.0\"` = 0。這是 README 文件表格點名的「架構總覽」正式入口，落後最嚴重。\n- **J-03**：docs/FEATURES.md 有「## v0.7.0」章節但沒有「## v0.8.0」章節。\n- **J-04**：docs/USER-GUIDE.md（人類使用手冊）全文 216 行從未教人類怎麼用 `interact-ai agent …`（開 session／mailbox／續租／驗證），儘管 CLI 確實有這個子指令樹（`crates/interaction-cli/src/commands.rs:1382`）且 MAINTAINERS-MAP.md §7 列為一級能力。\n- **J-05**：docs/DESKTOP-GUIDE.md 頭部自稱「本文描述的是 v0.5.1」，但正文 `:193` 已經寫「v0.6.x 起…」（自相矛盾）；且完全缺 v0.7.0 的「未解決停止」三層 UI（已核對是真接線元件：`apps/interaction-desktop/src/pages/connect/UnresolvedStops.tsx`，被 `ConnectPage.tsx:779`／`HomePage.tsx:27,93` 引用）與 v0.8.0 `aip.applied/1` 改動的同步卡文案。\n- **J-06**：docs-claims.sh 實際跑過 188/0 全過，但讀完整支腳本確認它只做 10 類特定檢查（過期詞配版本字串、兩個具體探針、evidence-index tag→commit、deprecation-ledger 自我計數等），**不檢查文件是否遺漏某版本內容**——J-01/02/03/05 的缺口不在其覆蓋範圍，不是重複建議。\n- **J-07**（confidence: medium）：ARCHITECTURE.md §6「MQTT／BLE 共用程式碼但未測」對 MQTT 而言已部分過期——v0.7.0 已有 `mqtt_rebind_loop.rs` broker 模擬器測試（`docs/acceptance-evidence.md` v0.7.0 證據表 #13），CHANGELOG [0.8.0] 也用更精確措辭區分「rebind 有測、applied 閉環未測」。\n- **J-08／J-09**（正面確認，非缺陷）：v0.4／v0.5 舊矩陣正確自我標示為歷史文件並指向繼任者，不互相矛盾；MAINTAINERS-MAP.md 引用的 11 個檔案路徑逐一核對存在，RendererPort/DevicePort「零實作」的誠實聲明用 grep 驗證屬實。\n- **J-10**（confidence: low）：docs/aip/README.md §9 Transport bindings 表不含宣告式裝置線，可能是刻意分工（device-profile.md 才是裝置線契約），未找到明確聲明確認。\n- **J-11**：v0.8.0 系列文件正確處理 (d) 檢查項——main 發布後修復（857f009 rebind 測試競態）明確標示「tag 不變」，沒有被誤寫成 tag 已包含。\n- **J-12**（confidence: medium）：抽查範圍內沒有發現 fixture／模擬器被誤標成真機／真 Agent 的地方；唯一「真機」字樣正確指向 v0.5.0-iphone-device-evidence.md。\n\n## 建議更新的既有 canonical 文件（優先更新既有文件，不新增）\n\n1. **docs/ARCHITECTURE.md**（最優先）——標題與內容需延伸到 v0.8.0，補 v0.7.0／v0.8.0 crate 與功能章節，修正 §6 MQTT 那句。\n2. **docs/FEATURES.md**——補「## v0.8.0」章節。\n3. **README.md**——「## v0.5」與「## AIP 1.0 與 Character Session」兩個標題段延伸版本範圍。\n4. **docs/DESKTOP-GUIDE.md**——修正頭部版本範圍宣告；補未解決停止 UI 區塊；更新同步卡文案。\n5. **docs/USER-GUIDE.md**——補 Agent Session 使用教學一節。\n\n不需要改動：AGENTS.md、CLAUDE.md、docs/MAINTAINERS-MAP.md、docs/aip/README.md、docs/aip/deprecation-ledger.md、docs/acceptance-evidence.md、docs/releases/evidence-index.json、docs/releases/next-convergence-progress.md、docs/releases/v0.8.0-*.md 全系列、docs/capability-completion-matrix.md、docs/v05-capability-gap-matrix.md、docs/v05-recovery-matrix.md、docs/QUICKSTART.md、docs/INSTALL.md。\n\n## 未追到 / 信心較低\n\n- J-10 是否為刻意的契約分工，沒有找到明確聲明。\n- J-07 的嚴重度取決於「未測」二字涵蓋 rebind 還是只涵蓋 applied 閉環，語意本身模糊。\n- DESKTOP-GUIDE.md 的「更多」「Inbox」「自動互動」「響應式與無障礙」「收據狀態機」幾節沒有逐項對照最新 UI 程式碼，可能還有其他小範圍過期描述未被找到。\n\n完整報告與逐條 file:line 證據已寫入：\n- `/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/matrix/find-J.md`\n- `/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/matrix/find-J.json`\n\n未修改 repo 任何檔案（`git status --porcelain` 核對，只有此 session 開始前就已存在的其他 agent 產出的兩個 untracked 項目：`docs/releases/phase-0-repository-state.md`、`scripts/tests/phase0/`，均未被我碰過）。",
+  "claims": [
+   {
+    "id": "J-01",
+    "claim": "README.md's top banner announces v0.8.0, but the entire body never mentions any v0.8.0-specific content (SemanticState schema/codegen, negotiated aip.applied/1 delivery ack, cross-process sensor journal, companion preset recovery service). The most specific version section headers in the body top out at v0.7.0.",
+    "evidence": [
+     "README.md:7 (top banner links v0.8.0 final-report/publication/known-limitations)",
+     "README.md:109 (\"## v0.5...\" header text ends at \"v0.7.0 已於 2026-09-06 發布\")",
+     "README.md:148 (\"## AIP 1.0 與 Character Session（v0.6.0 Foundation，已發布）\" section only describes v0.6.0 content)",
+     "grep -c '0.8.0' README.md = 1 (only line 7)",
+     "grep -n 'SemanticState|aip.applied|sensor journal|陪伴預設恢復' README.md = 0 hits",
+     "CHANGELOG.md:20-45 ([0.8.0] Added section lists the four features absent from README)"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "J-02",
+    "claim": "docs/ARCHITECTURE.md's title and entire content are frozen at v0.6.0 (2026-09-05); it has zero mention of v0.7.0 or v0.8.0, including features that MAINTAINERS-MAP.md confirms are landed (device wire v1.2 fragmentation, aip.applied/1, sensor_journal.rs, state_applied.rs).",
+    "evidence": [
+     "docs/ARCHITECTURE.md:1 (\"架構總覽（v0.6.0 已發布，tag v0.6.0，2026-09-05...）\")",
+     "docs/ARCHITECTURE.md:188 (last content section is \"## 6.6.0 Foundation\"; nothing follows for v0.7.0/v0.8.0)",
+     "grep -c '0.8.0' docs/ARCHITECTURE.md = 0",
+     "grep -n '裝置線 v1.2|aip.frag|aip.applied|SemanticState|sensor journal|陪伴預設恢復' docs/ARCHITECTURE.md = 0 hits",
+     "docs/MAINTAINERS-MAP.md rows for crates/interaction-adapter-declarative and crates/interaction-runtime list state_applied.rs, fragment.rs, sensor_journal.rs, preset_service.rs as landed and file-verified"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "J-03",
+    "claim": "docs/FEATURES.md has a dedicated \"## v0.7.0\" section but no \"## v0.8.0\" section at all, despite v0.8.0 being the current released version.",
+    "evidence": [
+     "grep -n '^## v0' docs/FEATURES.md -> lines 131 (v0.4), 149 (v0.5), 187 (v0.7.0), 191 (v0.6.0 Foundation); no v0.8.0 heading",
+     "grep -c '0.8.0' docs/FEATURES.md = 0",
+     "CHANGELOG.md:20-45 ([0.8.0] Added items absent from FEATURES.md)"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "J-04",
+    "claim": "docs/USER-GUIDE.md (人類使用手冊) never documents the `interact-ai agent` CLI subcommand family (opening an Agent Session, mailbox, lease renewal, verifying claimed-completed), even though this is a first-class, wired feature referenced by README/AGENTS.md/ARCHITECTURE.md/MAINTAINERS-MAP.md.",
+    "evidence": [
+     "docs/USER-GUIDE.md full 216 lines read; grep -n 'interact-ai agent|mailbox|lease|agent session' only hits line 57 about the --agent-scope restricted token, never a usage walkthrough",
+     "crates/interaction-cli/src/commands.rs:1382 (\"agent\", agent) confirms the CLI subcommand exists",
+     "docs/MAINTAINERS-MAP.md section 7 \"Agent（gateway／session lease／預算）\" documents this as a first-class owned capability"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "J-05",
+    "claim": "docs/DESKTOP-GUIDE.md's header explicitly scopes itself to v0.5.1 (2026-09-04), but its own body already contains v0.6.x-only content (contradicting the header), and it is missing two releases' worth of UI-visible additions: the v0.7.0 Unresolved-Stops UI block (wired in ConnectPage.tsx/HomePage.tsx) and the v0.8.0 aip.applied/1 sync-card copy change.",
+    "evidence": [
+     "docs/DESKTOP-GUIDE.md:12-16 (\"本文描述的是 v0.5.1...\")",
+     "docs/DESKTOP-GUIDE.md:193 (\"v0.6.x 起頁面分成首屏三格與按需展開的收合區塊...\") contradicts the v0.5.1 scope claim in the same document",
+     "apps/interaction-desktop/src/pages/connect/UnresolvedStops.tsx:1,29 and ConnectPage.tsx:47,779 and HomePage.tsx:27,93 confirm a real, wired UnresolvedStopsSection component",
+     "docs/DESKTOP-GUIDE.md:176-189 (\"現在\" section table) and :304-353 (\"連接與權限\" five-block table) never mention unresolved stops",
+     "apps/interaction-desktop/src/statusProjection/characterSync.ts:93-96 (synced.detail text updated for peer-applied self-report semantics)",
+     "docs/DESKTOP-GUIDE.md:229-245 (\"角色同步\" table) still shows the old wording for the 'synced' row without the applied-ack caveat",
+     "docs/MAINTAINERS-MAP.md section 6 describes the unresolved-stops feature as landed with three UI surfaces"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "J-06",
+    "claim": "The existing automated doc-honesty lint (scripts/tests/docs-claims.sh, 188/0 passing when run) only guards against a mentioned version string being paired with stale words (e.g. '尚未發布'/'候選') and two specific hardcoded probes; it does not check whether a document is missing an entire release's content, so findings J-01/J-02/J-03/J-05 are real gaps not caught by any existing automation (not a duplicate of existing coverage).",
+    "evidence": [
+     "scripts/tests/docs-claims.sh full read (both halves, ~400 lines)",
+     "Ran `bash scripts/tests/docs-claims.sh` locally (pure Python/git, no cargo/pnpm build) -> 'docs-claims: 188 passed / 0 failed'",
+     "The script's stale-version check only scans README.md/docs/ARCHITECTURE.md/docs/FEATURES.md/CLAUDE.md/AGENTS.md for stale words adjacent to a version string that IS mentioned; it never asserts a version string or feature name MUST appear"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "J-07",
+    "claim": "docs/ARCHITECTURE.md §6's 'not yet landed' list still states MQTT/BLE device-wire AIP binding is untested as a blanket statement, but MQTT specifically gained a rebind test (broker simulator) in v0.7.0; CHANGELOG [0.8.0] itself distinguishes 'MQTT has existing broker-simulator rebind; MQTT/BLE-specific applied closed loop remains unverified', a distinction ARCHITECTURE.md's blanket phrasing does not reflect.",
+    "evidence": [
+     "docs/ARCHITECTURE.md:302-304 (\"MQTT／BLE 共用程式碼但未測\")",
+     "docs/acceptance-evidence.md v0.7.0 evidence table row 13 references crates/interaction-runtime/tests/mqtt_rebind_loop.rs::mqtt_reenable_rebinds_without_restart as broker-simulator evidence",
+     "CHANGELOG.md [0.8.0] Known limitations: \"MQTT 有既有 broker 模擬器 rebind；MQTT／BLE 專屬 applied 閉環尚未驗\"",
+     "This specific sentence is not covered by docs-claims.sh's two ARCHITECTURE.md probes (CHARACTER_SYNC_PROJECTION, iOS SessionClient.swift)"
+    ],
+    "confidence": "medium"
+   },
+   {
+    "id": "J-08",
+    "claim": "docs/capability-completion-matrix.md and docs/v05-capability-gap-matrix.md / docs/v05-recovery-matrix.md correctly self-label as historical/superseded snapshots and point to their canonical successors; no contradiction found between these and the current canonical docs (MAINTAINERS-MAP.md, acceptance-evidence.md, evidence-index.json). This is a positive finding for the (g) canonical-vs-historical question, not a defect.",
+    "evidence": [
+     "docs/capability-completion-matrix.md:1-4 (\"（v0.4 歷史文件）...已被 v0.5 取代\")",
+     "docs/v05-capability-gap-matrix.md:27-29 (2026-09-04 note: §1-6 status columns are a frozen Phase 0 baseline, deliberately not rewritten)",
+     "docs/v05-recovery-matrix.md:1-3 (self-describes as a one-time new-session fact-recovery artifact)"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "J-09",
+    "claim": "docs/MAINTAINERS-MAP.md, AGENTS.md, CLAUDE.md, docs/aip/README.md, docs/acceptance-evidence.md, docs/releases/evidence-index.json, docs/releases/next-convergence-progress.md, and the full docs/releases/v0.8.0-*.md family are all current with HEAD 78dcda1/v0.8.0; a spot-check of 11 file:line references in MAINTAINERS-MAP.md confirmed every path exists, and the explicit RendererPort/DevicePort 'zero implementations' claim was independently verified via grep.",
+    "evidence": [
+     "AGENTS.md:5 (\"最新已發布版本 v0.8.0（tag v0.8.0 → 1fa69b8，2026-09-06；前一版 v0.7.0）\") matches `git rev-parse v0.8.0 v0.8.0^{commit}`",
+     "Verified existence of: crates/interaction-adapter-declarative/src/state_applied.rs, crates/interaction-runtime/src/sensor_journal.rs, apps/interaction-desktop/src-tauri/src/preset_service.rs, apps/interaction-desktop/src/test/companion-preset-recovery.test.tsx, scripts/tests/tauri-preset-recovery.py, crates/interaction-runtime/tests/declarative_session_loop.rs, crates/interaction-adapter-declarative/src/fragment.rs, docs/aip/semantic-state.md, docs/aip/settings-recovery.md, scripts/drills/optional-state.mjs, crates/interaction-runtime/tests/sensors_loop.rs",
+     "grep -rn 'impl.*RendererPort|impl.*DevicePort' crates/ apps/ (excluding test/mock) = 0 hits, matching MAINTAINERS-MAP.md row 2 and deprecation-ledger.md §1.3's 'zero implementations (experimental)' claim",
+     "docs-claims.sh's evidence-index tag->commit and candidate-schema checks passed (part of the 188/0 run)"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "J-10",
+    "claim": "docs/aip/README.md §9 Transport bindings table lists only iPhone wss/HTTP/SSE/Tauri IPC/in-process/CPP WebSocket and omits the declarative device wire (Serial/MQTT/BLE) AIP binding entirely, even though that binding exists in code (DeviceMsg::Aip/HostMsg::Aip). This appears to be intentional documentation division of labor (device-profile.md owns that contract per MAINTAINERS-MAP.md §4) rather than a real gap, but no explicit statement in aip/README.md says so.",
+    "evidence": [
+     "docs/aip/README.md:243-249 (Transport bindings table, six rows, no declarative-device row)",
+     "docs/aip/README.md:1-12 (relationship section lists CPP, iPhone wire v1, Runtime events as the only three cross-referenced contracts, not device wire)",
+     "docs/MAINTAINERS-MAP.md section 4 names docs/aip/device-profile.md as the device wire's public contract",
+     "docs/aip/device-profile.md exists and has substantive §3/§6 content on aip.applied/1 and device wire v1.2"
+    ],
+    "confidence": "low"
+   },
+   {
+    "id": "J-11",
+    "claim": "The v0.8.0 document family (final-report, test-matrix, publication, ci-followup, known-limitations) and CHANGELOG.md/evidence-index.json are mutually consistent and correctly avoid claiming that main's post-tag fix (857f009, rebind test race) is included in the v0.8.0 tag — this is the (d) check the task asked for, and it was NOT violated.",
+    "evidence": [
+     "docs/releases/v0.8.0-ci-followup.md (full read): explicitly states 'v0.8.0 維持原 annotated tag／main 來源 1fa69b8...main 會多出本次測試維護與證據文件，不新增或移動 tag'",
+     "CHANGELOG.md:11-17 ([Unreleased] section correctly places the 857f009 test-only fix outside [0.8.0], with note 'v0.8.0產品與tag不變'",
+     "docs/releases/evidence-index.json postReleaseTestCorrections[0].tagUnchanged == true"
+    ],
+    "confidence": "high"
+   },
+   {
+    "id": "J-12",
+    "claim": "No instance was found in the checked documents where a fixture/simulator result was mislabeled as a real device or real Agent result; every iPhone/ESP32/Agent evidence reference in README/FEATURES/ARCHITECTURE/DESKTOP-GUIDE/acceptance-evidence.md/v0.8.0-known-limitations.md/MAINTAINERS-MAP.md is correctly caveated, and the one 'real device' claim (DESKTOP-GUIDE.md:333) correctly cites the sole documented real-iPhone evidence file (v0.5.0-iphone-device-evidence.md).",
+    "evidence": [
+     "docs/DESKTOP-GUIDE.md:333 (\"已於 2026-09-03 在 iPhone 11 真機驗證\", links docs/releases/v0.5.0-iphone-device-evidence.md)",
+     "README.md:161-162 and docs/acceptance-evidence.md AIP section both state real-iPhone AIP/Character Session closure is 'implemented-unverified' (zero executions)"
+    ],
+    "confidence": "medium"
+   }
+  ],
+  "openQuestions": [
+   "J-10: is docs/aip/README.md §9's omission of the declarative device wire binding intentional division-of-labor with device-profile.md, or a real gap? No explicit statement found either way.",
+   "J-07: severity depends on whether ARCHITECTURE.md's 'MQTT／BLE 共用程式碼但未測' is read as covering the rebind/connect path (now stale for MQTT) or the applied closed loop (still accurate) — the sentence itself is ambiguous.",
+   "DESKTOP-GUIDE.md sections not cross-checked against current UI code in this pass: 更多 (More), 右上角 Inbox, 自動互動 (Automations), 響應式與無障礙 (Responsive/A11y), 收據狀態機 (Receipt state machine) — only 現在/角色/工作/連接與權限 were verified against components.",
+   "Whether other dimension agents (A-L per the scratchpad directory) already flag the same doc gaps from a different angle should be reconciled by the integrator to avoid duplicate remediation work."
+  ]
+ },
+ "verdicts": [
+  {
+   "id": "J-01",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "README.md's version banner (line 7) is the ONLY occurrence of the string '0.8.0' in the entire 356-line file (grep -c = 1). Every '## ' section header stops describing specifics at v0.6.0/v0.7.0 (line 109 names v0.7.0 only as a release-date footnote inside the v0.5 heading; line 148's dedicated section is titled and scoped to 'v0.6.0 Foundation'). Zero hits for SemanticState, aip.applied, sensor journal, or 陪伴預設恢復 anywhere in README.md. CHANGELOG.md:20-45 confirms these are real v0.8.0 Added items absent from README's body.",
+   "evidence": [
+    "README.md:7 — sole '0.8.0' mention, banner only",
+    "grep -c '0\\.8\\.0' README.md = 1",
+    "README.md:109 — '## v0.5(...)——v0.5.1 已發布；v0.6.0 Foundation 已於...；v0.7.0 已於...' header, no content detail beyond date/tag",
+    "README.md:148 — '## AIP 1.0 與 Character Session（v0.6.0 Foundation，已發布）' is the most detailed/specific section, scoped to v0.6.0",
+    "grep -n -i 'SemanticState|aip\\.applied|sensor journal|陪伴預設|preset.*recovery' README.md = 0 hits",
+    "CHANGELOG.md:20-45 — [0.8.0] Added section lists SemanticState schema/codegen, aip.applied/1 tracker, SQLite sensor journal, 陪伴預設恢復 service — all absent from README.md body"
+   ]
+  },
+  {
+   "id": "J-02",
+   "refuted": false,
+   "correctedStatus": "holds (minor citation typo in the original claim's quoted heading text, substance intact)",
+   "reason": "docs/ARCHITECTURE.md:1 is dated/scoped to v0.6.0 (2026-09-05); grep -c '0.8.0' = 0 and grep -c '0.7.0' = 0 confirmed directly. The last '## ' section header (line 188) is '## v0.6.0 Foundation：AIP 1.0、權威 Character Session、小樞脫核心' — the claim's evidence quoted this as '## 6.6.0 Foundation' which is a transcription typo (should read v0.6.0), but the underlying fact — last content section is scoped to v0.6.0, nothing follows for v0.7.0/v0.8.0 — is correct. Keyword search for v1.2 fragmentation/aip.applied/SemanticState/sensor journal returns 0 hits. MAINTAINERS-MAP.md confirms state_applied.rs, fragment.rs, sensor_journal.rs, preset_service.rs are landed, file-verified capabilities absent from ARCHITECTURE.md.",
+   "evidence": [
+    "docs/ARCHITECTURE.md:1 — '# 架構總覽（v0.6.0 已發布，tag v0.6.0，2026-09-05...）'",
+    "grep -c '0\\.8\\.0' docs/ARCHITECTURE.md = 0; grep -c '0\\.7\\.0' docs/ARCHITECTURE.md = 0",
+    "docs/ARCHITECTURE.md:188 — actual heading text '## v0.6.0 Foundation：AIP 1.0、權威 Character Session、小樞脫核心' (original claim mis-quoted as '## 6.6.0 Foundation')",
+    "grep -n -i '裝置線 v1.2|aip.frag|aip.applied|SemanticState|sensor journal|陪伴預設恢復|sensor_journal|state_applied|fragment' docs/ARCHITECTURE.md = 0 hits",
+    "docs/MAINTAINERS-MAP.md:62,68,86,110 list state_applied.rs, fragment.rs, sensor_journal.rs, preset_service.rs as landed with file:line citations",
+    "Confirmed files exist: crates/interaction-runtime/src/sensor_journal.rs, crates/interaction-adapter-declarative/src/state_applied.rs, crates/interaction-adapter-declarative/src/fragment.rs, apps/interaction-desktop/src-tauri/src/preset_service.rs"
+   ]
+  },
+  {
+   "id": "J-03",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "docs/FEATURES.md's '## v0' headers are exactly: v0.4 (131), v0.5 (149), v0.7.0 (187), v0.6.0 Foundation (191) — no v0.8.0 heading exists. grep -c '0.8.0' = 0 confirmed directly, matching the claim precisely.",
+   "evidence": [
+    "grep -n '^## v0' docs/FEATURES.md -> 131:## v0.4, 149:## v0.5(...), 187:## v0.7.0(...), 191:## v0.6.0 Foundation(...)",
+    "grep -c '0\\.8\\.0' docs/FEATURES.md = 0",
+    "CHANGELOG.md:20-45 [0.8.0] Added items (SemanticState, aip.applied/1, sensor journal, 陪伴預設恢復, five production drills) have no corresponding FEATURES.md section"
+   ]
+  },
+  {
+   "id": "J-04",
+   "refuted": false,
+   "correctedStatus": "holds, but the claim's own file:line citation is wrong and the command name is misstated (singular 'agent' vs actual plural 'agents') — corrected below",
+   "reason": "docs/USER-GUIDE.md (216 lines) never documents the CLI subcommand family for leased Agent Sessions (create/resume/send/messages/report/interrupt/etc.) — grep for 'interact-ai agent|mailbox|lease|agent session' only hits line 57, which is about the --agent-scope restricted token, not a usage walkthrough. HOWEVER the claim's cited evidence 'crates/interaction-cli/src/commands.rs:1382 (\"agent\", agent)' is WRONG: that line is an unrelated string literal — a filter key inside the Command::Inbox handler for /v1/activity/inbox (agent-name filter), not the agent-session subcommand definition. The real, fully-wired subcommand family is `Command::Agents` at crates/interaction-cli/src/main.rs:80-83 ('Agent sessions: leased, budgeted delegated work with a mailbox'), with clap default kebab-casing making the actual CLI invocation `interact-ai agents ...` (plural), not `interact-ai agent` (singular) as the claim states. Verified subcommands (Sessions/Show/Create/Resume/Send/Messages/Report/Interrupt) at main.rs:372-450 confirm this is a real, richly-featured, wired capability with zero USER-GUIDE.md coverage. docs/MAINTAINERS-MAP.md:94 '## 7. Agent（gateway／session lease／預算）' confirmed to exist as cited.",
+   "evidence": [
+    "docs/USER-GUIDE.md full 216 lines; grep -n -i 'interact-ai agent|mailbox|lease|agent session|agent-scope' docs/USER-GUIDE.md -> only line 57 (about --agent-scope token, not a walkthrough); grep -n -i 'agents\\b' docs/USER-GUIDE.md -> 0 hits",
+    "crates/interaction-cli/src/commands.rs:1382-1390 — actual content is the Command::Inbox handler building a query-string filter list including a literal 'agent' key; this is UNRELATED to the agent-session subcommand family and does not support the claim's citation",
+    "crates/interaction-cli/src/main.rs:80-83 — real subcommand declaration: '/// Agent sessions: leased, budgeted delegated work with a mailbox.' Agents { #[command(subcommand)] action: AgentsAction }, no clap rename attribute found, so the real CLI verb is plural 'agents' not singular 'agent'",
+    "crates/interaction-cli/src/main.rs:372-450 — AgentsAction variants Sessions/Show/Create/Resume/Send/Messages/Report/Interrupt, confirming a rich, wired feature",
+    "docs/MAINTAINERS-MAP.md:94 — '## 7. Agent（gateway／session lease／預算）' section exists as cited"
+   ]
+  },
+  {
+   "id": "J-05",
+   "refuted": false,
+   "correctedStatus": "holds, with two small path/emphasis corrections in the citations",
+   "reason": "docs/DESKTOP-GUIDE.md:12-16 explicitly scopes the whole document to v0.5.1 (2026-09-04), yet line 193 in the same document says 'v0.6.x 起頁面分成首屏三格與按需展開的收合區塊' — a direct self-contradiction of the stated scope, confirmed verbatim. UnresolvedStopsSection is a real, wired component (apps/interaction-desktop/src/pages/connect/UnresolvedStops.tsx, imported and rendered at ConnectPage.tsx:47,779 and referenced via projectUnresolvedStops in HomePage.tsx:27,93 — all line numbers confirmed correct), and DESKTOP-GUIDE.md's '現在' first-screen table (176-189) and '連接與權限' five-block table (304-353) never mention unresolved/未解決 stops anywhere in the document (only unrelated hits: 'nothing about unresolved sensor captures'). The characterSync.ts caveat point holds narrowly: the code's synced.detail (characterSync.ts:93-96, confirmed) now carries an explicit not-yet-verified caveat ('這不代表已驗證畫面或實體效果') reflecting the v0.8.0 aip.applied/1 self-report semantics, while DESKTOP-GUIDE.md's 'synced' row (229-245) only paraphrases the headline without that caveat — though note the headline text itself does match verbatim between code and doc, so this is a caveat-omission, not a full 'old wording' mismatch. Minor correction: the claim cited 'apps/interaction-desktop/src/pages/connect/ConnectPage.tsx' but the file actually lives at 'apps/interaction-desktop/src/pages/ConnectPage.tsx' (no connect/ subdirectory prefix); the line numbers 47 and 779 are otherwise exactly correct.",
+   "evidence": [
+    "docs/DESKTOP-GUIDE.md:12-16 — '本文描述的是 v0.5.1（產品完成度修補，2026-09-04...）的控制中心'",
+    "docs/DESKTOP-GUIDE.md:193 — 'v0.6.x 起頁面分成首屏三格與按需展開的收合區塊...' directly inside the same document, contradicting the v0.5.1 scope claim",
+    "apps/interaction-desktop/src/pages/ConnectPage.tsx:47 'import { UnresolvedStopsSection } from \"./connect/UnresolvedStops\";' and :779 '<UnresolvedStopsSection refreshKey={refreshKey} advanced={advanced} />' (file path corrected: no connect/ prefix on ConnectPage.tsx itself)",
+    "apps/interaction-desktop/src/pages/HomePage.tsx:27,93 confirmed — projectUnresolvedStops import and usage",
+    "apps/interaction-desktop/src/pages/connect/UnresolvedStops.tsx:1-35 confirms this is a real 'sourceId/generation'-driven, honesty-laddered UI feature tied to Runtime sensor_source.rs unresolved stops",
+    "docs/DESKTOP-GUIDE.md:176-189 and :304-353 — neither table mentions unresolved/未解決 sensor stops",
+    "apps/interaction-desktop/src/statusProjection/characterSync.ts:90-98 — synced.detail = '裝置回報已套用目前的角色狀態；這不代表已驗證畫面或實體效果。'",
+    "docs/DESKTOP-GUIDE.md:229-245 — 'synced' row headline matches code verbatim ('iPhone 已連接，角色狀態已同步') but the 意思 column omits the applied-but-not-verified caveat present in code"
+   ]
+  },
+  {
+   "id": "J-06",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "Read the full 389-line scripts/tests/docs-claims.sh (did not execute it, per task instruction not to run builds/tests). Confirmed its checks are exactly as described: evidence-honesty-012 through -016 (CHANGELOG/ARCHITECTURE/threat-model/AIP-EvidenceClass hardcoded probes), release-provenance-074/075/080 (install doc claims), deprecation-ledger self-count, evidence-index.json schema, CHANGELOG Known-limitations-vs-fixed-test probes (hardcoded phrase list at scripts/tests/docs-claims.sh:301-309), test-count-claim matching, and AGENTS.md §7 progress-file existence. The version-staleness check (lines ~177-219) scans README.md/docs/ARCHITECTURE.md/docs/FEATURES.md/CLAUDE.md/AGENTS.md ONLY for stale words (尚未 tag/尚未發布/候選/etc.) found in a text window near an ALREADY-MENTIONED version string — it never asserts that any version string or feature name MUST appear in these documents. This directly corroborates the claim: J-01/J-02/J-03/J-05's gaps (a whole release's content silently missing) are structurally invisible to this lint, since the lint only fires on contradictory stale wording adjacent to an existing mention, not on an absence.",
+   "evidence": [
+    "scripts/tests/docs-claims.sh full 389 lines read (not executed)",
+    "scripts/tests/docs-claims.sh:177-178 — stale_docs = ['README.md','docs/ARCHITECTURE.md','docs/FEATURES.md','CLAUDE.md','AGENTS.md']",
+    "scripts/tests/docs-claims.sh:191,198,201,215 — stale_words tuple ('尚未 tag','尚未發布','候選',...) matched only within a text window around an existing version mention, per the comment on :191 '已發布的版本不得在總覽文件裡仍寫成「尚未 tag／發布」「候選」...'",
+    "No check anywhere in the file asserts a version string or named feature (SemanticState/aip.applied/sensor journal/unresolved-stops/etc.) MUST be present in README/ARCHITECTURE/FEATURES/DESKTOP-GUIDE/USER-GUIDE",
+    "The only other checks are narrowly-scoped hardcoded probes (evidence-honesty-012..-016, release-provenance-074/075/080, deprecation-ledger self-count at :43-64ish, KNOWN_LIMITATION_PROBES list at :301-309, live test-count comparison at :222-259ish, AGENTS.md §7 file-existence at :259-280ish) — none of which overlap with J-01/J-02/J-03/J-05's 'entire release missing from a doc' finding shape"
+   ]
+  },
+  {
+   "id": "J-07",
+   "refuted": true,
+   "correctedStatus": "holds — no real contradiction between the two documents",
+   "reason": "ARCHITECTURE.md:302-304's claim is narrowly scoped to whether the AIP binding (aip.hello/aip.applied/snapshot/patch carried by DeviceMsg::Aip/HostMsg::Aip) has been exercised over MQTT/BLE — it has not. mqtt_rebind_loop.rs, the test CHANGELOG/acceptance-evidence.md cite as 'MQTT rebind' evidence, explicitly does NOT touch AIP binding: its own doc comment says it verifies only the transport-agnostic rebind mechanism (DeviceAipChannel/LinkReadiness), and its fake device only answers non-AIP who/pair/read/stop-all messages — grep for aip/Aip/AIP in the file matches only a type-name mention. CHANGELOG.md:54 and MAINTAINERS-MAP.md:68 draw the identical distinction in their own words. ARCHITECTURE.md itself never mentions 'rebind' or '閉環' at all (0 hits), so it isn't making a blanket claim in tension with the rebind test — the two documents are consistent, just covering different test surfaces.",
+   "evidence": [
+    "docs/ARCHITECTURE.md:302-304",
+    "crates/interaction-runtime/tests/mqtt_rebind_loop.rs:1-16 (doc comment)",
+    "crates/interaction-runtime/tests/mqtt_rebind_loop.rs:68-107 (spawn_fake_device: who/pair/read/stop-all only, no AIP)",
+    "grep 'aip|Aip|AIP' mqtt_rebind_loop.rs => only 1 type-name mention",
+    "grep 'rebind|閉環' docs/ARCHITECTURE.md => 0 hits",
+    "CHANGELOG.md:54, docs/MAINTAINERS-MAP.md:68 (independent identical distinction)"
+   ]
+  },
+  {
+   "id": "J-08",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "Verified directly: capability-completion-matrix.md:1-4 self-headers as '（v0.4 歷史文件）...已被 v0.5 取代' pointing to successors; v05-capability-gap-matrix.md:27-29 carries the exact 2026-09-04 freeze note redirecting to §9-12/v0.5.1 docs; v05-recovery-matrix.md:1-3 self-describes as a one-time fact-recovery artifact. No current-tense claim found in any of the three masquerading as live v0.8.0 status.",
+   "evidence": [
+    "docs/capability-completion-matrix.md:1-4",
+    "docs/v05-capability-gap-matrix.md:27-29",
+    "docs/v05-recovery-matrix.md:1-3"
+   ]
+  },
+  {
+   "id": "J-09",
+   "refuted": false,
+   "correctedStatus": "holds — independently reproduced live",
+   "reason": "All 11 paths exist. grep for bare 'RendererPort'/'DevicePort' anywhere in crates/ and apps/ (no test/mock exclusion needed) finds only their single trait-definition site (interaction-session/src/ports.rs:84,90); MAINTAINERS-MAP.md:38 and deprecation-ledger.md:56 corroborate '零實作者'. AGENTS.md:5 matches verbatim; `git rev-parse v0.8.0 v0.8.0^{commit}` confirms tag object 5bca366... dereferences to commit 1fa69b8f.... I additionally ran `bash scripts/tests/docs-claims.sh` myself (pure python3/git, read-only, no cargo/pnpm) and it printed 'docs-claims: 188 passed / 0 failed' live, reproducing the cited figure rather than trusting the doc's self-report.",
+   "evidence": [
+    "ls: all 11 claimed paths exist",
+    "grep -rn 'RendererPort' crates/ apps/ => only ports.rs:84",
+    "grep -rn 'DevicePort' crates/ apps/ => only ports.rs:90",
+    "docs/MAINTAINERS-MAP.md:38, docs/aip/deprecation-ledger.md:56",
+    "git rev-parse v0.8.0 v0.8.0^{commit} => 5bca3660.../1fa69b8f...",
+    "Live run: `bash scripts/tests/docs-claims.sh` => 'docs-claims: 188 passed / 0 failed'"
+   ]
+  },
+  {
+   "id": "J-10",
+   "refuted": false,
+   "correctedStatus": "holds, and the gap is broader than stated (whole-document omission, not just the §9 table)",
+   "reason": "Confirmed the §9 table has exactly the six named rows and no declarative-device row. Went further: grepped the entire docs/aip/README.md for device-profile/declarative/Serial/MQTT/BLE/DeviceMsg::Aip/HostMsg::Aip — zero matches anywhere, including §0's relationship cross-reference (names only CPP, iPhone wire v1, Runtime events — three, not four) and §14 Conformance tests (lists Rust/TS/Swift only, omitting esp32_sim_conformance.rs which acceptance-evidence.md:950 documents as real). So the AIP canonical contract never once acknowledges the declarative device wire as a fourth production AIP transport, whose contract MAINTAINERS-MAP.md:65 assigns to docs/aip/device-profile.md. No text anywhere confirms this split is deliberate, so the low-confidence hedge in the original claim remains appropriate.",
+   "evidence": [
+    "docs/aip/README.md:243-249 (six-row table, no declarative-device row)",
+    "docs/aip/README.md:1-12 (§0 lists only 3 cross-referenced contracts)",
+    "grep across whole docs/aip/README.md for device-profile/declarative/Serial/MQTT/BLE/DeviceMsg::Aip/HostMsg::Aip => 0 matches",
+    "docs/aip/README.md:325-341 (§14 omits esp32_sim_conformance.rs)",
+    "docs/MAINTAINERS-MAP.md:65",
+    "docs/ARCHITECTURE.md:301"
+   ]
+  },
+  {
+   "id": "J-11",
+   "refuted": false,
+   "correctedStatus": "holds",
+   "reason": "Directly confirmed: docs/releases/v0.8.0-ci-followup.md:21 states verbatim v0.8.0 keeps its original tag/main-source 1fa69b8..., Release assets unchanged, tag not moved. CHANGELOG.md places the 857f009 fix under a fresh '## [Unreleased]' section (lines 9-17) above '## [0.8.0] - 2026-09-06' (line 19), with explicit 'v0.8.0產品與tag不變'. evidence-index.json's postReleaseTestCorrections[0] has sourceCommit 857f009... and tagUnchanged: true, matching both prose sources exactly.",
+   "evidence": [
+    "docs/releases/v0.8.0-ci-followup.md:21",
+    "CHANGELOG.md:9-19",
+    "docs/releases/evidence-index.json postReleaseTestCorrections[0]"
+   ]
+  },
+  {
+   "id": "J-12",
+   "refuted": false,
+   "correctedStatus": "holds (one immaterial line-number correction)",
+   "reason": "Confirmed DESKTOP-GUIDE.md's real-iPhone-11 claim and its correct citation to v0.5.0-iphone-device-evidence.md, though the sentence actually starts at line 332 (not 333) and wraps to 334 — a harmless one-line citation offset. Confirmed README.md:161-162 contains exactly the 'implemented-unverified' phrase, correctly caveated. Broader scan of acceptance-evidence.md's AIP section (913-1069) found no instance of a fixture/simulator result relabeled as real-device/real-agent; every real-iPhone mention there is either the explicitly-scoped legacy v0.5.0/v0.5.1 protocol evidence (correctly noted as not covering AIP/Character Session) or explicitly marked implemented-unverified/zero-execution for AIP-era work.",
+   "evidence": [
+    "docs/DESKTOP-GUIDE.md:332-334",
+    "README.md:161-162",
+    "docs/acceptance-evidence.md:949",
+    "docs/acceptance-evidence.md:1033"
+   ]
+  }
+ ]
+}

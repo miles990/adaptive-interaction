@@ -1,0 +1,441 @@
+{
+  "group": "E0-05 記憶 -> 授權任務取得 -> 核對 Context Bundle -> 修改／刪除 -> 新任務（真 Claude Code）",
+  "cases": [
+    {
+      "id": "E0-05-create-bundle",
+      "scenario": "以人類 token 建立兩筆 user-memory/preference（一筆明確設 agentVisibility=[claude-code]，一筆不設）；用 HTTP 與 CLI 兩個介面各建一份 Context Bundle，核對確定性選擇規則（含預設可見性排除）。",
+      "agentOrSurface": "HTTP API (curl) + interact-ai CLI (`memory bundle`)",
+      "evidenceLevel": "integration",
+      "precondition": "全新隔離 daemon（INTERACT_AI_HOME=<out>/home，port 19020），記憶庫為空；human token 在 home/state/api-token。",
+      "steps": [
+        "POST /v1/memory {layer:user-memory, kind:preference, title:偏好顏色, content:含 phase0-mem-32b415 暗號, agentVisibility:[claude-code]} -> 200，記為 mem1",
+        "POST /v1/memory {layer:user-memory, kind:preference, title:探測-預設可見性, content:...} 不帶 agentVisibility -> 200，記為 probe",
+        "POST /v1/memory/context-bundle {task, domains:[], agentId:claude-code} -> 200",
+        "interact-ai --config <home> --api http://127.0.0.1:19020 memory bundle --task ... --agent claude-code -> 比對輸出與 HTTP 結果"
+      ],
+      "expected": {
+        "ui": "bundle JSON 回傳 200，includes 只含明確授權可見的項目",
+        "coreState": "mem1.agentVisibility=[claude-code] 使 visible_to_agent 為 true；probe 未設 agentVisibility，依 interaction-core/src/memory.rs:167-180 的預設規則（UserMemory 層預設不可見）應被排除",
+        "effect": "includes=[mem1]，excluded.notVisibleToAgent=1；CLI 與 HTTP 輸出一致"
+      },
+      "result": "completed",
+      "actual": "完全符合預期。HTTP 與 CLI 回傳的 bundle JSON 逐欄位相同：includes=[mem1]（content 含 phase0-mem-32b415），excluded.notVisibleToAgent=1（probe 被排除），truncated=false。",
+      "evidence": [
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step1-create-mem1.json（201→200，memoryId=mem-488c9b40-19c7-45f6-86c2-52ee101d5fe0）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step1-probe-default-visibility.json（memoryId=mem-c336fdc1-421d-49fc-b6b5-6eb2317fae80，agentVisibility:[]）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step2-bundle-http.json（includes 長度1，excluded.notVisibleToAgent=1）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step2-bundle-cli.txt（CLI 輸出，與 HTTP 版本除 generatedAt 外逐欄位相同）",
+        "crates/interaction-core/src/memory.rs:166-180（visible_to_agent 預設規則原始碼）",
+        "crates/interaction-runtime/src/memory.rs:310-317（bundle 建構時套用 visible_to_agent 的呼叫點）"
+      ],
+      "observations": [
+        "UserMemory 層若不明確設定 agentVisibility，預設對所有 agent 不可見（含 SessionContext／PersonaCore 同一規則）——這正是任務指示要求『看預設；必要時明確設』的原因：若省略此步驟，mem1 將永遠進不了任何 Context Bundle。",
+        "CLI `memory bundle` 與 HTTP `/v1/memory/context-bundle` 走同一段 runtime 邏輯（interaction_runtime::Runtime::memory_context_bundle），兩個介面觀察到完全一致的結果，沒有介面間漂移。"
+      ],
+      "productDefects": [],
+      "limitations": "只測了兩層可見性狀態（明確可見 vs 完全預設）；未測 agentDenylist 優先權（denylist 優先於 visibility 的規則本次未實際觸發，只讀了原始碼）。",
+      "cleanup": "mem1／probe 留在此次專用、用完即棄的 INTERACT_AI_HOME 中；daemon 於整輪測試結束時一併以 SIGTERM 停止（見 E0-05-persist-restart 的 cleanup）。",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+        "binaryIdentity": "interact-ai 0.8.0; sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7; built 2026-09-07 11:29 from HEAD",
+        "agent": "none (HTTP/CLI only)",
+        "connectorVersion": "n/a",
+        "requestedModel": "not-specifiable-via-gateway",
+        "actualModel": "n/a (no agent session in this case)",
+        "actualModelSource": "n/a (no agent session in this case)",
+        "reasoning": "n/a (no agent session in this case)",
+        "newOrResumed": "n/a",
+        "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/home",
+        "authorization": "human token (home/state/api-token)",
+        "durationSeconds": 3.5,
+        "costOrTokens": "0（未呼叫任何 agent）"
+      }
+    },
+    {
+      "id": "E0-05-delivery-claude",
+      "scenario": "真 claude-code agent session：送出仰賴 Context Bundle 的任務，核對 to-session 訊息的 contextBundle.includes 含 mem1，且 from-session 的 summary 真的讀出了靛青色與暗號。",
+      "agentOrSurface": "真 Claude Code CLI agent session（唯讀 plan mode）",
+      "evidenceLevel": "real-agent",
+      "precondition": "延續 E0-05-create-bundle：mem1（agentVisibility=[claude-code]）與 probe 存在；daemon 沿用同一 port/home（--reuse-daemon）。",
+      "steps": [
+        "POST /v1/agent-sessions {agentId:claude-code, label:phase0-E0-05-delivery, workdir:隔離 workdir, ttlMinutes:20, allowWrite:false} -> 200, state=created",
+        "POST /v1/agent-sessions/{id}/messages {kind:task, body:{task:『根據你收到的上下文...只回一行，並附上暗號』}} -> 200",
+        "輪詢 GET /v1/agent-sessions/{id} 直到終態",
+        "GET /v1/agent-sessions/{id}/messages?direction=from-session 讀取結果",
+        "讀取 ~/.claude/projects/<workdir-slug>/<providerSessionId>.jsonl 取得 model／permissionMode",
+        "POST /v1/agent-sessions/{id}/close 收尾"
+      ],
+      "expected": {
+        "ui": "session state 由 created 經過真實 agent 執行到 claimed-completed",
+        "coreState": "to-session 訊息 body.contextBundle.includes 含 memoryId=mem-488c9b40...，content 含『靛青色』與暗號 phase0-mem-32b415；session record 的 contextBundles[0] 附相同 bundle 與 contentHash",
+        "effect": "from-session 的 result.summary 文字含『靛青』與暗號 phase0-mem-32b415，證明 bundle 真的送達且被讀"
+      },
+      "result": "completed",
+      "actual": "state 在 t=+7.9s 轉為 claimed-completed；taskSend.body.contextBundle.includes[0]={memoryId:mem-488c9b40...,content:『使用者最喜歡的顏色是靛青色（暗號 phase0-mem-32b415）』}；from-session summary=『使用者最喜歡的顏色是靛青色（暗號：phase0-mem-32b415）。』——三層（API 投影／session record／實際效果）一致。",
+      "evidence": [
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/E0-05-delivery-claude/result.json（taskSend.body.contextBundle.includes、messages-from-session[0].body.summary、final.contextBundles[0].contentHash）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/E0-05-delivery-claude/stdout.log（狀態流：created→claimed-completed @ mono=7.914s）",
+        "/Users/user/.claude/projects/-private-tmp-claude-501--Users-user-Workspace-claude-lab-adaptive-interaction-95db6375-b13e-4494-9180-4b15da263657-scratchpad-e2e2-runs-R2-E0-05-delivery-claude-workdir/1bf60429-bba3-44ff-a94a-f01ee7bd7750.jsonl（model=claude-fable-5-1, permissionMode=plan，9 行）"
+      ],
+      "observations": [
+        "harness (agent_smoke.py) 印出的 task-sent 事件行顯示 contextBundle:null——這只是腳本抽欄位時只看 POST 回應的**頂層** key，而實際訊息把 contextBundle 放在 body 底下（body.contextBundle），並非送達失敗；result.json 裡完整的 taskSend.body.contextBundle 證實真正送達了正確內容。記錄下來避免之後誤讀 harness 輸出。",
+        "provider-local log 確認 permissionMode=plan（唯讀），與專案已核實的『Claude 走 --safe-mode，plan 模式』一致。"
+      ],
+      "productDefects": [],
+      "limitations": "只測一輪單一任務；未測多輪、未測寫入類任務。",
+      "cleanup": "POST .../close 後 state=closed；未留下存活的 claude 子行程（ps 檢查見整輪結束時的收尾）。",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+        "binaryIdentity": "interact-ai 0.8.0; sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7; built 2026-09-07 11:29 from HEAD",
+        "agent": "claude-code",
+        "connectorVersion": "Claude Code CLI 2.1.263 (claude.ai max login)",
+        "requestedModel": "not-specifiable-via-gateway",
+        "actualModel": "claude-fable-5-1",
+        "actualModelSource": "provider-local-log (not via gateway)",
+        "reasoning": "n/a（claude-code 無 reasoning_effort 欄位）；permissionMode=plan",
+        "newOrResumed": "new",
+        "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/E0-05-delivery-claude/workdir",
+        "authorization": "human token 建立 session／送訊息（harness 用 home/state/api-token）；底層 claude 子行程由 daemon 直接 spawn，不經 HTTP 認證",
+        "durationSeconds": 9.5,
+        "costOrTokens": "costUsd=0.135597（單輪，from-session message body）"
+      }
+    },
+    {
+      "id": "E0-05-supersede",
+      "scenario": "新增第二筆矛盾的偏好（深紅色取代靛青色），檢查 memory.rs／interaction-core 是否有 supersede／conflict／newer-wins 機制；用真 agent 問同一問題觀察 bundle 順序與 agent 如何判斷新舊。",
+      "agentOrSurface": "真 Claude Code CLI agent session（唯讀 plan mode）+ 原始碼靜態檢查",
+      "evidenceLevel": "real-agent",
+      "precondition": "mem1（靛青色）仍在；daemon 沿用同一 port/home。",
+      "steps": [
+        "grep -rn 'supersede|conflict|newer_wins|newer wins' crates/interaction-core crates/interaction-runtime -> 0 筆命中（只有一行文件註解提到『被版本取代』，非實作）",
+        "POST /v1/memory 建第二筆 preference（深紅色，暗號 phase0-mem2-b4f02c，同樣明確 agentVisibility）-> 200，記為 mem2",
+        "POST /v1/memory/context-bundle 同一 task -> 200，檢查 includes 是否兩筆都在、順序為何",
+        "開新 claude-code session，任務要求『列出全部並指出哪一筆比較新』-> 觀察回答"
+      ],
+      "expected": {
+        "ui": "若存在 supersede 機制，bundle 應只含較新一筆或標出關係；若不存在，兩筆應並存",
+        "coreState": "程式碼內無 supersede/conflict 結構化欄位（讀 crates/interaction-core/src/memory.rs MemoryItem 定義、crates/interaction-runtime/src/memory.rs bundle 排序邏輯 279-353 行確認）",
+        "effect": "bundle 排序規則（layer_rank 相同時 updated_at desc）決定順序；agent 只能靠文字內容自行推論新舊"
+      },
+      "result": "completed",
+      "actual": "確認程式碼內無任何 supersede/conflict/newer-wins 機制。bundle includes 同時含 mem2（『改為深紅色』，updated_at 較新，排在前）與 mem1（『靛青色』，排在後）。真 agent 的回答為『使用者最喜歡的顏色是深紅色（暗號 phase0-mem2-b4f02c），這是較新的一筆，因為內容寫明「改為」深紅色；另一筆較舊的記錄是靛青色（暗號 phase0-mem-32b415）。』——agent 純靠文字語意（『改為』字樣）與 bundle 順序自行判斷，不是靠任何系統旗標。",
+      "evidence": [
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step4-create-mem2.json（memoryId=mem-6ee8d6fa-09b6-40dd-944b-9b29e5d9d24c）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step4-bundle-after-mem2.json（includes 兩筆，mem2 在前）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/E0-05-supersede/result.json（messages-from-session[0].body.summary）",
+        "grep 指令與 0 筆命中（見 commands[] 中的 grep_supersede_conflict）",
+        "crates/interaction-core/src/memory.rs:9（文件註解『直到使用者刪除或被版本取代』——描述保存期限語意，非已實作的取代機制）",
+        "crates/interaction-runtime/src/memory.rs:279-298（確定性排序：layer_rank → updated_at desc → id，無 supersede 欄位參與）"
+      ],
+      "observations": [
+        "兩筆標題相同（『偏好顏色』）、標籤相同（color-preference）但內容矛盾的 preference 會無限期並存於記憶庫與每次的 Context Bundle，直到人類手動刪除；系統本身不會偵測、標記或合併矛盾。",
+        "『確定性選擇』的保證只涵蓋『bundle 該收哪幾筆』，不涵蓋『收進來的幾筆彼此語意衝突時該如何呈現』——這段完全外包給下游 LLM 的自然語言推論，行為會隨任務措辭改變（見 E0-05-old-context-limit 案例中同一份矛盾資料在不同提示下有不同揭露程度的觀察）。"
+      ],
+      "productDefects": [
+        {
+          "title": "無 supersede/conflict 機制：矛盾的使用者偏好會同時進入 Context Bundle，正確性完全依賴 agent 文字推論",
+          "severity": "low",
+          "location": "crates/interaction-core/src/memory.rs:9（文件暗示『版本取代』但無對應欄位／邏輯）；crates/interaction-runtime/src/memory.rs:279-353（bundle 建構無 supersede/dedup 步驟）",
+          "repro": "建立兩筆同 layer=user-memory、同 title/tag、內容矛盾的 preference（皆明確 agentVisibility），呼叫 POST /v1/memory/context-bundle：includes 同時含兩筆，彼此無任何關聯欄位（無 supersededBy／conflictWith）。",
+          "evidence": [
+            "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step4-bundle-after-mem2.json"
+          ],
+          "phase0MinimalFixCandidate": false
+        }
+      ],
+      "limitations": "只測了兩筆矛盾項目、單一 agent 措辭；未系統性測試不同提示語對揭露正確性的影響幅度。",
+      "cleanup": "POST .../close 後 state=closed。",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+        "binaryIdentity": "interact-ai 0.8.0; sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7; built 2026-09-07 11:29 from HEAD",
+        "agent": "claude-code",
+        "connectorVersion": "Claude Code CLI 2.1.263 (claude.ai max login)",
+        "requestedModel": "not-specifiable-via-gateway",
+        "actualModel": "claude-fable-5-1",
+        "actualModelSource": "provider-local-log (not via gateway)",
+        "reasoning": "n/a（claude-code 無 reasoning_effort 欄位）；permissionMode=plan",
+        "newOrResumed": "new",
+        "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/E0-05-supersede/workdir",
+        "authorization": "human token（harness 用 home/state/api-token）",
+        "durationSeconds": 10.05,
+        "costOrTokens": "costUsd=0.142408（單輪，from-session message body）"
+      }
+    },
+    {
+      "id": "E0-05-delete-newtask",
+      "scenario": "刪除兩筆偏好記憶後，確認 bundle 不再包含它們，且全新 session 面對同一問題會誠實回答不知道／沒有上下文。",
+      "agentOrSurface": "真 Claude Code CLI agent session（唯讀 plan mode）",
+      "evidenceLevel": "real-agent",
+      "precondition": "mem1、mem2 皆存在。",
+      "steps": [
+        "DELETE /v1/memory/{mem2} -> {deleted:true}",
+        "DELETE /v1/memory/{mem1} -> {deleted:true}",
+        "POST /v1/memory/context-bundle 同一 task -> 200，檢查 includes",
+        "開新 claude-code session，任務要求『若無上下文請明確說不知道』-> 觀察回答"
+      ],
+      "expected": {
+        "ui": "bundle includes 變空",
+        "coreState": "兩筆記憶已從 store 移除（DELETE 回 true）",
+        "effect": "新 session 的 from-session summary 明確表示不知道／沒有上下文，不得虛構顏色"
+      },
+      "result": "completed",
+      "actual": "完全符合預期。刪除後 bundle includes=[]；新 session 回答『不知道／沒有上下文（Context Bundle 的 includes 為空，未包含使用者最喜歡的顏色資訊）。』——agent 沒有虛構答案，也沒有從自己的訓練資料亂猜。",
+      "evidence": [
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step5-delete-mem1.json、/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step5-delete-mem2.json（皆 {deleted:true}）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step5-bundle-after-delete.json（includes:[]）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/E0-05-delete-newtask/result.json（taskSend.body.contextBundle.includes:[]，messages-from-session[0].body.summary）"
+      ],
+      "observations": [],
+      "productDefects": [],
+      "limitations": "無",
+      "cleanup": "POST .../close 後 state=closed。",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+        "binaryIdentity": "interact-ai 0.8.0; sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7; built 2026-09-07 11:29 from HEAD",
+        "agent": "claude-code",
+        "connectorVersion": "Claude Code CLI 2.1.263 (claude.ai max login)",
+        "requestedModel": "not-specifiable-via-gateway",
+        "actualModel": "claude-fable-5-1",
+        "actualModelSource": "provider-local-log (not via gateway)",
+        "reasoning": "n/a（claude-code 無 reasoning_effort 欄位）；permissionMode=plan",
+        "newOrResumed": "new",
+        "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/E0-05-delete-newtask/workdir",
+        "authorization": "human token（harness 用 home/state/api-token）",
+        "durationSeconds": 8.04,
+        "costOrTokens": "costUsd=0.128869（單輪，from-session message body）"
+      }
+    },
+    {
+      "id": "E0-05-old-context-limit",
+      "scenario": "E-09：刪除記憶後，先前已把該內容送進 provider 端 transcript 的舊 session 是否仍記得（不可收回）。用兩種官方支援的路徑各驗一次：(a) 對已 claimed-completed 的舊 session 直接再送一則訊息；(b) 用 resumeProviderSessionId 明確續開同一 provider 對話。",
+      "agentOrSurface": "真 Claude Code CLI agent session（唯讀 plan mode），沿用 E0-05-delivery-claude 建立的 providerSessionId=1bf60429-...",
+      "evidenceLevel": "real-agent",
+      "precondition": "mem1、mem2 已刪除（bundle 現在對此 task 應為空）；E0-05-delivery-claude 的 session（asession-922c9167...，state=claimed-completed）仍在 daemon 記憶體中（AgentSessionState::ClaimedCompleted 屬於 is_open()==true，見 crates/interaction-core/src/agent.rs:48-57）。",
+      "steps": [
+        "(a) POST /v1/agent-sessions/{舊 sessionId}/messages {kind:task, body:{task:『再次確認：使用者最喜歡的顏色是什麼？只回一行。』}} -> 立即 200，body.contextBundle 為全新產生、includes=[]",
+        "(a) 輪詢該 session state（維持 claimed-completed 不變）；~8 秒後 GET messages?direction=from-session 出現第 2 則結果",
+        "(b) POST /v1/agent-sessions {agentId:claude-code, workdir 同上, resumeProviderSessionId:1bf60429-...,（scope 與原 session 完全相同，未放寬）} -> 200，取得新 sessionId 但 providerSessionId 與原本相同",
+        "(b) POST 訊息，任務刻意要求『不要看這次的 Context Bundle，只根據前一輪對話記憶回答』",
+        "(b) 輪詢至終態，讀取 from-session summary",
+        "讀取兩次的 provider-local .jsonl（同一檔案）確認真的是同一份 transcript 被接續",
+        "POST /close 收尾兩個 session"
+      ],
+      "expected": {
+        "ui": "(a)(b) 皆應成功送出且得到回應；因為刪除只影響『之後新產生的 bundle』，不會、也不能回頭清洗 provider 已經看過的舊內容",
+        "coreState": "两次的新 bundle 都是 includes=[]（證明刪除確實反映在 runtime 這一層的『未來供應』）；但同一個 providerSessionId 的 transcript 檔案持續累積，舊內容還在檔案裡",
+        "effect": "至少在(b)（明確要求依賴對話記憶時），agent 應該會複誦出已刪除的顏色與暗號——這正是『刪除後舊 Agent 上下文不可收回』的具體證據"
+      },
+      "result": "completed",
+      "actual": "兩條路徑都成功執行且互相印證：(a) 舊 session 被再次送出真實任務並產生真實花費（spentCost 由 0.135597 升到 0.31141175，spentMessages 由 2 升到 4），但 GET /v1/agent-sessions/{id} 的 state 欄位全程停在 claimed-completed，沒有任何 active/working 過渡；~8 秒後才出現新的 from-session 訊息，內容為『根據本次對話稍早的 Context Bundle 是靛青色，但這次的 Context Bundle 未包含任何偏好項目...無法從當前上下文獨立再次確認。』——agent 記得但態度保守，沒有直接斷言。(b) 明確用 resumeProviderSessionId 續開後，新 session 的 bundle 確認為空，但當任務明確要求『只根據前一輪對話記憶回答』時，agent 完整覆誦：『剛才談到的顏色是靛青色，暗號是 phase0-mem-32b415。』——已刪除的記憶內容（含機密暗號）在 provider 端 transcript 裡完整存在且可被引出，證實 E-09。",
+      "evidence": [
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step5-old-session-resend.json（(a) POST 200，body.contextBundle.includes:[]）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step5-old-session-final.json（(a) 送出當下 state 仍 claimed-completed）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step5-resume-create.json（(b) resume 授權成功，新 sessionId=asession-3a4e8fe6-...，providerSessionId 與原本相同=1bf60429-...）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step5-resume-task-sent.json（(b) 新 bundle includes:[]）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step5-resume-final.json（(b) 終態 claimed-completed，providerSessionId 相同）",
+        "/Users/user/.claude/projects/.../1bf60429-bba3-44ff-a94a-f01ee7bd7750.jsonl（20 行，含三段對話：09:04:45／09:06:37-45／09:07:59-08:02，model 皆 claude-fable-5-1；09:06:45 與 09:08:02 兩則 assistant 文字已擷取存於本輪對話記錄）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/final-audit.json（character.session.truth revision 9→14，涵蓋 09:06:17～09:08:02 的多次 working/claimed 轉換）"
+      ],
+      "observations": [
+        "已終止（claimed-completed）的 session 仍可被送新任務並真的觸發一次完整、計費的 provider 執行——mailbox_send 只檢查 state.is_open()，而 ClaimedCompleted 本身就在 is_open() 的允許集合裡（crates/interaction-core/src/agent.rs:48-57）。但 GET /v1/agent-sessions/{id} 的 state 欄位在這整段期間裡從未離開 claimed-completed，也没有任何『第二輪正在跑』的訊號——依文件建議的『輪詢 state 直到終態』模式，呼叫端在這種情境下完全偵測不到有新工作在執行，必須改成輪詢 messages?direction=from-session 找新 messageId 才行。",
+        "resumeProviderSessionId 是真的在運作的機制：新 session 拿到與原 session 完全相同的 providerSessionId，本機 transcript 檔案也確實是同一份被接續寫入——這是『繼續對話』的正規路徑，不同於單純對一個舊 session 再塞一則訊息。",
+        "同一份已刪除機密（暗號 phase0-mem-32b415）在兩種問法下揭露程度不同：委婉問法（(a)）得到保守、附帶但書的答案；直接要求『只依賴對話記憶』（(b)）則得到完整覆誦——說明『刪除是否真的洩漏』高度依賴後續提示措辭，不能假設 agent 會『自然而然』拒絕重複已刪除內容。"
+      ],
+      "productDefects": [
+        {
+          "title": "已終止 (claimed-completed) 的 agent session 仍可被送新任務並產生真實花費，但 GET 狀態端點從未反映該次執行",
+          "severity": "medium",
+          "location": "crates/interaction-runtime/src/agents.rs（mailbox_send 對 entry.record.state.is_open() 的檢查，約行 899-905）；crates/interaction-core/src/agent.rs:48-57（ClaimedCompleted 被納入 is_open()）",
+          "repro": "建立並完成一個 claude-code session（走到 claimed-completed）；對同一 sessionId 再 POST 一次 {kind:task,...}；重複 GET 該 session：state 全程停在 claimed-completed，budget.spentMessages/spentCost 卻在背景真的往上加，直到 messages?direction=from-session 出現新項目才看得出有事發生過。",
+          "evidence": [
+            "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step5-old-session-resend.json",
+            "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step5-old-session-final.json（state=claimed-completed）",
+            "最終 GET（收尾關閉前）budget.spentMessages=4、spentCost=0.31141175，相對第一輪的 spentMessages=2、spentCost=0.135597"
+          ],
+          "phase0MinimalFixCandidate": false
+        }
+      ],
+      "limitations": "只在 claude-code 上驗證；未測 codex 的等效行為（受限於單一真 agent 任務指派＋時間預算）。未捕捉到這段『隱藏第二輪』是否有對應的 SSE 事件（本輪未對這兩次手動 curl 呼叫接 SSE 監聽，僅 harness 自己那次呼叫有 sse.jsonl，且那次沒有涉及這個情境），標記為 unknown。",
+      "cleanup": "兩個 session（舊 delivery session 與新 resume session）皆以 POST .../close 收尾，state=closed；確認收尾當下無殘留屬於本 daemon 的 claude 子行程。",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+        "binaryIdentity": "interact-ai 0.8.0; sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7; built 2026-09-07 11:29 from HEAD",
+        "agent": "claude-code",
+        "connectorVersion": "Claude Code CLI 2.1.263 (claude.ai max login)",
+        "requestedModel": "not-specifiable-via-gateway",
+        "actualModel": "claude-fable-5-1",
+        "actualModelSource": "provider-local-log (not via gateway)",
+        "reasoning": "n/a（claude-code 無 reasoning_effort 欄位）；permissionMode=plan",
+        "newOrResumed": "混合：(a) 同一 session 直接再送訊息（非透過 API 的正式 resume）；(b) 透過 resumeProviderSessionId 正式續開＝resumed",
+        "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/E0-05-delivery-claude/workdir",
+        "authorization": "human token（home/state/api-token）用於全部 HTTP 呼叫；底層 claude 子行程由 daemon 直接 spawn，不經 HTTP 認證",
+        "durationSeconds": 85,
+        "costOrTokens": "(a) 重送：spentCost 由 0.135597 增至 0.31141175，本輪增量≈$0.1958（用 session budget 差額推算）；(b) resume：costUsd=0.0242975（from-session message body 直接讀值）"
+      }
+    },
+    {
+      "id": "E0-05-persist-restart",
+      "scenario": "重啟 daemon（同一 INTERACT_AI_HOME）後，記憶庫內容（含新建的持久化探測項目）應完整保留。",
+      "agentOrSurface": "HTTP API (curl) + daemon 行程生命週期管理",
+      "evidenceLevel": "integration",
+      "precondition": "記憶庫已有若干項目（mem3 建立前為 5 筆：探測-可見性 probe + 4 筆 close session 時自動生成的 task-memory）。",
+      "steps": [
+        "POST /v1/memory 建第三筆 preference（title:持久化探測，content 含暗號 phase0-mem3-7d1dbf）-> 200",
+        "GET /v1/memory -> total=6，列出全部 6 筆 id/title",
+        "取得目前 daemon PID，kill -TERM，輪詢確認行程已結束",
+        "以相同 INTERACT_AI_HOME／port 重新啟動 daemon（新 PID）",
+        "GET /v1/memory -> 再次核對 total=6，內容逐筆比對"
+      ],
+      "expected": {
+        "ui": "重啟前後 GET /v1/memory 的 total 與各筆內容一致",
+        "coreState": "SQLite-backed store（interaction.db／-wal／-shm）在 SIGTERM 時正常落盤，重啟後從同一檔案重新載入",
+        "effect": "mem3（含暗號）與其餘 5 筆在重啟後逐位元組相同（memoryId／createdAt／content 皆未變）"
+      },
+      "result": "completed",
+      "actual": "完全符合預期。重啟前 total=6（6 筆 id 列出），重啟後 total=6，逐筆比對 memoryId／content／createdAt／updatedAt 皆相同，mem3 的暗號 phase0-mem3-7d1dbf 原封不動。daemon.log 顯示新行程啟動時印出 WARN『reclaiming stale instance lock pid=93787』，是預期內的乾淨交接訊息（舊 PID 已確實結束）。",
+      "evidence": [
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step6-create-mem3.json（memoryId=mem-6a6e03f4-74b8-4bc7-bc25-4f3b4a4e6572）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step6-memory-before-restart.json（total=6，6 個 memoryId／title）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step6-memory-after-restart.json（total=6，逐筆內容含暗號 phase0-mem3-7d1dbf 相同）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/daemon.log（SIGTERM 後行程結束、新行程啟動並印出 reclaiming stale instance lock pid=93787）"
+      ],
+      "observations": [
+        "重啟時看到的『reclaiming stale instance lock pid=93787』WARN 是良性訊息（舊 PID 已由 SIGTERM 正常結束），但單看這行日誌本身無法分辨『乾淨交接』與『前一個行程真的當掉留下殘留鎖』——若要在生產環境判斷，需要额外核對舊 PID 是否還存活。"
+      ],
+      "productDefects": [],
+      "limitations": "只做了一次 SIGTERM→重啟循環；未在本輪重複 SIGKILL 情境（上一輪 79983209 session 的 restart-claude-kill／restart-codex-kill 已涵蓋 SIGKILL 案例，本輪聚焦記憶持久化不重複）。",
+      "cleanup": "daemon 於本 case 結束後繼續存活供 E0-05-agent-token-demote 使用，最終於整輪測試收尾時以 SIGTERM 停止（見下方 commands 的最終 kill）。",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+        "binaryIdentity": "interact-ai 0.8.0; sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7; built 2026-09-07 11:29 from HEAD",
+        "agent": "none (HTTP/CLI only)",
+        "connectorVersion": "n/a",
+        "requestedModel": "not-specifiable-via-gateway",
+        "actualModel": "n/a (no agent session in this case)",
+        "actualModelSource": "n/a (no agent session in this case)",
+        "reasoning": "n/a (no agent session in this case)",
+        "newOrResumed": "n/a",
+        "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/home",
+        "authorization": "human token（home/state/api-token）",
+        "durationSeconds": 13,
+        "costOrTokens": "0（未呼叫任何 agent）"
+      }
+    },
+    {
+      "id": "E0-05-agent-token-demote",
+      "scenario": "受限 agent token 嘗試 POST/GET /v1/memory 的實際行為，以及 routes.rs:2098-2110 描述的『agent 宣告只會降權』規則的直接驗證。",
+      "agentOrSurface": "HTTP API (curl)，分別用受限 agent token 與 human token",
+      "evidenceLevel": "integration",
+      "precondition": "受限 agent token 在 home/state/api-agent-token；daemon 存活（重啟後的 PID）。",
+      "steps": [
+        "以 agent token POST /v1/memory {layer:user-memory, kind:fact, ...}（不帶 asAgent）-> 觀察 HTTP 狀態與錯誤內容",
+        "以 agent token GET /v1/memory -> 觀察 HTTP 狀態",
+        "以 human token POST /v1/memory {layer:user-memory, kind:fact, asAgent:claude-code, ...} -> 觀察 kind 是否被降權"
+      ],
+      "expected": {
+        "ui": "依 crates/interaction-api/src/lib.rs 的 agent_request_allowed：GET /v1/memory* 對 agent token 一律不在白名單（403）；POST /v1/memory 也不在非 GET 的白名單清單裡（403）——agent token 應該連 routes.rs 的 memory_create handler 都進不去",
+        "coreState": "只有『human token + asAgent 欄位』這條路徑才會真正跑到 memory_from_input 與 apply_actor_rules；受限 agent token 本身完全碰不到降權邏輯",
+        "effect": "agent token 的兩次呼叫皆應為 403 token_scope_forbidden；human+asAgent 的 fact 應被 apply_actor_rules 降為 inference（因為 UserMemory 預設 reviewAfter=30 天，剛好等於 agent 30 天上限，未超過上限故不會再降到 candidate）"
+      },
+      "result": "completed",
+      "actual": "三個呼叫都精確符合原始碼推導：agent token POST -> 403 {code:token_scope_forbidden}；agent token GET -> 同樣 403 {code:token_scope_forbidden}；human token + asAgent:claude-code 的 fact -> 200，回傳 kind:『inference』（非 fact 也非 candidate）、createdBy:{kind:agent,id:claude-code}。",
+      "evidence": [
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step7-agenttoken-post-plain.json（403，token_scope_forbidden）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step7-agenttoken-get.json（403，token_scope_forbidden）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/step7-human-asagent-demote.json（200，kind:inference，createdBy:{kind:agent,id:claude-code}，memoryId=mem-0fb0babb-b278-4466-91b1-e027f62630ab）",
+        "crates/interaction-api/src/lib.rs:488-511（agent_request_allowed 的 GET 白名單排除 /v1/memory）與其後非 GET 分支（POST /v1/memory 不在任何白名單條目中）",
+        "crates/interaction-core/src/memory.rs:254-283（apply_actor_rules：agent 建立的 fact 一律降 inference；UserMemory 想要長期保存才再降 candidate）"
+      ],
+      "observations": [
+        "任務簡報原先預期的『受限 agent token POST /v1/memory 建 fact → 預期被拒或降為 candidate』，實際驗證後應更精確地拆成兩件事：(1) 受限 agent token 對 /v1/memory 這條路徑**完全進不去**（403，在 auth middleware 層就被擋下，連 handler 都沒執行到），不會有『被降為 candidate』這種結果；(2) routes.rs:2098-2110 描述的降權規則是真實存在且會正確執行的，但唯一能觸發它的呼叫路徑是『human token 自己聲明 asAgent』（文件註解稱這是『人類明確以 agent 身分匯入』的介面），不是受限 agent token 自己直寫。",
+        "本次示例（UserMemory 層、預設 30 天 reviewAfter）剛好落在『不算長期』的邊界（wants_long_term 用嚴格大於比較 review_cap，30 天=30 天不算超過），因此只降到 inference，未降到 candidate——若要親眼驗證 candidate 降權路徑，需要用 PersonaCore 層或明確要求更長 reviewAfter 的 payload（本輪未做，記為限制）。"
+      ],
+      "productDefects": [],
+      "limitations": "未驗證 apply_actor_rules 中『candidate』降權分支（需要 PersonaCore 層或明確更長 retention 的 payload 才能觸發，本輪任務步驟未涵蓋）。",
+      "cleanup": "human+asAgent 測試留下的 mem-0fb0babb... 記憶項目留在拋棄式 home 目錄中，隨整輪測試結束一併捨棄，無需額外清理。",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+        "binaryIdentity": "interact-ai 0.8.0; sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7; built 2026-09-07 11:29 from HEAD",
+        "agent": "none (HTTP only)",
+        "connectorVersion": "Claude Code CLI 2.1.263 (claude.ai max login)",
+        "requestedModel": "not-specifiable-via-gateway",
+        "actualModel": "n/a (no agent session in this case)",
+        "actualModelSource": "n/a (no agent session in this case)",
+        "reasoning": "n/a (no agent session in this case)",
+        "newOrResumed": "n/a",
+        "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/home",
+        "authorization": "受限 agent token（home/state/api-agent-token）用於前兩次呼叫；human token（home/state/api-token）用於第三次 asAgent 呼叫",
+        "durationSeconds": 2,
+        "costOrTokens": "0（未呼叫任何 agent）"
+      }
+    }
+  ],
+  "commands": [
+    {
+      "name": "build-verify-binary",
+      "cmd": "shasum -a 256 target/debug/interact-ai && target/debug/interact-ai --version",
+      "start": "2026-09-07T09:04:06Z",
+      "end": "2026-09-07T09:04:06Z",
+      "seconds": 0.3,
+      "exit": 0,
+      "stdout": "1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7  target/debug/interact-ai\ninteract-ai 0.8.0",
+      "stderr": ""
+    },
+    {
+      "name": "daemon-start-1",
+      "cmd": "INTERACT_AI_HOME=<out>/home INTERACT_AI_MOBILE_ADVERTISE=0 target/debug/interact-ai serve (PID 93787)",
+      "start": "2026-09-07T09:04:1xZ",
+      "end": "n/a (long-running)",
+      "seconds": 0,
+      "exit": -1,
+      "stdout": "interact-ai daemon listening on http://127.0.0.1:19020",
+      "stderr": ""
+    },
+    {
+      "name": "grep-supersede-conflict",
+      "cmd": "grep -rn 'supersede|conflict|newer_wins|newer wins' crates/interaction-core crates/interaction-runtime",
+      "start": "2026-09-07T09:05:30Z",
+      "end": "2026-09-07T09:05:30Z",
+      "seconds": 0.1,
+      "exit": 1,
+      "stdout": "(no matches)",
+      "stderr": ""
+    },
+    {
+      "name": "daemon-sigterm-restart",
+      "cmd": "kill -TERM 93787; wait exit; INTERACT_AI_HOME=<out>/home target/debug/interact-ai serve (new PID 22890)",
+      "start": "2026-09-07T09:09:2xZ",
+      "end": "2026-09-07T09:09:33Z",
+      "seconds": 10,
+      "exit": 0,
+      "stdout": "reclaiming stale instance lock pid=93787\ninteract-ai daemon listening on http://127.0.0.1:19020",
+      "stderr": ""
+    },
+    {
+      "name": "final-daemon-stop",
+      "cmd": "kill -TERM 22890; confirm dead",
+      "start": "2026-09-07T09:10:0xZ",
+      "end": "2026-09-07T09:10:1xZ",
+      "seconds": 5,
+      "exit": 0,
+      "stdout": "daemon exited",
+      "stderr": ""
+    },
+    {
+      "name": "own-subprocess-check",
+      "cmd": "ps -axo pid,pgid,ppid,etime,stat,command | grep -E 'claude -p --input-format|codex app-server' | grep -v grep",
+      "start": "2026-09-07T09:10:2xZ",
+      "end": "2026-09-07T09:10:2xZ",
+      "seconds": 0.1,
+      "exit": 0,
+      "stdout": "(3 rows, all with ppid 21899/22533/22366 — none matching own daemon PIDs 93787/22890/transient; confirmed not mine)",
+      "stderr": ""
+    }
+  ],
+  "openQuestions": [
+    "codex 的等效 E-09 行為（resumeProviderSessionId 續開＋已刪除記憶是否同樣殘留在 provider transcript）本輪未測，需要另一輪針對 codex 的重複。",
+    "『已終止 session 仍可被送新任務並真花費』(E0-05-old-context-limit 的 productDefect) 是否有對應的 SSE 事件，需要接上 SSE 監聽並在該情境下重測才能確認，本輪標記 unknown。",
+    "apply_actor_rules 的 candidate 降權分支（PersonaCore 層或超長 retention）本輪未觸發，需要另一個明確設計的 payload 才能驗證。"
+  ],
+  "notes": "本輪在單一 daemon（port 19020，兩次重啟：93787→22890→短暫驗證行程，全部已 SIGTERM 收尾）上完整跑完 E0-05 的全部 7 個子案例。全程未 cargo build／pnpm build／改動 repo 檔案；只讀取原始碼作為對照依據。最重大的發現是 E0-05-old-context-limit：刪除記憶只影響『之後新產生的 Context Bundle』，已經進入某個 provider session transcript 的內容（含機密暗號）在該 transcript 存活期間無法被追回——這是本專案在 CLAUDE.md 中已知會關心的『誠實階梯』類議題，用真實資料（含金額與 provider 本機 log）雙路徑證實。另外發現一個中度嚴重度的控制面缺口：對已 claimed-completed 的 session 送新任務會真的執行並計費，但 GET 狀態端點的 state 欄位完全不反映這次執行，只能靠輪詢 messages 端點才看得出來——已列為 E0-05-old-context-limit 案例下的 productDefects。supersede/conflict 機制經原始碼與實測雙重確認不存在，列為低嚴重度的設計缺口（E0-05-supersede）。所有 real-agent 案例的 actualModel 皆從 ~/.claude/projects/.../<providerSessionId>.jsonl 唯讀取得，一致為 claude-fable-5-1，permissionMode=plan；requestedModel 依規定填 not-specifiable-via-gateway。"
+}

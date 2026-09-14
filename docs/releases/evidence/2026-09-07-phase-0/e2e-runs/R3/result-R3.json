@@ -1,0 +1,308 @@
+{
+  "group": "E0-09 Agent 提問→人類稍後回答→接續",
+  "cases": [
+    {
+      "id": "E0-09-static",
+      "scenario": "靜態確認：waiting-for-input 有沒有連接器會發出；codex requestUserInput 有沒有被處理",
+      "agentOrSurface": "crates/interaction-agent-gateway/{lib,claude,codex}.rs; crates/interaction-runtime/src/{gateway,agents}.rs; apps/interaction-desktop/src/statusProjection/workState.ts",
+      "evidenceLevel": "static-inspection",
+      "precondition": "repo checkout at HEAD 78dcda1（= origin/main），不需要 daemon／agent",
+      "steps": [
+        "grep -rn TaskWaitingForInput crates/",
+        "grep -n waiting-for-input crates/interaction-runtime/src/agents.rs",
+        "grep -rln waiting-for-input|WaitingForInput|NEEDS_INPUT apps/interaction-desktop/src",
+        "grep -n requestUserInput|AsyncUserInputQuestion crates/interaction-agent-gateway/src/codex.rs",
+        "查 codex 0.153.4 v2 schema：ServerRequest.json 內 item/tool/requestUserInput → ToolRequestUserInputParams/Response",
+        "讀 codex.rs stdout 分派迴圈（(true, Some(m)) 分支）與 resolve_approval() 的回應 shape"
+      ],
+      "expected": {
+        "ui": "不適用（純程式碼閱讀）",
+        "coreState": "確認 TaskWaitingForInput 這個 GatewayEvent variant 定義存在、但沒有任何連接器（claude.rs／codex.rs）產生它；確認 codex 0.153.4 v2 schema 是否有等價通知",
+        "effect": "得到有 file:line 依據的 not-implemented／implemented-partial 結論"
+      },
+      "result": "not-implemented",
+      "actual": "1) `GatewayEvent::TaskWaitingForInput` 只在 crates/interaction-agent-gateway/src/lib.rs:99 定義（並帶 v0.5 誠實揭露註解：目前沒有任何 connector 產生這個事件），唯一消費點在 crates/interaction-runtime/src/gateway.rs:413，但沒有任何程式碼 `send()` 這個 variant——claude.rs／codex.rs 都不產生它。crates/interaction-core/src/agent.rs:19-27 的 doc comment 重申同一件事（HONEST GAP）。2) `waiting-for-input` 字串本身只走「人工回報」這一條路：agents.rs:1182（report_agent_session 事件 → 狀態映射）與 agents.rs:1248（→ taxonomy \"waiting-input\"），兩處都只在 `report_agent_session()`（POST .../report，人工／agent 自報 API）裡被消費，不在任何 connector 解析路徑裡。3) UI 端 workState.ts 有完整的 NEEDS_INPUT 投影（label 等你回答／kind needs-input／badge warn／needsDecision true，第91-96行；WORK_STATE_PROJECTION 表第118-119行同時映射 waiting-for-input 與 waiting-input 兩種 key），純粹是「介面認得這個狀態值、知道怎麼畫」，不代表有東西會產生這個狀態。4) codex 0.153.4 v2 schema 確實有等價通知，但不是 gateway 任務指定的 \"AsyncUserInputQuestion\" 這個型別名——實際是 ServerRequest 底下的 `item/tool/requestUserInput`（method 名稱見 codex-schema-0.153.4/ServerRequest.json:1904-1908），params/response 型別叫 `ToolRequestUserInputParams`／`ToolRequestUserInputResponse`（同目錄 ToolRequestUserInputParams.json／Response.json，皆標記 EXPERIMENTAL）。5) 關鍵缺陷：codex.rs 的 stdout 分派迴圈對「有 id 又有 method」的訊息一律走同一個分支（codex.rs:250-263，`(true, Some(m)) =>`），不分辨 method 是什麼——`item/tool/requestUserInput` 會被和 `execCommand/requestApproval`、`applyPatch/requestApproval` 等真正的核可請求完全同等對待，一律轉成 `GatewayEvent::TaskWaitingForConsent`，summary 由 approval_summary()（codex.rs:432-445）產生，該函式只找 /command /cmd /path /reason 四個欄位，request_user_input 的實際 payload（questions[].question／header／options）完全不會出現在 summary 裡，人類只會看到『codex 請求核可：item/tool/requestUserInput』這種空泛文字，看不到問題本身。6) 更嚴重：resolve_approval()（codex.rs:623-660）不分請求種類，一律送 `{\"id\": rid, \"result\": {\"decision\": \"accept\"|\"reject\"}}`（codex.rs:646-650）。但 ToolRequestUserInputResponse 的合約 schema 要求的是 `{\"answers\": {<questionId>: {\"answers\": [...]}}}`（ToolRequestUserInputResponse.json），完全不同的 shape，且沒有任何欄位承載使用者真正要回答的文字內容——只要 codex 真的走 request_user_input 路徑，approve 端送出的回應會是 codex 不認得的格式，實測未驗證後續行為（本次真 codex 流程走的是 turn/start 一路到底、沒有觸發過任何 ServerRequest，見 E0-09-codex-followup），只能靜態指出這個 mismatch，不冒稱已驗證 codex 收到錯誤回應後的具體反應。結論：not-implemented——waiting-for-input 這個狀態值目前 100% 只能靠人工 POST /report 產生，兩個 connector 都不會自動產生；codex 唯一可能對應到「等人類回答」語意的協定訊息（item/tool/requestUserInput）會被現有程式碼誤判成一般核可請求，且核可回覆的訊息格式與該請求類型的合約不符（response shape mismatch，非同一分支能修好的表面問題）。",
+      "evidence": [
+        "crates/interaction-agent-gateway/src/lib.rs:99",
+        "crates/interaction-runtime/src/gateway.rs:413",
+        "crates/interaction-core/src/agent.rs:19-27",
+        "crates/interaction-runtime/src/agents.rs:1182",
+        "crates/interaction-runtime/src/agents.rs:1248",
+        "apps/interaction-desktop/src/statusProjection/workState.ts:91-96,118-119",
+        "crates/interaction-agent-gateway/src/codex.rs:236-266（分派迴圈，250-263 是 (true, Some(m)) 分支）",
+        "crates/interaction-agent-gateway/src/codex.rs:432-445（approval_summary）",
+        "crates/interaction-agent-gateway/src/codex.rs:623-660（resolve_approval，646-650 是回應 shape）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/matrix/codex-schema-0.153.4/ServerRequest.json:1898-1919（method item/tool/requestUserInput）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/matrix/codex-schema-0.153.4/ToolRequestUserInputParams.json",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/matrix/codex-schema-0.153.4/ToolRequestUserInputResponse.json"
+      ],
+      "observations": [
+        "文件（lib.rs 與 agent.rs 的 doc comment）自己已經誠實記錄了這個 gap，屬於已知限制，不是意外發現",
+        "codex 的 request_user_input 是 EXPERIMENTAL 標記的協定訊息，0.153.4 是否真的會在一般任務流程觸發它未知——本 session 的兩個真 codex turn（見 E0-09-codex-followup）都沒有觸發過，schema 存在不代表當前版本行為會用到它",
+        "waiting-for-input 狀態在 runtime 模型裡是完整的一等公民（enum variant、taxonomy、UI 投影都在），缺的只是「自動偵測」這一段——這是刻意的設計缺口（見 agent.rs 的 HONEST GAP 註解），不是遺漏"
+      ],
+      "productDefects": [
+        {
+          "title": "codex.rs 把所有帶 id+method 的 ServerRequest 一律當核可請求處理，不分辨 item/tool/requestUserInput 與真正的執行/檔案核可請求",
+          "severity": "medium",
+          "location": "crates/interaction-agent-gateway/src/codex.rs:250-263",
+          "repro": "讓 codex app-server 對某個 thread 送出 method=\"item/tool/requestUserInput\" 的 ServerRequest（目前未知 0.153.4 在什麼情境會觸發，屬 EXPERIMENTAL 功能，未實測到自然觸發路徑）；靜態讀碼可見它會落進與 execCommand/requestApproval 相同的 (true, Some(m)) 分支",
+          "evidence": [
+            "crates/interaction-agent-gateway/src/codex.rs:250-263",
+            "crates/interaction-agent-gateway/src/codex.rs:432-445"
+          ],
+          "phase0MinimalFixCandidate": false
+        },
+        {
+          "title": "resolve_approval() 對所有 approval request 一律回 {result:{decision:accept|reject}}，若請求其實是 item/tool/requestUserInput，這個 shape 不符合 ToolRequestUserInputResponse 合約（缺 answers 欄位，也沒有管道承載人類的實際回答文字）",
+          "severity": "medium",
+          "location": "crates/interaction-agent-gateway/src/codex.rs:623-660",
+          "repro": "同上，需先讓 codex 觸發 item/tool/requestUserInput；靜態比對 codex.rs:646-650 送出的 JSON 與 ToolRequestUserInputResponse.json 的必填欄位（answers）即可看出 shape 不符——未實測 codex 收到後的實際反應",
+          "evidence": [
+            "crates/interaction-agent-gateway/src/codex.rs:646-650",
+            "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/matrix/codex-schema-0.153.4/ToolRequestUserInputResponse.json"
+          ],
+          "phase0MinimalFixCandidate": false
+        }
+      ],
+      "limitations": "只靜態讀碼＋schema 比對，沒有實際誘發 codex 送出 item/tool/requestUserInput（不知道什麼情境會觸發，也不在本輪任務範圍內構造）；上述兩個 productDefects 的『後果』是從 schema 落差推論，不是已觀察到的真實錯誤行為，因此標 medium 而非 high／blocker，且未在 phase0MinimalFixCandidate 打勾。",
+      "cleanup": "無（純讀碼，未啟動任何程序）",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+        "binaryIdentity": "unknown（本 case 未啟動 daemon，不涉及 binary）",
+        "agent": "none",
+        "connectorVersion": "codex schema 版本 0.153.4（讀自既有 matrix 快照，未重新查驗 codex CLI 版本字串）",
+        "requestedModel": "not-specifiable-via-gateway",
+        "actualModel": "unknown",
+        "actualModelSource": "provider-local-log (not via gateway)",
+        "reasoning": "unknown",
+        "newOrResumed": "unknown",
+        "workdir": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+        "authorization": "unknown（不涉及 API token）",
+        "durationSeconds": 0,
+        "costOrTokens": "0（純讀碼，無 agent 呼叫）"
+      }
+    },
+    {
+      "id": "E0-09-claude-followup",
+      "scenario": "真 Claude Code：第一輪任務要求先問澄清問題→claimed-completed（帶著問題）→模擬人類 30 秒後回答→同一 session 送第二個 task 訊息→觀察是否延續、provider session 是否同一個",
+      "agentOrSurface": "claude-code via crates/interaction-agent-gateway/src/claude.rs（claude -p --input-format stream-json --output-format stream-json --safe-mode --permission-mode plan）",
+      "evidenceLevel": "real-agent",
+      "precondition": "獨立 daemon（INTERACT_AI_HOME=.../claude-followup/home，port 19030，INTERACT_AI_MOBILE_ADVERTISE=0），unset INTERACT_AI_CLAUDE_BIN／INTERACT_AI_CODEX_BIN；隔離 workdir 只放一個 NOTES.md fixture；allowWrite=false、toolScope=[]、consentScope=[]（唯讀）",
+      "steps": [
+        "POST /v1/agent-sessions {agentId:claude-code, allowWrite:false, ...} → 201",
+        "POST .../messages {kind:task, body:{task:\"在回答之前，你必須先問我一個釐清問題：我想要的輸出語言是繁體中文還是英文？請只提出這個問題並等待我的回答，不要自行假設，也不要讀取或修改任何檔案。\"}}",
+        "輪詢 GET .../{id} 直到 terminal，記錄狀態時間線與 claimId",
+        "GET .../messages?direction=from-session 讀第一輪的回覆內容",
+        "sleep 30s（模擬『人類稍後才看到並回答』）",
+        "POST .../messages {kind:task, body:{task:\"繁體中文。請繼續，並用一句話用繁體中文說明你收到了這個回答。\"}}（同一個 sessionId，不建立新 session）",
+        "輪詢直到出現與 turn1 不同的新 claimId 且落在 terminal（避免把 turn1 殘留的 claimed-completed 誤判成 turn2 已完成——第一次跑腳本時就踩到這個 race，見 evidence 的 attempt1 目錄）",
+        "GET .../messages?direction=from-session／to-session 讀兩輪完整內容",
+        "ps 檢查 claude 子程序是否同一個 pid 貫穿兩輪；讀 ~/.claude/projects/<workdir slug>/<providerSessionId>.jsonl 取 actualModel／permissionMode"
+      ],
+      "expected": {
+        "ui": "不適用（純 API／CLI 層測試，未起 Tauri UI）",
+        "coreState": "runtime 沒有 waiting-for-input 語意（見 E0-09-static），所以預期 turn1 結束後狀態是 claimed-completed（不是 waiting-for-input）——claim 內容剛好是一個問句；claimed-completed 屬於 is_open()==true 的狀態，預期第二個 task 訊息可以送進同一個 session",
+        "effect": "预期同一個 provider session（同一個 claude -p 子程序、同一個 session_id）被複用做第二輪；第二輪的回覆應該反映第一輪問的問題與人類給的答案"
+      },
+      "result": "completed",
+      "actual": "完全符合預期，且驗證到協定層細節：(1) turn1 在 mono≈9.7s 到達 claimed-completed，from-session 訊息 body.summary = 「請問您希望我的輸出語言是**繁體中文**還是**英文**？我會等您回覆後再繼續，目前不會讀取或修改任何檔案。」——這是一個問句被包裝成『完成』的 claim，印證 E0-09-static 的結論：runtime 沒有辦法把這個狀態跟『真的做完了』區分開，UI 會顯示『對方說已完成』而不是『等你回答』。(2) sleep 30s 模擬人類延遲之後，POST 第二個 task 訊息到同一個 sessionId，HTTP 200；GET 立刻讀到的 state 仍是 turn1 的 claimed-completed（claimId 相同）——這是因為 session 的 state 欄位只在連接器非同步事件（TaskAccepted 等）真正處理完才會變，送出訊息本身不會同步反映成 active，第一次跑腳本時沒注意到這個 race，把『送出後立刻讀到的舊 claimed-completed』誤判成『第二輪已完成』就提早收工、殺了 daemon（見 claude-followup-attempt1-race-bug/result.json，turn1Final.claimId 與 turn2Final.claimId 完全相同，證明第二輪其實從未被觀察到真的跑完）——這是測試腳本本身的 race bug，不是產品缺陷，已在正式跑（claude-followup/）用『等到出現新 claimId 才收工』修正。(3) 修正後的正式跑：turn2 約 4 秒後（mono 39.773→43.835）拿到新 claimId，from-session 訊息追加第二筆，summary=「我已收到您的回答，後續輸出將全部使用繁體中文。目前沒有其他待辦任務，也未讀取或修改任何檔案。如有需要規劃或執行的工作，請告訴我具體內容。」——確實延續了第一輪的問題脈絡，語言也照人類的答案切換。(4) providerSessionId 兩輪完全相同（546e3934-beb9-472c-b861-3080df58dd49）；ps 觀察到同一個 claude 子程序 pid（5002）跨兩輪存在（turn1-children 顯示 etime 00:09，turn2-children 同一個 pid 顯示 00:43），證實 claude.rs 對第二個 task 訊息是寫進同一個子程序的 stdin（send_user_message），完全沒有重新 spawn，符合原始碼閱讀（claude.rs:323-336）的預期。(5) messages?direction=from-session 回傳兩輪的完整歷史（兩筆 result），direction=to-session 也看得到兩筆 task。(6) 從 provider-local log 讀到 actualModel=claude-fable-5-1、permissionMode=plan。(7) 全程 daemon 正常關閉，無殘留 claude 子程序（ppid 追蹤確認）。",
+      "evidence": [
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3/claude-followup/result.json（$.turn1Final.claimId、$.turn2Final.claimId、$.turn1MessagesFromSession、$.turn2MessagesFromSession、$.turn2Snapshots）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3/claude-followup/sse.jsonl",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3/claude-followup/daemon.log",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3/claude-followup-attempt1-race-bug/result.json（$.turn1Final.claimId == $.turn2Final.claimId，證明第一次跑腳本的 race）",
+        "/Users/user/.claude/projects/-private-tmp-claude-501--Users-user-Workspace-claude-lab-adaptive-interaction-95db6375-b13e-4494-9180-4b15da263657-scratchpad-e2e2-runs-R3-claude-followup-workdir/546e3934-beb9-472c-b861-3080df58dd49.jsonl（\"model\":\"claude-fable-5-1\", \"permissionMode\":\"plan\"，15 行，唯讀）"
+      ],
+      "observations": [
+        "claimed-completed 的『完成』只是連接器對一個 turn 結束的通稱，agent 提出的澄清問題也會被包成 claimed-completed——這不是本 case 的缺陷（E0-09-static 已列為已知的 not-implemented gap），但實測證實了這個 gap 在真實對話裡具體長什麼樣子：使用者在 UI 上只會看到『對方說已完成』的中性提示，看不到『它在等你』的警示樣式（NEEDS_INPUT badge），除非有人手動 POST /report waiting-for-input",
+        "session 的 state 欄位在送出新訊息當下不會同步更新，只有等連接器非同步事件處理完才變——呼叫端如果用『立即輪詢一次』判斷『任務是否已送達並開始處理』會踩到本次遇到的同一種 race，claim_id 才是判斷『這是不是新的一輪』的可靠欄位",
+        "第二輪確實花費了真實 API 成本（budget.spentCost 從 0.0812 累加到 0.1888 USD，spentMessages=4），屬於低風險、唯讀、隔離工作目錄內的真實呼叫，符合任務給的風險準則"
+      ],
+      "productDefects": [],
+      "limitations": "只跑了一次乾淨的完整流程（第一次跑因為腳本 race bug 而不算數，已保留在 attempt1 目錄當診斷證據，不重跑第二次去『湊』更多樣本，避免不必要的真實 API 花費）；沒有測試『人類遲遲不回答、session TTL 到期』或『第二個 task 送達時 agent 子程序恰好已經退出』這類邊界情境，只驗證了『30 秒內回答』這條 happy path",
+      "cleanup": "daemon PID 4800 已 SIGTERM 並確認 wait 結束（result.json 的 daemon-stopped 事件，mono 43.94）；ps 複查 ppid==4800 的子程序：無殘留",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+        "binaryIdentity": "sha256:1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7（target/debug/interact-ai，version 0.8.0）",
+        "agent": "claude-code",
+        "connectorVersion": "claude -p --input-format stream-json --output-format stream-json --safe-mode --strict-mcp-config --permission-mode plan --tools Read,Glob,Grep（Claude Code 2.1.263，已登入 claude.ai max）",
+        "requestedModel": "not-specifiable-via-gateway",
+        "actualModel": "claude-fable-5-1",
+        "actualModelSource": "provider-local-log (not via gateway)",
+        "reasoning": "unknown（stream-json 訊息未見對應欄位；permissionMode=plan 已記錄，非 reasoning effort）",
+        "newOrResumed": "new（第一輪 system/init 建立新 provider session；第二輪透過同一子程序的 stdin 續傳，不是 --resume）",
+        "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3/claude-followup/workdir",
+        "authorization": "Bearer <home>/state/api-token（人類 token，非受限 agent token）",
+        "durationSeconds": 43.94,
+        "costOrTokens": "USD 0.18877375（budget.spentCost，兩輪合計；turn1=0.0812、turn2=0.1076）"
+      }
+    },
+    {
+      "id": "E0-09-codex-followup",
+      "scenario": "真 Codex：同一流程（app-server thread 內第二次 turn/start），觀察是否延續同一 thread、有沒有觸發 requestUserInput／consent",
+      "agentOrSurface": "codex via crates/interaction-agent-gateway/src/codex.rs（codex app-server JSON-RPC v2，approval_policy untrusted，sandbox read-only）",
+      "evidenceLevel": "real-agent",
+      "precondition": "獨立 daemon（INTERACT_AI_HOME=.../codex-followup/home，port 19031，INTERACT_AI_MOBILE_ADVERTISE=0），unset INTERACT_AI_CLAUDE_BIN／INTERACT_AI_CODEX_BIN；隔離 workdir 只放一個 NOTES.md fixture（未被讀取——task 明確要求不要碰檔案，避開 sandbox read-only 下 cat 都要核可的已知限制）；allowWrite=false、toolScope=[]、consentScope=[]",
+      "steps": [
+        "POST /v1/agent-sessions {agentId:codex, ...} → 201",
+        "POST .../messages {kind:task, body:{task:同 claude 版釐清問題任務}}",
+        "輪詢直到 terminal，記錄狀態時間線",
+        "GET .../messages?direction=from-session 讀第一輪回覆",
+        "sleep 30s",
+        "POST .../messages {kind:task, body:{task:\"繁體中文。請繼續...\"}} 到同一 sessionId",
+        "輪詢直到出現新 claimId 且 terminal",
+        "GET .../messages 讀兩輪內容；ps 檢查 codex app-server pid 是否貫穿兩輪；讀 ~/.codex/sessions/.../rollout-*-<providerSessionId>.jsonl 取 model／reasoning_effort／approval_policy／sandbox_policy"
+      ],
+      "expected": {
+        "ui": "不適用",
+        "coreState": "同 claude 版：預期 turn1 結束落在 claimed-completed（codex 同樣沒有 waiting-for-input 語意）；因為任務明確不觸碰檔案，預期不會經過 approval ServerRequest（waiting-for-consent），也就不會實際碰到 E0-09-static 指出的 item/tool/requestUserInput 誤判問題",
+        "effect": "預期同一個 codex thread（providerSessionId）被複用做兩輪 turn/start，第二輪回覆延續第一輪脈絡"
+      },
+      "result": "completed",
+      "actual": "與 claude 版一致地符合預期：(1) turn1 在 mono≈7.7s 到達 claimed-completed，from-session summary=「你想要的輸出語言是繁體中文還是英文？」——同樣是問句被當作『完成』回報，全程沒有出現 waiting-for-consent（因為任務刻意不碰檔案，避開了 codex read-only sandbox 下連 cat 都要核可的已知限制）。(2) sleep 30s 後 POST 第二個 task 訊息，這次腳本已用『等新 claimId』的正確邏輯：turn2-state 在 mono 37.784 仍讀到 turn1 的舊 claimId（staleClaim:true，證實同一種『送出不同步反映』的行為在 codex 連接器上也存在，不是 claude 特有）、mono 38.292 短暫轉成 active（staleClaim 仍 true，claimId 尚未變但狀態已經動了）、mono 42.851 才出現新 claimId 且回到 claimed-completed——完整看到了 active 這個中間態，比 claude 版看得更清楚。(3) from-session 第二筆 summary=「我已收到你的回答，接下來會使用繁體中文。」，延續第一輪問題。(4) providerSessionId（thread id）兩輪相同：01a07b20-2a83-7741-92f3-f9709d510d43；ps 觀察同一個『codex app-server』pid（13974）跨兩輪存在（etime 00:07→00:42），證實 send_user_message 對 codex 是對同一 thread 送 turn/start（codex.rs:610-621），不是重新 spawn 子程序或開新 thread。(5) daemon.log 全程只有啟動三行，沒有任何錯誤或 unparsed 訊息，代表這次真實互動沒有踩到 E0-09-static 指出的 method 誤判問題（因為根本沒有觸發 item/tool/requestUserInput 或任何 approval）。(6) provider-local rollout log 讀到 model=gpt-6-astra、reasoning_effort=medium、approval_policy=untrusted、sandbox_policy={type:read-only}。(7) daemon 正常關閉，ps 確認無殘留 codex app-server 子程序。",
+      "evidence": [
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3/codex-followup/result.json（$.turn1Final.claimId、$.turn2Final.claimId、$.turn1MessagesFromSession、$.turn2MessagesFromSession、$.turn2Snapshots 內含 staleClaim 標記與 active 中間態）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3/codex-followup/sse.jsonl",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3/codex-followup/daemon.log（僅 3 行啟動訊息，無錯誤）",
+        "/Users/user/.codex/sessions/2026/09/07/rollout-2026-09-07T17-08-20-01a07b20-2a83-7741-92f3-f9709d510d43.jsonl（model=gpt-6-astra, reasoning_effort=medium, approval_policy=untrusted, sandbox_policy={\"type\":\"read-only\"}，26 行，唯讀）"
+      ],
+      "observations": [
+        "codex 版清楚拍到了 turn2 的 active 中間態（claude 版只拍到 turn1 的 active，turn2 因為完成太快，輪詢間隔 0.5s 沒能落在 active 窗口內——兩者行為推測一致，只是取樣時機差異，不代表 claude 沒有經過 active）",
+        "因為任務刻意避開檔案存取，沒有機會實測 E0-09-static 指出的『codex.rs 把 item/tool/requestUserInput 誤判成一般核可請求』這個缺陷是否真的會在自然對話中觸發——本 case 只能證明『不涉及檔案的簡單澄清問答』這條路徑是乾淨的，不能推廣到『codex 主動用 request_user_input 工具問問題』這個更少見的路徑",
+        "budget.spentCost 兩輪都是 0.0（codex 連接器不回報 USD 成本，只有 token 數；本次 daemon.log／sse.jsonl 也沒有捕到 thread/tokenUsage/updated 事件，token 數記為 unknown，不是 0——避免把『沒觀察到』誤寫成『確定是 0』）"
+      ],
+      "productDefects": [],
+      "limitations": "同 claude 版：只跑一次乾淨流程；token 用量因為沒有觀察到 thread/tokenUsage/updated 事件而記為 unknown（codex 只回報 token、不回報 USD，本次剛好沒捕到那個通知，不代表它不存在）；沒有實測到 item/tool/requestUserInput 這條路徑（見 E0-09-static 的 productDefects，仍是純靜態推論）",
+      "cleanup": "daemon PID 13717 已 SIGTERM 並確認 wait 結束（result.json 的 daemon-stopped 事件，mono 42.99）；ps 複查 ppid==13717 的子程序：無殘留",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+        "binaryIdentity": "sha256:1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7（target/debug/interact-ai，version 0.8.0）",
+        "agent": "codex",
+        "connectorVersion": "codex app-server JSON-RPC v2（Codex CLI 0.153.4，approval_policy=untrusted，sandbox read-only，已登入 ChatGPT）",
+        "requestedModel": "not-specifiable-via-gateway",
+        "actualModel": "gpt-6-astra",
+        "actualModelSource": "provider-local-log (not via gateway)",
+        "reasoning": "medium（reasoning_effort，讀自 rollout log）",
+        "newOrResumed": "new（thread 由第一次 turn/start 建立；第二輪對同一 threadId 再次 turn/start，不是新 thread、也不是顯式 resume 參數）",
+        "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3/codex-followup/workdir",
+        "authorization": "Bearer <home>/state/api-token（人類 token）",
+        "durationSeconds": 42.99,
+        "costOrTokens": "USD 0.0（budget.spentCost，codex 連接器本就不回報 USD）；token 數 unknown（本次未觀察到 thread/tokenUsage/updated 事件）"
+      }
+    },
+    {
+      "id": "E0-09-manual-report",
+      "scenario": "人工回報路徑：POST /report {event:waiting-for-input} → state=waiting-for-input → UI 投影會顯示什麼 → 再 POST 一個 task 是否解除；明確標示為人工注入，不算完整驗收",
+      "agentOrSurface": "HTTP API（POST /v1/agent-sessions/{id}/report、POST .../messages）＋ apps/interaction-desktop/src/statusProjection/workState.ts（純讀碼，未起 Tauri UI）",
+      "evidenceLevel": "integration",
+      "precondition": "獨立 daemon（INTERACT_AI_HOME=.../manual-report/home，port 19030，INTERACT_AI_MOBILE_ADVERTISE=0，claude-followup 的 daemon 已停用同一個埠）；建立一個 claude-code session 但**不**送任何 task（state 停在 created，尚未 spawn 連接器子程序）",
+      "steps": [
+        "POST /v1/agent-sessions {agentId:claude-code,...} → state=created，providerSessionId=null",
+        "確認 state=created（人工回報前的基準）",
+        "POST .../report {event:\"waiting-for-input\",payload:{}}（人工操作者手動回報，不是 agent 自己送的）",
+        "GET .../{id} 確認 state=waiting-for-input",
+        "讀 apps/interaction-desktop/src/statusProjection/workState.ts 的 WORK_STATE_PROJECTION 表，查 waiting-for-input 會投影成什麼 UI 文案／樣式",
+        "POST .../messages {kind:task, body:{task:一句話自我介紹, 不碰檔案}} 到同一 session（測試『解除』）",
+        "輪詢 state 直到 terminal，觀察是否真的離開 waiting-for-input"
+      ],
+      "expected": {
+        "ui": "workState.ts 應該把 waiting-for-input 投影成『需要人類決策』樣式（NEEDS_INPUT：badge warn、needsDecision true）",
+        "coreState": "POST /report 應該能把一個原本是 created（甚至任何 is_open 狀態）的 session 手動標成 waiting-for-input，不需要真的有連接器在跑；之後送一個真正的 task 訊息應該能讓 state 隨連接器真實事件（active→claimed-completed）覆蓋掉這個人工標記",
+        "effect": "state 欄位在 report 呼叫之後立刻反映 waiting-for-input；送 task 之後最終落在 claimed-completed（連接器真的跑了一輪）"
+      },
+      "result": "completed",
+      "actual": "全部符合預期。(1) 建立 session 後不送 task，GET 讀到 state=created、claimId=null（尚未 spawn 任何 claude 子程序，純粹是 record 存在）。(2) POST /report {event:waiting-for-input,payload:{}} 回 200，回傳的 record.state 直接就是 waiting-for-input；再 GET 一次確認持久（不是回應裡的一次性投影）。這證實 report_agent_session()（agents.rs:1174-）完全不檢查『這個 session 是不是真的有連接器在等輸入』，任何 human/agent 呼叫端都可以無條件把一個 session 標成 waiting-for-input——這是設計如此（『人工回報路徑』本來就是給沒有自動偵測時的手動補位），不是缺陷，但代表這個狀態值目前的唯一真相來源就是呼叫端自己說了算，沒有連接器證據佐證。(3) 讀 workState.ts 原始碼確認：waiting-for-input 與 waiting-input 兩個 key 都映射到同一個 NEEDS_INPUT 常數（label:『等你回答』, kind:'needs-input', badge:'warn', needsDecision:true）——沒有跑 Tauri／Playwright，這是讀碼結論，不是畫面截圖驗證。(4) POST 一個真正的 task 訊息之後，state 先維持 waiting-for-input 6 秒（連接器 spawn＋處理中，同樣是『送出不同步反映』的已知行為），第 7 秒轉 active，第 8 秒到 claimed-completed，claimId 從 null 變成真正的 claim-f6fb9cd4...——證實人工標記會被後續真實連接器事件正常覆蓋，不會卡住。from-session 收到的回覆是一句正常的自我介紹（Claude Fable 5.1），語意上跟『之前有沒有人問過它問題』無關（本 case 沒有先問澄清問題，重點是測試狀態機制本身）。",
+      "evidence": [
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3/manual-report/create.json（state=created）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3/manual-report/report-resp.json（state=waiting-for-input，POST /report 的回應）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3/manual-report/after-report.json（GET 複查同一個 state）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3/manual-report/final-after-clear.json（claimId=claim-f6fb9cd4-...，state=claimed-completed，證實解除）",
+        "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3/manual-report/from-session.json",
+        "apps/interaction-desktop/src/statusProjection/workState.ts:91-96,118-119（NEEDS_INPUT 定義與映射表，讀碼取得，非畫面驗證）"
+      ],
+      "observations": [
+        "POST /report 對 state 的變更完全不驗證『這件事有沒有真的發生』——這是文件裡已經講明的『人工回報』語意（誠實階梯：queued≠completed 等同樣適用在這裡：report≠observed），本 case 的用意就是驗證這條手動路徑機制上通不通，不是驗證它的可信度",
+        "waiting-for-input 的 UI 投影只驗證到原始碼層級（TypeScript 常數表），沒有實際起 apps/interaction-desktop 的 Tauri app 或 Playwright 截圖確認畫面真的長這樣——按規則標為讀碼推論，不是『UI 已驗收』"
+      ],
+      "productDefects": [],
+      "limitations": "明確標示：這條路徑是人工注入（POST /report 由測試腳本／操作者手動呼叫），不代表任何連接器真的觸發了『等待輸入』；UI 投影只讀了 TypeScript 源碼常數表，沒有實際跑桌面 app 看畫面（不在本輪『不改檔案、不 build』的限制內能做的事——起 Tauri 需要 pnpm build 或至少 dev server，超出授權範圍）；只測試了『created 狀態下人工標記』與『之後送 task 解除』兩個時點，沒有測試『claimed-completed 狀態下人工標記 waiting-for-input，再送 task』或『waiting-for-input 期間 TTL 到期』等其他組合",
+      "cleanup": "daemon PID 22366 已 kill 並確認程序結束（ps -p 查無）；ps 複查 ppid==22366／pgid==22366 的子程序：無殘留（本 case 只送了一個真正的 task，對應一個 claude 子程序，已隨 daemon SIGTERM 一併結束）",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+        "binaryIdentity": "sha256:1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7（target/debug/interact-ai，version 0.8.0）",
+        "agent": "claude-code（僅第二段送 task 時才真的 spawn；POST /report 本身不涉及任何 agent 連接器）",
+        "connectorVersion": "claude -p --input-format stream-json --output-format stream-json --safe-mode --strict-mcp-config --permission-mode plan --tools Read,Glob,Grep",
+        "requestedModel": "not-specifiable-via-gateway",
+        "actualModel": "unknown（本 case 重點是狀態機測試，未特別去讀 provider-local log 取 model；providerSessionId=83a3d0aa-c4db-4460-9d66-cc0d0922dbcd 可用同樣方法查證但本次未做，誠實記 unknown 而非推測沿用 claude-followup 的 claude-fable-5-1）",
+        "actualModelSource": "provider-local-log (not via gateway)",
+        "reasoning": "unknown",
+        "newOrResumed": "new",
+        "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3/manual-report/workdir",
+        "authorization": "Bearer <home>/state/api-token（人類 token）",
+        "durationSeconds": 8,
+        "costOrTokens": "USD 0.141284（budget.spentCost，final-after-clear.json）"
+      }
+    }
+  ],
+  "commands": [
+    {
+      "name": "static-grep-waiting-for-input",
+      "cmd": "grep -rn TaskWaitingForInput crates/ && grep -n waiting-for-input crates/interaction-runtime/src/agents.rs && grep -rln waiting-for-input apps/interaction-desktop/src && grep -n requestUserInput crates/interaction-agent-gateway/src/codex.rs",
+      "start": "2026-09-07T09:03:00Z",
+      "end": "2026-09-07T09:03:05Z",
+      "seconds": 5,
+      "exit": 0
+    },
+    {
+      "name": "codex-schema-inspect",
+      "cmd": "cat codex-schema-0.153.4/ToolRequestUserInputParams.json ToolRequestUserInputResponse.json; grep -n ToolRequestUserInput codex-schema-0.153.4/ServerRequest.json",
+      "start": "2026-09-07T09:03:30Z",
+      "end": "2026-09-07T09:03:32Z",
+      "seconds": 2,
+      "exit": 0
+    },
+    {
+      "name": "claude-followup-attempt1-race-bug",
+      "cmd": "python3 followup_test.py --agent claude-code --port 19030 --out ./claude-followup --turn1-timeout 90 --turn2-timeout 90 --answer-delay 30",
+      "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3",
+      "start": "2026-09-07T09:05:25.041Z",
+      "end": "2026-09-07T09:06:03.529Z",
+      "seconds": 38.49,
+      "exit": 0
+    },
+    {
+      "name": "claude-followup-fixed",
+      "cmd": "python3 followup_test.py --agent claude-code --port 19030 --out ./claude-followup --turn1-timeout 90 --turn2-timeout 90 --answer-delay 30",
+      "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3",
+      "start": "2026-09-07T09:06:56.275Z",
+      "end": "2026-09-07T09:07:40.213Z",
+      "seconds": 43.94,
+      "exit": 0
+    },
+    {
+      "name": "codex-followup",
+      "cmd": "python3 followup_test.py --agent codex --port 19031 --out ./codex-followup --turn1-timeout 90 --turn2-timeout 90 --answer-delay 30",
+      "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3",
+      "start": "2026-09-07T09:08:19.841Z",
+      "end": "2026-09-07T09:09:02.829Z",
+      "seconds": 42.99,
+      "exit": 0
+    },
+    {
+      "name": "manual-report-daemon-and-curl-sequence",
+      "cmd": "interact-ai serve (bg, port 19030) then curl POST /v1/agent-sessions, POST .../report, GET .../{id}, POST .../messages, GET .../{id} loop",
+      "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R3/manual-report",
+      "start": "2026-09-07T09:09:33Z",
+      "end": "2026-09-07T09:10:12Z",
+      "seconds": 39,
+      "exit": 0
+    }
+  ],
+  "openQuestions": [
+    "codex 0.153.4 在什麼實際任務情境下會真的觸發 item/tool/requestUserInput（EXPERIMENTAL 標記，本輪兩次真實 codex turn 都沒有自然觸發）——沒有觸發到就無法實測 codex.rs 的誤判分支與 resolve_approval() 的 response shape mismatch 在真實協定往返下的具體後果，E0-09-static 的兩個 productDefects 仍停留在『schema 落差』層級的靜態推論",
+    "claude 連接器兩輪之間 state 從送出訊息到真正反映 active/claimed-completed 之間有幾秒到十幾秒不等的延遲（本次 claude turn2 幾乎瞬間、codex turn2 花了約 5 秒才轉 active 又 4.5 秒到新 claim）——這個延遲的上界／是否有 timeout 保護（例如 agent 子程序完全沒反應時 session 會不會卡在舊狀態），本輪未系統性測試，只是在兩次真實跑裡各自觀察到一次",
+    "『第二個 task 訊息送達時，若人類真的等了很久（例如超過 ttlMinutes 或 agent 子程序已經因為某種原因退出）』這個更貼近真實『人類稍後回答』場景（本次只等了 30 秒，遠短於 ttlMinutes:20 分鐘）的邊界情況未覆蓋，需要額外一組『長延遲』或『子程序已死』的 case 才能回答"
+  ],
+  "notes": "本輪 4 個 case 全部完成，分類：E0-09-static=not-implemented（附兩個 medium productDefects，皆為靜態推論、未在真實協定往返中觀察到後果）；E0-09-claude-followup、E0-09-codex-followup、E0-09-manual-report 三個實測 case 全部 completed，行為完全符合『runtime 沒有自動 waiting-for-input 偵測，但 claimed-completed 是 open 狀態、同一個 session 可以接續對話、同一個連接器子程序／thread 會被複用』這個由靜態讀碼得出的預期，沒有出現與程式碼閱讀矛盾的行為。claude-followup 第一次跑腳本時因為『送出訊息後立即輪詢，state 尚未同步更新』踩到腳本本身的 race bug（誤把 turn1 殘留的 claimed-completed 當成 turn2 已完成），已在 evidence 裡保留原始輸出作為診斷紀錄，並用『等待新 claimId』修正後重跑一次拿到乾淨結果——這個 race 本身也是一個值得記錄的觀察：呼叫端如果只看 state 字串而不比對 claimId，很容易誤判『我剛送的這個任務有沒有真的被處理』。三個真實 agent case 合計花費可觀測的真實 API 成本 USD ≈0.33（claude 兩個 case 各自 0.1888／0.1413，codex 不計費），token 用量因為部分事件未捕獲而記為 unknown，不虛報為 0。所有 daemon／子程序已確認清理乾淨，未寫入 ~/.adaptive-interaction／~/.claude／~/.codex（只唯讀過 ~/.claude/projects 與 ~/.codex/sessions 底下的既有 log 檔取 model 資訊）。"
+}
