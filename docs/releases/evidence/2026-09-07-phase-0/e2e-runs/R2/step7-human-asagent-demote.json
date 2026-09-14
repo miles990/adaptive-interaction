@@ -1,0 +1,2 @@
+{"agentDenylist":[],"agentVisibility":[],"confidence":1.0,"content":"以 asAgent 聲稱 agent 身分寫入的 fact，預期被降權","createdAt":"2026-09-07T09:09:51.698719Z","createdBy":{"id":"claude-code","kind":"agent"},"kind":"inference","layer":"user-memory","memoryId":"mem-0fb0babb-b278-4466-91b1-e027f62630ab","provenance":[],"retention":{"reviewAfter":"2026-10-07T09:09:51.698686Z"},"schemaVersion":"1.0","tags":[],"title":"agent 匯入的事實","updatedAt":"2026-09-07T09:09:51.698719Z"}
+HTTP_STATUS:200

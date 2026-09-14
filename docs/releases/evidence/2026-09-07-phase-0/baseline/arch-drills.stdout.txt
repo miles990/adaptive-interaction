@@ -1,0 +1,22 @@
+architecture-checks @ /Users/user/Workspace/claude-lab/adaptive-interaction
+完整輸出：/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/baseline/arch-drills-evidence
+
+── drills（production 路徑＋模擬器／隔離樹）───────────────
+  RUN drill-character-package — /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/baseline/arch-drills-evidence/drill-character-package.log
+  drill-character-package: exit=0 elapsed=3s
+  RUN drill-restricted-device — /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/baseline/arch-drills-evidence/drill-restricted-device.log
+  drill-restricted-device: exit=0 elapsed=6s
+  RUN drill-current-cli — /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/baseline/arch-drills-evidence/drill-current-cli.log
+  drill-current-cli: exit=0 elapsed=0s
+  RUN drill-provider-lifecycle — /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/baseline/arch-drills-evidence/drill-provider-lifecycle.log
+  drill-provider-lifecycle: exit=0 elapsed=3s
+  RUN drill-optional-state — /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/baseline/arch-drills-evidence/drill-optional-state.log
+  drill-optional-state: exit=0 elapsed=38s
+── 摘要 ────────────────────────────────────────────────
+  docs       SKIP 未指定 --docs
+  ts         SKIP 未指定 --ts
+  rust       SKIP 未指定 --rust
+  drill-lint SKIP 未指定 --drill-lint
+  swift      SKIP 未指定 --swift；不以測試檔存在當成通過
+  drills     PASS 四個 runner 實跑，覆蓋五項 N5 演練；per-run 日誌與資料保留結果在 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/baseline/arch-drills-evidence
+architecture-checks: 所選組全部通過；5 組未選取（不是通過）；證據 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/baseline/arch-drills-evidence

@@ -1,0 +1,104 @@
+[
+  {
+    "cmd": [
+      "windows"
+    ],
+    "exit": 0,
+    "seconds": 0.599,
+    "out": "PROBE-START\nInteraction Control Center",
+    "err": ""
+  },
+  {
+    "cmd": [
+      "exists",
+      "AXButton",
+      "現在"
+    ],
+    "exit": 0,
+    "seconds": 0.391,
+    "out": "no",
+    "err": ""
+  },
+  {
+    "cmd": [
+      "exists",
+      "AXButton",
+      "現在"
+    ],
+    "exit": 0,
+    "seconds": 0.45,
+    "out": "yes",
+    "err": ""
+  },
+  {
+    "cmd": [
+      "navclick",
+      "2"
+    ],
+    "exit": 0,
+    "seconds": 0.555,
+    "out": "clicked nav 2 (PROBE-START)",
+    "err": ""
+  },
+  {
+    "cmd": [
+      "exists",
+      "AXDisclosureTriangle",
+      "更換或加入角色"
+    ],
+    "exit": 0,
+    "seconds": 2.636,
+    "out": "yes",
+    "err": ""
+  },
+  {
+    "cmd": [
+      "click",
+      "AXDisclosureTriangle",
+      "更換或加入角色"
+    ],
+    "exit": 0,
+    "seconds": 3.762,
+    "out": "clicked 更換或加入角色 目前使用「PROBE-START」・共 10 個角色",
+    "err": ""
+  },
+  {
+    "cmd": [
+      "click",
+      "AXButton",
+      "選擇角色設定檔"
+    ],
+    "exit": 0,
+    "seconds": 7.78,
+    "out": "clicked 選擇角色設定檔",
+    "err": ""
+  },
+  {
+    "cmd": [
+      "windows"
+    ],
+    "exit": 0,
+    "seconds": 0.267,
+    "out": "Open\nPROBE-START\nInteraction Control Center",
+    "err": ""
+  },
+  {
+    "cmd": [
+      "choosefile",
+      "/private/tmp/aip-r7-imp/one.json"
+    ],
+    "exit": 0,
+    "seconds": 1.999,
+    "out": "selected file in owned Open panel",
+    "err": ""
+  },
+  {
+    "cmd": [
+      "dump"
+    ],
+    "exit": 0,
+    "seconds": 15.669,
+    "out": "AXGroup: group\nAXGroup: group\nAXScrollArea: \nAXWebArea: Interaction Control Center\nAXLink: 跳到主要內容\nAXStaticText: 跳到主要內容\nAXGroup: \nAXGroup: \nAXStaticText: Interaction\nAXGroup: \nAXStaticText: Control Center\nAXGroup: 主要導覽\nAXButton: 現在\nAXButton: 文字角色\nAXButton: 工作\nAXButton: 連接與權限\nAXButton: 更多\nAXStaticText: 運作中\nAXGroup: \nAXStaticText: 連線到外部系統\nAXGroup: \nAXGroup: \nAXGroup: \nAXStaticText: 文字角色\nAXButton: 全域搜",
+    "err": ""
+  }
+]

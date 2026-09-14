@@ -1,0 +1,4 @@
+get-after-restart 200 state= expired detail= lease expired lease= {"expiresAt": "2026-09-07T09:11:30.581617Z", "issuedAt": "2026-09-07T09:10:30.581617Z", "renewable": true, "revokeOnSessionEnd": true}
+renew-after-restart 409 {"error": {"code": "conflict", "message": "conflict: agent session asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8 is Expired; expired/closed sessions cannot be renewed"}}
+message-after-restart 409 {"error": {"code": "conflict", "message": "conflict: agent session asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8 is Expired; mailbox closed"}}
+list-after-restart 200 [{"id": "asession-6720f70c-9453-4849-b0a8-e223047f8516", "state": "expired"}, {"id": "asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8", "state": "expired"}]

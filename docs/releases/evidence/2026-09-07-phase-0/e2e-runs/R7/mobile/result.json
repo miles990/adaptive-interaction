@@ -1,0 +1,306 @@
+{
+  "evidenceLevel": "native Tauri AX + production daemon + fake_iphone simulator",
+  "humanOrHardwareEvidence": false,
+  "realMicrophoneCapture": false,
+  "consentGranted": false,
+  "safetyUnlocked": false,
+  "binarySha256": "1103cda7f8491ece2adbaab478056d14a174da47ab8536a2d652c734a0765f19",
+  "cliSha256": "1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7",
+  "fakeIphoneSha256": "64ed2d995093064ed5db070705e7830448a11ae991f8d1823d6799429709127e",
+  "driverSha256": "ba395920188e30e29d84abe9507156b971a76a078cd3ffd2381eaf8e7665d52a",
+  "axHelperSha256": "3e1bd72d19bfebc876a8c69b47e72aa5634218fc371111dfe73e50d19e49817b",
+  "sourceSha": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+  "dirtyTree": true,
+  "provenanceCapturedAt": "2026-09-07T09:30:47Z",
+  "artifactVerification": {
+    "unchanged": true,
+    "changed": []
+  },
+  "steps": [
+    {
+      "id": "mobile-pair-and-negotiate",
+      "status": "completed",
+      "elapsedSeconds": 100.12,
+      "deviceId": "iphone-a823573d",
+      "snapshotRevision": 4,
+      "receiptEvidence": "legacy fixture: does not send state-applied receipts"
+    },
+    {
+      "id": "mobile-bidirectional-semantic",
+      "status": "completed",
+      "elapsedSeconds": 118.393,
+      "result": {
+        "status": "applied"
+      },
+      "revisionBefore": 5,
+      "revisionAfter": 6,
+      "hostPatchRevision": 6,
+      "evidence": "fixture input -> authoritative state -> native AX; host patch -> fixture"
+    },
+    {
+      "id": "mobile-disconnect",
+      "status": "completed",
+      "elapsedSeconds": 158.101,
+      "deviceId": "iphone-a823573d"
+    },
+    {
+      "id": "mobile-reconnect",
+      "status": "completed",
+      "elapsedSeconds": 194.397,
+      "deviceId": "iphone-a823573d"
+    }
+  ],
+  "prefsFixture": null,
+  "startingPreferences": {
+    "schemaVersion": 3,
+    "companionPack": "plain-text",
+    "companionVisible": true,
+    "companionExpressiveness": "natural",
+    "openControlCenterOnStart": true,
+    "advancedMode": false
+  },
+  "casePreferenceOverrides": {
+    "companionPack": "plain-text",
+    "companionVisible": true,
+    "companionExpressiveness": "natural",
+    "openControlCenterOnStart": true,
+    "advancedMode": false
+  },
+  "ax": [
+    {
+      "command": [
+        "windows"
+      ],
+      "exit": 0,
+      "seconds": 0.789
+    },
+    {
+      "command": [
+        "navclick",
+        "1"
+      ],
+      "exit": 0,
+      "seconds": 0.804
+    },
+    {
+      "command": [
+        "navclick",
+        "4"
+      ],
+      "exit": 0,
+      "seconds": 0.602
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "裝置與能力"
+      ],
+      "exit": 0,
+      "seconds": 1.3
+    },
+    {
+      "command": [
+        "click",
+        "AXAny",
+        "裝置與能力"
+      ],
+      "exit": 0,
+      "seconds": 1.094
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "裝置與來源"
+      ],
+      "exit": 0,
+      "seconds": 7.003
+    },
+    {
+      "command": [
+        "click",
+        "AXAny",
+        "裝置與來源"
+      ],
+      "exit": 0,
+      "seconds": 10.68
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "開始配對（5 分鐘內有效）"
+      ],
+      "exit": 0,
+      "seconds": 13.255
+    },
+    {
+      "command": [
+        "click",
+        "AXButton",
+        "開始配對（5 分鐘內有效）"
+      ],
+      "exit": 0,
+      "seconds": 6.931
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "exit": 0,
+      "seconds": 36.636
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "模擬 iPhone（fixture）"
+      ],
+      "exit": 0,
+      "seconds": 2.334
+    },
+    {
+      "command": [
+        "navclick",
+        "2"
+      ],
+      "exit": 0,
+      "seconds": 0.955
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "模擬 iPhone（fixture）"
+      ],
+      "exit": 0,
+      "seconds": 7.344
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "exit": 0,
+      "seconds": 9.899
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "摸了摸角色"
+      ],
+      "exit": 0,
+      "seconds": 8.017
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "exit": 0,
+      "seconds": 9.986
+    },
+    {
+      "command": [
+        "navclick",
+        "4"
+      ],
+      "exit": 0,
+      "seconds": 0.52
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "裝置與能力"
+      ],
+      "exit": 0,
+      "seconds": 1.152
+    },
+    {
+      "command": [
+        "click",
+        "AXAny",
+        "裝置與能力"
+      ],
+      "exit": 0,
+      "seconds": 1.093
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "未連線（能力不可用）"
+      ],
+      "exit": 0,
+      "seconds": 1.454
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "exit": 0,
+      "seconds": 35.224
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "已連線"
+      ],
+      "exit": 0,
+      "seconds": 1.444
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "exit": 0,
+      "seconds": 34.449
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "移除此手機"
+      ],
+      "exit": 0,
+      "seconds": 2.17
+    },
+    {
+      "command": [
+        "click",
+        "AXButton",
+        "移除此手機"
+      ],
+      "exit": 0,
+      "seconds": 1.544
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "確定移除？（立即斷線，要再用必須重新配對）"
+      ],
+      "exit": 0,
+      "seconds": 2.216
+    },
+    {
+      "command": [
+        "click",
+        "AXButton",
+        "確定移除？（立即斷線，要再用必須重新配對）"
+      ],
+      "exit": 0,
+      "seconds": 1.58
+    }
+  ],
+  "seconds": 312.414,
+  "result": "failed",
+  "error": "Command '['osascript', '/Users/user/Workspace/claude-lab/adaptive-interaction/scripts/lib/tauri-ax.applescript', 'pid:36797', 'dump']' timed out after 55 seconds",
+  "limitations": [
+    "No physical iPhone, real sensor, or human evaluation",
+    "Legacy fake_iphone has no state-applied receipt capability",
+    "No actual long-running agent work or backup/restore in this runner"
+  ]
+}

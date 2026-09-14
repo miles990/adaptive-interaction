@@ -1,0 +1,68 @@
+{
+ "checkedAt": "2026-09-07T11:15:05+08:00 (Asia/Taipei, CST)",
+ "os": "26.2 (25C56)",
+ "kernel": "25.2.0",
+ "arch": "arm64",
+ "cpu": "Apple M2 Pro",
+ "rustc": "rustc 1.94.0 (4a4ef493e 2026-03-02) (Homebrew)",
+ "cargo": "cargo 1.94.0 (Homebrew)",
+ "node": "v24.5.0",
+ "pnpm": "10.27.0",
+ "gh": "gh version 2.83.2 (2025-12-10)",
+ "xcode": "Xcode 26.6 Build version 17F113",
+ "claudeCode": "2.1.263 (Claude Code)",
+ "claudeAuth": "loggedIn=true authMethod=claude.ai subscriptionType=max (email/org omitted)",
+ "codex": "codex-cli 0.153.4",
+ "codexAuth": "Logged in using ChatGPT",
+ "arduinoCli": "arduino-cli  版本：1.5.1 交付：Homebrew 日期：2026-06-05T09:39:33Z",
+ "repo": {
+  "path": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+  "remote": "git@github.com:miles990/adaptive-interaction.git",
+  "startBranch": "main",
+  "workBranch": "phase-0/state-recovery-baseline",
+  "startHead": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+  "originMain": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+  "worktrees": [
+   "(only the primary worktree)"
+  ],
+  "dirtyAtStart": false,
+  "latestStableTag": {
+   "name": "v0.8.0",
+   "tagObject": "5bca3660afa1d74d7f0844eeb7832e1e25ff9375",
+   "peeledCommit": "1fa69b8fafed54687119747c652a0869cb991f89",
+   "type": "annotated"
+  },
+  "openPRs": [],
+  "unmergedRemoteBranches": "codex/rebind-audit-test, codex/v0.8.0-release-evidence, feature/semantic-recovery-convergence — all three PRs (#5,#6,#7) MERGED via rebase; content diff vs main: rebind-audit-test = 0 files, others older than main",
+  "localOnlyBranch": "wt/drills (6 commits ahead by ancestry; superseded by committed scripts/drills runners per v0.8.0 N5; not merged)",
+  "mainCI": {
+   "run": 34022222409,
+   "conclusion": "success",
+   "commit": "78dcda1"
+  },
+  "previousMainCIFailure": {
+   "run": 34020702196,
+   "commit": "b55c1be",
+   "cause": "rebind test race, fixed by 3ba7364 (test-only)"
+  },
+  "release": {
+   "tag": "v0.8.0",
+   "publishedAt": "2026-09-06T07:35:55Z",
+   "assets": 23,
+   "releaseWorkflowRun": 34018696536
+  }
+ },
+ "diskFreeAtStart": "29Gi (target/ absent at start; full rebuild required)",
+ "realIphone": {
+  "present": true,
+  "model": "iPhone 11 (iPhone12,1)",
+  "ios": "26.3.1",
+  "transport": "wired, tunnel connected, developerMode enabled",
+  "signingGate": "device-build.sh --check-only stops at 3/5: no Team in Xcode accounts; one Apple Development identity + one profile exist locally (not recorded here)"
+ },
+ "isolation": {
+  "dataDir": "INTERACT_AI_HOME (temp per run)",
+  "agentBinOverride": "INTERACT_AI_CLAUDE_BIN / INTERACT_AI_CODEX_BIN",
+  "mobileAdvertise": "INTERACT_AI_MOBILE_ADVERTISE=0"
+ }
+}

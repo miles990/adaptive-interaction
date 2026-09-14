@@ -1,0 +1,128 @@
+{
+ "sessionId": "asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8",
+ "expiresAt": "2026-09-07T09:11:30.581617Z",
+ "steps": [
+  {
+   "step": "create-ttl1",
+   "method": "POST",
+   "path": "/v1/agent-sessions",
+   "status": 200,
+   "resp": {
+    "agentId": "claude-code",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 0.0,
+     "maxDurationMs": 60000,
+     "maxMessages": 10,
+     "spentCost": 0.0,
+     "spentMessages": 0
+    },
+    "consentScope": [],
+    "contextBundles": [],
+    "createdAt": "2026-09-07T09:10:30.581617Z",
+    "dataScope": [],
+    "label": "E0-10-ttl-expire-2",
+    "lease": {
+     "expiresAt": "2026-09-07T09:11:30.581617Z",
+     "issuedAt": "2026-09-07T09:10:30.581617Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.claude-code",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/e-ttl/workdir",
+    "sessionId": "asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8",
+    "state": "created",
+    "toolScope": []
+   },
+   "t": "2026-09-07T09:10:30Z"
+  },
+  {
+   "step": "get-after-expiry",
+   "method": "GET",
+   "path": "/v1/agent-sessions/asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8",
+   "status": 200,
+   "resp": {
+    "agentId": "claude-code",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 0.0,
+     "maxDurationMs": 60000,
+     "maxMessages": 10,
+     "spentCost": 0.0,
+     "spentMessages": 0
+    },
+    "closedAt": "2026-09-07T09:11:31.027795Z",
+    "consentScope": [],
+    "contextBundles": [],
+    "createdAt": "2026-09-07T09:10:30.581617Z",
+    "dataScope": [],
+    "detail": "lease expired",
+    "label": "E0-10-ttl-expire-2",
+    "lease": {
+     "expiresAt": "2026-09-07T09:11:30.581617Z",
+     "issuedAt": "2026-09-07T09:10:30.581617Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.claude-code",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/e-ttl/workdir",
+    "sessionId": "asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8",
+    "state": "expired",
+    "toolScope": []
+   },
+   "t": "2026-09-07T09:11:31Z"
+  },
+  {
+   "step": "message-after-expiry",
+   "method": "POST",
+   "path": "/v1/agent-sessions/asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8/messages",
+   "status": 409,
+   "resp": {
+    "error": {
+     "code": "conflict",
+     "message": "conflict: agent session asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8 is Expired; mailbox closed"
+    }
+   },
+   "t": "2026-09-07T09:11:31Z"
+  },
+  {
+   "step": "renew-after-expiry",
+   "method": "POST",
+   "path": "/v1/agent-sessions/asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8/renew",
+   "status": 409,
+   "resp": {
+    "error": {
+     "code": "conflict",
+     "message": "conflict: agent session asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8 is Expired; expired/closed sessions cannot be renewed"
+    }
+   },
+   "t": "2026-09-07T09:11:31Z"
+  },
+  {
+   "step": "interrupt-after-expiry",
+   "method": "POST",
+   "path": "/v1/agent-sessions/asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8/interrupt",
+   "status": 404,
+   "resp": {
+    "error": {
+     "code": "not_found",
+     "message": "not found: gateway session asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8"
+    }
+   },
+   "t": "2026-09-07T09:11:31Z"
+  },
+  {
+   "step": "verify-after-expiry",
+   "method": "POST",
+   "path": "/v1/agent-sessions/asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8/verify",
+   "status": 409,
+   "resp": {
+    "error": {
+     "code": "conflict",
+     "message": "conflict: agent session asession-fddfc597-5ec2-457f-9311-2e1ef6dc1bd8 is Expired; only a claimed-completed session can be verified"
+    }
+   },
+   "t": "2026-09-07T09:11:31Z"
+  }
+ ]
+}

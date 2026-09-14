@@ -1,0 +1,48 @@
+{"t": "2026-09-07T09:16:23.141Z", "mono": 0.003, "k": "daemon-spawned", "pid": 79597}
+{"t": "2026-09-07T09:16:23.402Z", "mono": 0.265, "k": "daemon-ready"}
+ARGV {"pid": 79652, "ppid": 79597, "cmd": "claude auth status"}
+ARGV {"pid": 79784, "ppid": 79597, "cmd": "codex app-server"}
+ARGV {"pid": 79823, "ppid": 79784, "cmd": "/bin/zsh -lc if [[ -n \"$ZDOTDIR\" ]]; then\\012  rc=\"$ZDOTDIR/.zshrc\"\\012else\\012  rc=\"$HOME/.zshrc\"\\012fi\\012[[ -r \"$rc\" ]] && . \"$rc\"\\012print '# Snapshot file'\\012print '# Unset all aliases to avoid conflicts with functions'\\012print 'unalias -a 2>/dev/null || true'\\012print '# Functions'\\012functions\\012print ''\\012setopt_count=$(setopt | wc -l | tr -d ' ')\\012print \"# setopts $setopt_count\"\\012setopt | sed 's/^/setopt /'\\012print ''\\012alias_count=$(alias -L | wc -l | tr -d ' ')\\012print \"# aliases $alias_count\"\\012alias -L\\012print ''\\012# Capture exported variables\\012export_lines=$(export -p | awk '\\012/^(export|declare -x|typeset -x) / {\\012  line=$0\\012  name=line\\012  sub(/^(export|declare -x|typeset -x)
+{"t": "2026-09-07T09:16:23.707Z", "mono": 0.569, "k": "create", "status": 200, "sessionId": "asession-05a7cee6-4d7e-40b8-a8cc-fe48b7571a74", "body": null}
+{"t": "2026-09-07T09:16:23.710Z", "mono": 0.572, "k": "task-sent", "status": 200}
+{"t": "2026-09-07T09:16:23.711Z", "mono": 0.574, "k": "state", "state": "created"}
+ARGV {"pid": 79835, "ppid": 79784, "cmd": "node /opt/homebrew/bin/npx -y chrome-devtools-mcp@latest"}
+ARGV {"pid": 79836, "ppid": 79784, "cmd": "node /opt/homebrew/bin/codegraph serve --mcp"}
+ARGV {"pid": 79837, "ppid": 79784, "cmd": "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/user/.codex/plugins/cache/openai-bundled/unified-computer-use/26.901.51231/scripts/launch.mjs"}
+ARGV {"pid": 79838, "ppid": 79784, "cmd": "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"}
+ARGV {"pid": 79858, "ppid": 79597, "cmd": "(ps)"}
+ARGV {"pid": 79835, "ppid": 79784, "cmd": "npm   "}
+ARGV {"pid": 79835, "ppid": 79784, "cmd": "npm exec chrome-devtools-mcp@latest   "}
+ARGV {"pid": 79949, "ppid": 79836, "cmd": "/opt/homebrew/lib/node_modules/@colbymchenry/codegraph/node_modules/@colbymchenry/codegraph-darwin-arm64/node --liftoff-only --disable-warning=ExperimentalWarning /opt/homebrew/lib/node_modules/@colbymchenry/codegraph/node_modules/@colbymchenry/codegraph-darwin-arm64/lib/dist/bin/codegraph.js serve --mcp"}
+ARGV {"pid": 80032, "ppid": 79837, "cmd": "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"}
+ARGV {"pid": 80033, "ppid": 79823, "cmd": "/bin/zsh -lc if [[ -n \"$ZDOTDIR\" ]]; then\\012  rc=\"$ZDOTDIR/.zshrc\"\\012else\\012  rc=\"$HOME/.zshrc\"\\012fi\\012[[ -r \"$rc\" ]] && . \"$rc\"\\012print '# Snapshot file'\\012print '# Unset all aliases to avoid conflicts with functions'\\012print 'unalias -a 2>/dev/null || true'\\012print '# Functions'\\012functions\\012print ''\\012setopt_count=$(setopt | wc -l | tr -d ' ')\\012print \"# setopts $setopt_count\"\\012setopt | sed 's/^/setopt /'\\012print ''\\012alias_count=$(alias -L | wc -l | tr -d ' ')\\012print \"# aliases $alias_count\"\\012alias -L\\012print ''\\012# Capture exported variables\\012export_lines=$(export -p | awk '\\012/^(export|declare -x|typeset -x) / {\\012  line=$0\\012  name=line\\012  sub(/^(export|declare -x|typeset -x)
+ARGV {"pid": 80036, "ppid": 80033, "cmd": "/bin/zsh -lc if [[ -n \"$ZDOTDIR\" ]]; then\\012  rc=\"$ZDOTDIR/.zshrc\"\\012else\\012  rc=\"$HOME/.zshrc\"\\012fi\\012[[ -r \"$rc\" ]] && . \"$rc\"\\012print '# Snapshot file'\\012print '# Unset all aliases to avoid conflicts with functions'\\012print 'unalias -a 2>/dev/null || true'\\012print '# Functions'\\012functions\\012print ''\\012setopt_count=$(setopt | wc -l | tr -d ' ')\\012print \"# setopts $setopt_count\"\\012setopt | sed 's/^/setopt /'\\012print ''\\012alias_count=$(alias -L | wc -l | tr -d ' ')\\012print \"# aliases $alias_count\"\\012alias -L\\012print ''\\012# Capture exported variables\\012export_lines=$(export -p | awk '\\012/^(export|declare -x|typeset -x) / {\\012  line=$0\\012  name=line\\012  sub(/^(export|declare -x|typeset -x)
+ARGV {"pid": 80037, "ppid": 80036, "cmd": "(zsh)"}
+ARGV {"pid": 80039, "ppid": 80037, "cmd": "(zsh)"}
+ARGV {"pid": 80040, "ppid": 80039, "cmd": "(zsh)"}
+ARGV {"pid": 80042, "ppid": 80039, "cmd": "(head)"}
+ARGV {"pid": 80047, "ppid": 80039, "cmd": "(tail)"}
+ARGV {"pid": 80120, "ppid": 80033, "cmd": "/bin/zsh -lc if [[ -n \"$ZDOTDIR\" ]]; then\\012  rc=\"$ZDOTDIR/.zshrc\"\\012else\\012  rc=\"$HOME/.zshrc\"\\012fi\\012[[ -r \"$rc\" ]] && . \"$rc\"\\012print '# Snapshot file'\\012print '# Unset all aliases to avoid conflicts with functions'\\012print 'unalias -a 2>/dev/null || true'\\012print '# Functions'\\012functions\\012print ''\\012setopt_count=$(setopt | wc -l | tr -d ' ')\\012print \"# setopts $setopt_count\"\\012setopt | sed 's/^/setopt /'\\012print ''\\012alias_count=$(alias -L | wc -l | tr -d ' ')\\012print \"# aliases $alias_count\"\\012alias -L\\012print ''\\012# Capture exported variables\\012export_lines=$(export -p | awk '\\012/^(export|declare -x|typeset -x) / {\\012  line=$0\\012  name=line\\012  sub(/^(export|declare -x|typeset -x)
+ARGV {"pid": 80121, "ppid": 80120, "cmd": "/bin/zsh -lc if [[ -n \"$ZDOTDIR\" ]]; then\\012  rc=\"$ZDOTDIR/.zshrc\"\\012else\\012  rc=\"$HOME/.zshrc\"\\012fi\\012[[ -r \"$rc\" ]] && . \"$rc\"\\012print '# Snapshot file'\\012print '# Unset all aliases to avoid conflicts with functions'\\012print 'unalias -a 2>/dev/null || true'\\012print '# Functions'\\012functions\\012print ''\\012setopt_count=$(setopt | wc -l | tr -d ' ')\\012print \"# setopts $setopt_count\"\\012setopt | sed 's/^/setopt /'\\012print ''\\012alias_count=$(alias -L | wc -l | tr -d ' ')\\012print \"# aliases $alias_count\"\\012alias -L\\012print ''\\012# Capture exported variables\\012export_lines=$(export -p | awk '\\012/^(export|declare -x|typeset -x) / {\\012  line=$0\\012  name=line\\012  sub(/^(export|declare -x|typeset -x)
+ARGV {"pid": 80123, "ppid": 80120, "cmd": "tail -1"}
+ARGV {"pid": 80130, "ppid": 80121, "cmd": "(zsh)"}
+ARGV {"pid": 80131, "ppid": 80130, "cmd": "(printf)"}
+ARGV {"pid": 80033, "ppid": 79823, "cmd": "(zsh)"}
+ARGV {"pid": 80120, "ppid": 80033, "cmd": "(zsh)"}
+ARGV {"pid": 80121, "ppid": 80120, "cmd": "(zsh)"}
+ARGV {"pid": 80123, "ppid": 80120, "cmd": "(tail)"}
+ARGV {"pid": 80193, "ppid": 80121, "cmd": "(zsh)"}
+ARGV {"pid": 80197, "ppid": 80193, "cmd": "(zsh)"}
+ARGV {"pid": 80198, "ppid": 80197, "cmd": "(zsh)"}
+ARGV {"pid": 80199, "ppid": 80198, "cmd": "(zsh)"}
+{"t": "2026-09-07T09:16:24.215Z", "mono": 1.078, "k": "state", "state": "active"}
+ARGV {"pid": 80208, "ppid": 79949, "cmd": "/opt/homebrew/lib/node_modules/@colbymchenry/codegraph/node_modules/@colbymchenry/codegraph-darwin-arm64/node -e \\012const fs = require('fs');\\012const parentPid = Number(process.argv[1]);\\012const timeoutMs = Number(process.argv[2]);\\012const capMs = Number(process.argv[3]);\\012const progressPaths = process.argv.slice(4);\\012const secs = Math.round(timeoutMs / 1000);\\012function kill(extra) {\\012  // Timestamped so daemon.log kills can be correlated with anything (#1431) —\\012  // computed here at kill time; this child process is never the wedged one.\\012  try { fs.writeSync(2, Buffer.from('[' + new Date().toISOString() + '] [CodeGraph] Main thread unresponsive for ~' + secs + 's' + (extra || '') + ' — killing the wedged process so a fresh o
+ARGV {"pid": 80237, "ppid": 79784, "cmd": "(zsh)"}
+ARGV {"pid": 80628, "ppid": 79835, "cmd": "chrome-devtools-mcp "}
+ARGV {"pid": 80746, "ppid": 80628, "cmd": "/opt/homebrew/Cellar/node/24.5.0/bin/node /Users/user/.npm/_npx/15c61037b1978c83/node_modules/chrome-devtools-mcp/build/src/telemetry/watchdog/main.js --parent-pid=80628 --app-version=1.8.0 --os-type=2"}
+ARGV {"pid": 81103, "ppid": 79784, "cmd": "/Users/user/.codex/computer-use/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient turn-ended {\"type\":\"agent-turn-complete\",\"thread-id\":\"01a07b22-d9c6-7470-8812-03a491f9b5c1\",\"turn-id\":\"01a07b27-891e-7090-8090-959bc7f633b1\",\"cwd\":\"/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/codex/workdir\",\"client\":\"adaptive-interaction\",\"input-messages\":[\"{\\n  \\\"contextBundle\\\": {\\n    \\\"agentId\\\": \\\"codex\\\",\\n    \\\"domains\\\": [],\\n    \\\"excluded\\\": {\\n      \\\"needsReview\\\": [],\\n      \\\"notVisibleToAgent\\\": 0,\\n      \\\"outsideGrantedDomains\\\": 0,\\n      \\\"
+{"t": "2026-09-07T09:16:28.764Z", "mono": 5.626, "k": "state", "state": "claimed-completed"}
+{"t": "2026-09-07T09:16:28.769Z", "mono": 5.631, "k": "close", "status": 200, "state": "closed"}
+ARGV {"pid": 79784, "ppid": 79597, "cmd": "<defunct>"}
+{"t": "2026-09-07T09:16:29.778Z", "mono": 6.64, "k": "daemon-stopped", "returncode": -15}
+DONE

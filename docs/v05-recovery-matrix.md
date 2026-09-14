@@ -1,5 +1,7 @@
 # v0.5 恢復矩陣（新 Session 事實恢復，2026-08-28）
 
+> 現況以 [階段 0 能力恢復矩陣](releases/phase-0-capability-recovery-matrix.md) 為準；本檔保留為 v0.5 當時的歷史紀錄。
+
 > 本文件由 10 位獨立審計 agent 逐條對照規格《adaptive-interaction-v05-core-experience-prompt.md》產生（每列附 file:line 證據），並經完整性審查員裁決矛盾。
 > **不以「檔案存在」標示完成**：已接線＝真的從 CLI／HTTP／Tauri／UI 可達；測試＝真的有斷言覆蓋；真環境＝模擬器／fixture／程序內 client 一律標「僅模擬器」，沒真機就「未驗證」。
 > 原始 JSON（含完整證據字串）在本次 Session scratchpad `matrix/*.json`；本文件為可讀版。

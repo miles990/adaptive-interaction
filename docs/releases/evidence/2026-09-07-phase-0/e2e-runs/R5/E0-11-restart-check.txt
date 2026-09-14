@@ -1,0 +1,10 @@
+=== GET /v1/onboarding (after restart) ===
+{"completed":true,"completedAt":"2026-09-07T09:04:09.711925Z","draft":null,"starterRecipes":[{"id":"starter-task-complete","title":"任務完成時，用最低干擾方式回應"},{"id":"starter-quiet-log","title":"安靜時段只記錄、不打擾"},{"id":"starter-device-warning","title":"裝置或服務異常時通知"}]}
+=== GET /v1/status.onboardingCompleted (after restart) ===
+{"onboardingCompleted": true}
+
+=== GET /v1/ui/preferences (after restart) ===
+{"agentRoutes":{"conversation":"claude-code","knowledge":"claude-code","programming":"codex","review":"claude-code"},"appearance":"system","customNames":{},"disabledAgents":[],"firstSuccessSeen":false,"locale":"ja-JP","mode":"advanced","reduceMotion":false,"scalePercent":100,"schemaVersion":"1.0"}
+=== GET /v1/memory/export (after restart) ===
+count before 4 count after 4
+all fields identical (excl status/exportedAt): True

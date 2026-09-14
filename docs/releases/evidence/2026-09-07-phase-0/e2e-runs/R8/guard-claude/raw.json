@@ -1,0 +1,759 @@
+{
+ "probes": [
+  {
+   "name": "allowWrite-no-scopes",
+   "status": 403,
+   "payload": {
+    "agentId": "claude-code",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "ttlMinutes": 20,
+    "maxMessages": 40,
+    "allowWrite": true,
+    "toolScope": [],
+    "consentScope": [],
+    "dataScope": [],
+    "resumeProviderSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+    "label": "p1"
+   },
+   "error": {
+    "code": "consent_required",
+    "message": "consent required: write-enabled session 缺少 toolScope workspace.write"
+   },
+   "sessionId": null,
+   "record": null
+  },
+  {
+   "name": "allowWrite-with-consent-only",
+   "status": 403,
+   "payload": {
+    "agentId": "claude-code",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "ttlMinutes": 20,
+    "maxMessages": 40,
+    "allowWrite": true,
+    "toolScope": [],
+    "consentScope": [
+     "agent-session:workspace-write"
+    ],
+    "dataScope": [],
+    "resumeProviderSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+    "label": "p2"
+   },
+   "error": {
+    "code": "consent_required",
+    "message": "consent required: write-enabled session 缺少 toolScope workspace.write"
+   },
+   "sessionId": null,
+   "record": null
+  },
+  {
+   "name": "allowWrite-full",
+   "status": 403,
+   "payload": {
+    "agentId": "claude-code",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "ttlMinutes": 20,
+    "maxMessages": 40,
+    "allowWrite": true,
+    "toolScope": [
+     "workspace.write"
+    ],
+    "consentScope": [
+     "agent-session:workspace-write"
+    ],
+    "dataScope": [],
+    "resumeProviderSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+    "label": "p3"
+   },
+   "error": {
+    "code": "policy_blocked",
+    "message": "policy blocked: 接續上次的工作不得放寬可用工具：workspace.write 不在上次的授權範圍裡"
+   },
+   "sessionId": null,
+   "record": null
+  },
+  {
+   "name": "dataScope-wider",
+   "status": 403,
+   "payload": {
+    "agentId": "claude-code",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "ttlMinutes": 20,
+    "maxMessages": 40,
+    "allowWrite": false,
+    "toolScope": [],
+    "consentScope": [],
+    "dataScope": [
+     "domain:private"
+    ],
+    "resumeProviderSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+    "label": "p4"
+   },
+   "error": {
+    "code": "policy_blocked",
+    "message": "policy blocked: 接續上次的工作不得放寬資料範圍：domain:private 不在上次的授權範圍裡"
+   },
+   "sessionId": null,
+   "record": null
+  },
+  {
+   "name": "maxCost-added",
+   "status": 200,
+   "payload": {
+    "agentId": "claude-code",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "ttlMinutes": 20,
+    "maxMessages": 40,
+    "allowWrite": false,
+    "toolScope": [],
+    "consentScope": [],
+    "dataScope": [],
+    "resumeProviderSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+    "label": "p5",
+    "maxCost": 5.0
+   },
+   "error": null,
+   "sessionId": "asession-904aa773-bfb7-4ed8-916d-e3b954e196aa",
+   "record": {
+    "agentId": "claude-code",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 5.0,
+     "maxDurationMs": 1200000,
+     "maxMessages": 40,
+     "spentCost": 0.0,
+     "spentMessages": 0
+    },
+    "consentScope": [],
+    "contextBundles": [],
+    "createdAt": "2026-09-07T09:18:38.090367Z",
+    "dataScope": [],
+    "label": "p5",
+    "lease": {
+     "expiresAt": "2026-09-07T09:38:38.090367Z",
+     "issuedAt": "2026-09-07T09:18:38.090367Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.claude-code",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "sessionId": "asession-904aa773-bfb7-4ed8-916d-e3b954e196aa",
+    "state": "created",
+    "toolScope": []
+   },
+   "cleanupClose": {
+    "status": 200,
+    "state": "closed"
+   }
+  },
+  {
+   "name": "workdir-dotdot",
+   "status": 403,
+   "payload": {
+    "agentId": "claude-code",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir/../workdir-other",
+    "ttlMinutes": 20,
+    "maxMessages": 40,
+    "allowWrite": false,
+    "toolScope": [],
+    "consentScope": [],
+    "dataScope": [],
+    "resumeProviderSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+    "label": "p6"
+   },
+   "error": {
+    "code": "policy_blocked",
+    "message": "policy blocked: 接續上次的工作不得更換工作目錄（上次是 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir）；                     要換資料夾請重新建立一個明確授權的工作階段"
+   },
+   "sessionId": null,
+   "record": null
+  },
+  {
+   "name": "workdir-trailing-slash",
+   "status": 200,
+   "payload": {
+    "agentId": "claude-code",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir/",
+    "ttlMinutes": 20,
+    "maxMessages": 40,
+    "allowWrite": false,
+    "toolScope": [],
+    "consentScope": [],
+    "dataScope": [],
+    "resumeProviderSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+    "label": "p7"
+   },
+   "error": null,
+   "sessionId": "asession-89f553e6-2a04-4e49-b542-aa54bdeafaac",
+   "record": {
+    "agentId": "claude-code",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 0.0,
+     "maxDurationMs": 1200000,
+     "maxMessages": 40,
+     "spentCost": 0.0,
+     "spentMessages": 0
+    },
+    "consentScope": [],
+    "contextBundles": [],
+    "createdAt": "2026-09-07T09:18:39.366974Z",
+    "dataScope": [],
+    "label": "p7",
+    "lease": {
+     "expiresAt": "2026-09-07T09:38:39.366974Z",
+     "issuedAt": "2026-09-07T09:18:39.366974Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.claude-code",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "sessionId": "asession-89f553e6-2a04-4e49-b542-aa54bdeafaac",
+    "state": "created",
+    "toolScope": []
+   },
+   "cleanupClose": {
+    "status": 200,
+    "state": "closed"
+   }
+  },
+  {
+   "name": "ttl-narrower",
+   "status": 200,
+   "payload": {
+    "agentId": "claude-code",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "ttlMinutes": 5,
+    "maxMessages": 10,
+    "allowWrite": false,
+    "toolScope": [],
+    "consentScope": [],
+    "dataScope": [],
+    "resumeProviderSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+    "label": "p8"
+   },
+   "error": null,
+   "sessionId": "asession-e58f53ab-16b7-4a53-8446-8912d47343eb",
+   "record": {
+    "agentId": "claude-code",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 0.0,
+     "maxDurationMs": 300000,
+     "maxMessages": 10,
+     "spentCost": 0.0,
+     "spentMessages": 0
+    },
+    "consentScope": [],
+    "contextBundles": [],
+    "createdAt": "2026-09-07T09:18:40.641343Z",
+    "dataScope": [],
+    "label": "p8",
+    "lease": {
+     "expiresAt": "2026-09-07T09:23:40.641343Z",
+     "issuedAt": "2026-09-07T09:18:40.641343Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.claude-code",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "sessionId": "asession-e58f53ab-16b7-4a53-8446-8912d47343eb",
+    "state": "created",
+    "toolScope": []
+   },
+   "cleanupClose": {
+    "status": 200,
+    "state": "closed"
+   }
+  },
+  {
+   "name": "empty-resume-id",
+   "status": 403,
+   "payload": {
+    "agentId": "claude-code",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "ttlMinutes": 20,
+    "maxMessages": 40,
+    "allowWrite": false,
+    "toolScope": [],
+    "consentScope": [],
+    "dataScope": [],
+    "resumeProviderSessionId": "",
+    "label": "p9"
+   },
+   "error": {
+    "code": "policy_blocked",
+    "message": "policy blocked: 找不到上一次的授權紀錄，無法確認接續沒有放寬任何範圍；請重新建立一個明確授權的工作階段"
+   },
+   "sessionId": null,
+   "record": null
+  },
+  {
+   "name": "resume-id-whitespace",
+   "status": 403,
+   "payload": {
+    "agentId": "claude-code",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "ttlMinutes": 20,
+    "maxMessages": 40,
+    "allowWrite": false,
+    "toolScope": [],
+    "consentScope": [],
+    "dataScope": [],
+    "resumeProviderSessionId": "  ",
+    "label": "p10"
+   },
+   "error": {
+    "code": "policy_blocked",
+    "message": "policy blocked: 找不到上一次的授權紀錄，無法確認接續沒有放寬任何範圍；請重新建立一個明確授權的工作階段"
+   },
+   "sessionId": null,
+   "record": null
+  }
+ ],
+ "auditAfter": [
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:18:40.910Z",
+   "detail": {
+    "revision": 80,
+    "truth": "none"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "user",
+   "at": "2026-09-07T09:18:40.909Z",
+   "detail": {
+    "agentSessionId": "asession-e58f53ab-16b7-4a53-8446-8912d47343eb",
+    "reason": "guard probe cleanup"
+   },
+   "kind": "agent-session.closed"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:18:40.644Z",
+   "detail": {
+    "revision": 79,
+    "truth": "queued"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:18:40.642Z",
+   "detail": {
+    "agentSessionId": "asession-e58f53ab-16b7-4a53-8446-8912d47343eb",
+    "expiresAt": "2026-09-07T09:23:40.641343Z"
+   },
+   "kind": "agent-session.capability-issued"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:18:40.642Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "wait",
+    "messageId": "rt-d4e9cb696ac946a1b55bd71eff263a34",
+    "truthState": "queued"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:18:39.634Z",
+   "detail": {
+    "revision": 78,
+    "truth": "none"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "user",
+   "at": "2026-09-07T09:18:39.633Z",
+   "detail": {
+    "agentSessionId": "asession-89f553e6-2a04-4e49-b542-aa54bdeafaac",
+    "reason": "guard probe cleanup"
+   },
+   "kind": "agent-session.closed"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:18:39.369Z",
+   "detail": {
+    "revision": 77,
+    "truth": "queued"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:18:39.367Z",
+   "detail": {
+    "agentSessionId": "asession-89f553e6-2a04-4e49-b542-aa54bdeafaac",
+    "expiresAt": "2026-09-07T09:38:39.366974Z"
+   },
+   "kind": "agent-session.capability-issued"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:18:39.367Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "wait",
+    "messageId": "rt-c635d88941eb4ddf8a5f0ca27ee1aa91",
+    "truthState": "queued"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:18:38.357Z",
+   "detail": {
+    "revision": 76,
+    "truth": "none"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "user",
+   "at": "2026-09-07T09:18:38.357Z",
+   "detail": {
+    "agentSessionId": "asession-904aa773-bfb7-4ed8-916d-e3b954e196aa",
+    "reason": "guard probe cleanup"
+   },
+   "kind": "agent-session.closed"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:18:38.094Z",
+   "detail": {
+    "revision": 75,
+    "truth": "queued"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:18:38.092Z",
+   "detail": {
+    "agentSessionId": "asession-904aa773-bfb7-4ed8-916d-e3b954e196aa",
+    "expiresAt": "2026-09-07T09:38:38.090367Z"
+   },
+   "kind": "agent-session.capability-issued"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:18:38.091Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "wait",
+    "messageId": "rt-f3c4ee53d95e49e587ba6f3bd0620802",
+    "truthState": "queued"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:16:01.862Z",
+   "detail": {
+    "revision": 46,
+    "truth": "none"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "user",
+   "at": "2026-09-07T09:16:01.861Z",
+   "detail": {
+    "agentSessionId": "asession-369a8ecb-07d9-45f9-80c8-ac45486333ca",
+    "reason": "argv probe done"
+   },
+   "kind": "agent-session.closed"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:16:01.421Z",
+   "detail": {
+    "revision": 45,
+    "truth": "claimed"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:16:01.421Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "claim-completed",
+    "messageId": "rt-b4b9bb54077c482aa59e83c9400d52a7",
+    "truthState": "claimed"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:16:01.414Z",
+   "detail": {
+    "revision": 44,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:15:57.801Z",
+   "detail": {
+    "revision": 44,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:15:57.526Z",
+   "detail": {
+    "revision": 43,
+    "truth": "queued"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:15:57.525Z",
+   "detail": {
+    "agentSessionId": "asession-369a8ecb-07d9-45f9-80c8-ac45486333ca",
+    "expiresAt": "2026-09-07T09:35:57.524342Z"
+   },
+   "kind": "agent-session.capability-issued"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:15:57.524Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "wait",
+    "messageId": "rt-a4d6c7f677b441c5b0c71361595c846d",
+    "truthState": "queued"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:13:57.840Z",
+   "detail": {
+    "revision": 11,
+    "truth": "none"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "user",
+   "at": "2026-09-07T09:13:57.839Z",
+   "detail": {
+    "agentSessionId": "asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e",
+    "reason": "K-04 done"
+   },
+   "kind": "agent-session.closed"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:13:00.940Z",
+   "detail": {
+    "revision": 10,
+    "truth": "claimed"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:13:00.939Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "claim-completed",
+    "messageId": "rt-7c8cbbf35a0b4399aef1d6ac6def1a4e",
+    "truthState": "claimed"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:13:00.922Z",
+   "detail": {
+    "revision": 9,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:12:57.553Z",
+   "detail": {
+    "revision": 9,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:12:57.245Z",
+   "detail": {
+    "revision": 8,
+    "truth": "queued"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:12:57.243Z",
+   "detail": {
+    "agentSessionId": "asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e",
+    "expiresAt": "2026-09-07T09:32:57.243020Z"
+   },
+   "kind": "agent-session.capability-issued"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:12:57.243Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "wait",
+    "messageId": "rt-263ce3b094e24d659f56ed0fedc4d299",
+    "truthState": "queued"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:12:55.193Z",
+   "detail": {
+    "revision": 7,
+    "truth": "none"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "user",
+   "at": "2026-09-07T09:12:55.192Z",
+   "detail": {
+    "agentSessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96",
+    "reason": "K-04 close before resume"
+   },
+   "kind": "agent-session.closed"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:57.374Z",
+   "detail": {
+    "revision": 6,
+    "truth": "claimed"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:57.374Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "claim-completed",
+    "messageId": "rt-bed5cb13f3df42f7b47bc3d8bce220e7",
+    "truthState": "claimed"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:57.363Z",
+   "detail": {
+    "revision": 5,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:54.964Z",
+   "detail": {
+    "revision": 5,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:00.705Z",
+   "detail": {
+    "revision": 4,
+    "truth": "claimed"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:00.704Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "claim-completed",
+    "messageId": "rt-9c315f9df51941a19b842a64a38b32dc",
+    "truthState": "claimed"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:00.699Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:00.606Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:10:54.662Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:10:54.302Z",
+   "detail": {
+    "revision": 2,
+    "truth": "queued"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:10:54.299Z",
+   "detail": {
+    "agentSessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96",
+    "expiresAt": "2026-09-07T09:30:54.297091Z"
+   },
+   "kind": "agent-session.capability-issued"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:10:54.298Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "wait",
+    "messageId": "rt-36bb5b2be0334ea1b4978f9f0a1f6946",
+    "truthState": "queued"
+   },
+   "kind": "character.system-text"
+  }
+ ]
+}

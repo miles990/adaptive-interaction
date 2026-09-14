@@ -1,0 +1,751 @@
+{
+ "agent": "codex",
+ "port": 18915,
+ "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案，直接在回覆中輸出全文。",
+ "allowWrite": false,
+ "events": [
+  {
+   "t": "2026-09-07T03:54:18.573Z",
+   "mono": 0.002,
+   "k": "daemon-spawned",
+   "pid": 4549
+  },
+  {
+   "t": "2026-09-07T03:54:18.835Z",
+   "mono": 0.264,
+   "k": "daemon-ready"
+  },
+  {
+   "t": "2026-09-07T03:54:19.800Z",
+   "mono": 1.229,
+   "k": "create",
+   "status": 200,
+   "state": "created",
+   "id": "asession-c69f41d6-be87-4f54-8048-3cd43922d3f2",
+   "error": null
+  },
+  {
+   "t": "2026-09-07T03:54:19.802Z",
+   "mono": 1.231,
+   "k": "task-sent",
+   "status": 200,
+   "resp": {
+    "id": null,
+    "kind": "task",
+    "direction": "to-session",
+    "contextBundle": null
+   }
+  },
+  {
+   "t": "2026-09-07T03:54:19.803Z",
+   "mono": 1.232,
+   "k": "state",
+   "state": "created",
+   "delegation": null
+  },
+  {
+   "t": "2026-09-07T03:54:20.310Z",
+   "mono": 1.739,
+   "k": "state",
+   "state": "active",
+   "delegation": null
+  },
+  {
+   "t": "2026-09-07T03:54:25.872Z",
+   "mono": 7.301,
+   "k": "cancel-issued",
+   "mode": "interrupt",
+   "status": 200,
+   "resp": {
+    "interrupted": true
+   }
+  },
+  {
+   "t": "2026-09-07T03:54:26.377Z",
+   "mono": 7.807,
+   "k": "state",
+   "state": "cancelled",
+   "delegation": null
+  },
+  {
+   "t": "2026-09-07T03:54:27.924Z",
+   "mono": 9.353,
+   "k": "after-cancel",
+   "state": "cancelled",
+   "children": []
+  },
+  {
+   "t": "2026-09-07T03:54:31.929Z",
+   "mono": 13.358,
+   "k": "close-issued",
+   "status": 200,
+   "resp": {
+    "agentId": "codex",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 0.0,
+     "maxDurationMs": 1200000,
+     "maxMessages": 40,
+     "spentCost": 0.0,
+     "spentMessages": 1
+    },
+    "closedAt": "2026-09-07T03:54:31.928111Z",
+    "consentScope": [],
+    "contextBundles": [
+     {
+      "bundle": {
+       "agentId": "codex",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T03:54:19.801097Z",
+       "includes": [],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案，直接在回覆中輸出全文。",
+       "truncated": false
+      },
+      "bundleId": "bundle-de3222f7-4342-4797-8f76-eff5fbc28d0f",
+      "contentHash": "3aecdf6772adb67c5f11ed67c8e27806279f1e08f74b2b31c003478a5af05c45",
+      "generatedAt": "2026-09-07T03:54:19.801282Z",
+      "messageId": "msg-asession-c69f41d6-be87-4f54-8048-3cd43922d3f2-1"
+     }
+    ],
+    "createdAt": "2026-09-07T03:54:19.342698Z",
+    "dataScope": [],
+    "detail": "phase0 close after cancel (was Cancelled)",
+    "label": "phase0-cancel",
+    "lease": {
+     "expiresAt": "2026-09-07T04:14:19.342698Z",
+     "issuedAt": "2026-09-07T03:54:19.342698Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.codex",
+    "providerSessionId": "01a07a00-ac27-74c2-94e2-a922510d74ad",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/codex-cancel-1/workdir",
+    "sessionId": "asession-c69f41d6-be87-4f54-8048-3cd43922d3f2",
+    "state": "cancelled",
+    "toolScope": []
+   }
+  },
+  {
+   "t": "2026-09-07T03:54:33.979Z",
+   "mono": 15.408,
+   "k": "after-close",
+   "children": []
+  },
+  {
+   "t": "2026-09-07T03:54:33.981Z",
+   "mono": 15.41,
+   "k": "final",
+   "state": "cancelled"
+  },
+  {
+   "t": "2026-09-07T03:54:34.029Z",
+   "mono": 15.458,
+   "k": "daemon-stopped"
+  }
+ ],
+ "snapshots": [
+  {
+   "agentId": "codex",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.0,
+    "spentMessages": 1
+   },
+   "consentScope": [],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "codex",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T03:54:19.801097Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案，直接在回覆中輸出全文。",
+      "truncated": false
+     },
+     "bundleId": "bundle-de3222f7-4342-4797-8f76-eff5fbc28d0f",
+     "contentHash": "3aecdf6772adb67c5f11ed67c8e27806279f1e08f74b2b31c003478a5af05c45",
+     "generatedAt": "2026-09-07T03:54:19.801282Z",
+     "messageId": "msg-asession-c69f41d6-be87-4f54-8048-3cd43922d3f2-1"
+    }
+   ],
+   "createdAt": "2026-09-07T03:54:19.342698Z",
+   "dataScope": [],
+   "label": "phase0-cancel",
+   "lease": {
+    "expiresAt": "2026-09-07T04:14:19.342698Z",
+    "issuedAt": "2026-09-07T03:54:19.342698Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.codex",
+   "providerSessionId": "01a07a00-ac27-74c2-94e2-a922510d74ad",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/codex-cancel-1/workdir",
+   "sessionId": "asession-c69f41d6-be87-4f54-8048-3cd43922d3f2",
+   "state": "created",
+   "toolScope": []
+  },
+  {
+   "agentId": "codex",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.0,
+    "spentMessages": 1
+   },
+   "consentScope": [],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "codex",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T03:54:19.801097Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案，直接在回覆中輸出全文。",
+      "truncated": false
+     },
+     "bundleId": "bundle-de3222f7-4342-4797-8f76-eff5fbc28d0f",
+     "contentHash": "3aecdf6772adb67c5f11ed67c8e27806279f1e08f74b2b31c003478a5af05c45",
+     "generatedAt": "2026-09-07T03:54:19.801282Z",
+     "messageId": "msg-asession-c69f41d6-be87-4f54-8048-3cd43922d3f2-1"
+    }
+   ],
+   "createdAt": "2026-09-07T03:54:19.342698Z",
+   "dataScope": [],
+   "label": "phase0-cancel",
+   "lease": {
+    "expiresAt": "2026-09-07T04:14:19.342698Z",
+    "issuedAt": "2026-09-07T03:54:19.342698Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.codex",
+   "providerSessionId": "01a07a00-ac27-74c2-94e2-a922510d74ad",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/codex-cancel-1/workdir",
+   "sessionId": "asession-c69f41d6-be87-4f54-8048-3cd43922d3f2",
+   "state": "active",
+   "toolScope": []
+  },
+  {
+   "agentId": "codex",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.0,
+    "spentMessages": 1
+   },
+   "consentScope": [],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "codex",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T03:54:19.801097Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案，直接在回覆中輸出全文。",
+      "truncated": false
+     },
+     "bundleId": "bundle-de3222f7-4342-4797-8f76-eff5fbc28d0f",
+     "contentHash": "3aecdf6772adb67c5f11ed67c8e27806279f1e08f74b2b31c003478a5af05c45",
+     "generatedAt": "2026-09-07T03:54:19.801282Z",
+     "messageId": "msg-asession-c69f41d6-be87-4f54-8048-3cd43922d3f2-1"
+    }
+   ],
+   "createdAt": "2026-09-07T03:54:19.342698Z",
+   "dataScope": [],
+   "label": "phase0-cancel",
+   "lease": {
+    "expiresAt": "2026-09-07T04:14:19.342698Z",
+    "issuedAt": "2026-09-07T03:54:19.342698Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.codex",
+   "providerSessionId": "01a07a00-ac27-74c2-94e2-a922510d74ad",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/codex-cancel-1/workdir",
+   "sessionId": "asession-c69f41d6-be87-4f54-8048-3cd43922d3f2",
+   "state": "cancelled",
+   "toolScope": []
+  }
+ ],
+ "discovery": {
+  "agents": [
+   {
+    "binaryPath": "claude",
+    "detail": "2.1.263 (Claude Code)（已登入）",
+    "found": true,
+    "kind": "claude-code",
+    "loggedIn": true,
+    "protocolSupported": true,
+    "version": "2.1.263 (Claude Code)"
+   },
+   {
+    "binaryPath": "codex",
+    "detail": "codex-cli 0.153.4（已登入，app-server 可用）",
+    "found": true,
+    "kind": "codex",
+    "loggedIn": true,
+    "protocolSupported": true,
+    "version": "codex-cli 0.153.4"
+   }
+  ]
+ },
+ "sessionId": "asession-c69f41d6-be87-4f54-8048-3cd43922d3f2",
+ "createRecord": {
+  "agentId": "codex",
+  "allowWrite": false,
+  "budget": {
+   "maxCost": 0.0,
+   "maxDurationMs": 1200000,
+   "maxMessages": 40,
+   "spentCost": 0.0,
+   "spentMessages": 0
+  },
+  "consentScope": [],
+  "contextBundles": [],
+  "createdAt": "2026-09-07T03:54:19.342698Z",
+  "dataScope": [],
+  "label": "phase0-cancel",
+  "lease": {
+   "expiresAt": "2026-09-07T04:14:19.342698Z",
+   "issuedAt": "2026-09-07T03:54:19.342698Z",
+   "renewable": true,
+   "revokeOnSessionEnd": true
+  },
+  "providerId": "provider.ai-agent.codex",
+  "providerSessionId": "01a07a00-ac27-74c2-94e2-a922510d74ad",
+  "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/codex-cancel-1/workdir",
+  "sessionId": "asession-c69f41d6-be87-4f54-8048-3cd43922d3f2",
+  "state": "created",
+  "toolScope": []
+ },
+ "taskSend": {
+  "body": {
+   "contextBundle": {
+    "agentId": "codex",
+    "domains": [],
+    "excluded": {
+     "needsReview": [],
+     "notVisibleToAgent": 0,
+     "outsideGrantedDomains": 0,
+     "overCapacity": 0,
+     "sensitive": 0,
+     "unreviewedCandidates": 0
+    },
+    "generatedAt": "2026-09-07T03:54:19.801097Z",
+    "includes": [],
+    "limits": {
+     "maxBytes": 49152,
+     "maxItems": 24,
+     "scanLimit": 1000,
+     "scanLimitReached": false
+    },
+    "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+    "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案，直接在回覆中輸出全文。",
+    "truncated": false
+   },
+   "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案，直接在回覆中輸出全文。"
+  },
+  "createdAt": "2026-09-07T03:54:19.801244Z",
+  "deliveredAt": "2026-09-07T03:54:19.802030Z",
+  "direction": "to-session",
+  "kind": "task",
+  "messageId": "msg-asession-c69f41d6-be87-4f54-8048-3cd43922d3f2-1",
+  "sessionId": "asession-c69f41d6-be87-4f54-8048-3cd43922d3f2"
+ },
+ "cancelResp": {
+  "interrupted": true
+ },
+ "afterCancel": {
+  "agentId": "codex",
+  "allowWrite": false,
+  "budget": {
+   "maxCost": 0.0,
+   "maxDurationMs": 1200000,
+   "maxMessages": 40,
+   "spentCost": 0.0,
+   "spentMessages": 1
+  },
+  "consentScope": [],
+  "contextBundles": [
+   {
+    "bundle": {
+     "agentId": "codex",
+     "domains": [],
+     "excluded": {
+      "needsReview": [],
+      "notVisibleToAgent": 0,
+      "outsideGrantedDomains": 0,
+      "overCapacity": 0,
+      "sensitive": 0,
+      "unreviewedCandidates": 0
+     },
+     "generatedAt": "2026-09-07T03:54:19.801097Z",
+     "includes": [],
+     "limits": {
+      "maxBytes": 49152,
+      "maxItems": 24,
+      "scanLimit": 1000,
+      "scanLimitReached": false
+     },
+     "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+     "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案，直接在回覆中輸出全文。",
+     "truncated": false
+    },
+    "bundleId": "bundle-de3222f7-4342-4797-8f76-eff5fbc28d0f",
+    "contentHash": "3aecdf6772adb67c5f11ed67c8e27806279f1e08f74b2b31c003478a5af05c45",
+    "generatedAt": "2026-09-07T03:54:19.801282Z",
+    "messageId": "msg-asession-c69f41d6-be87-4f54-8048-3cd43922d3f2-1"
+   }
+  ],
+  "createdAt": "2026-09-07T03:54:19.342698Z",
+  "dataScope": [],
+  "label": "phase0-cancel",
+  "lease": {
+   "expiresAt": "2026-09-07T04:14:19.342698Z",
+   "issuedAt": "2026-09-07T03:54:19.342698Z",
+   "renewable": true,
+   "revokeOnSessionEnd": true
+  },
+  "providerId": "provider.ai-agent.codex",
+  "providerSessionId": "01a07a00-ac27-74c2-94e2-a922510d74ad",
+  "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/codex-cancel-1/workdir",
+  "sessionId": "asession-c69f41d6-be87-4f54-8048-3cd43922d3f2",
+  "state": "cancelled",
+  "toolScope": []
+ },
+ "final": {
+  "agentId": "codex",
+  "allowWrite": false,
+  "budget": {
+   "maxCost": 0.0,
+   "maxDurationMs": 1200000,
+   "maxMessages": 40,
+   "spentCost": 0.0,
+   "spentMessages": 1
+  },
+  "closedAt": "2026-09-07T03:54:31.928111Z",
+  "consentScope": [],
+  "contextBundles": [
+   {
+    "bundle": {
+     "agentId": "codex",
+     "domains": [],
+     "excluded": {
+      "needsReview": [],
+      "notVisibleToAgent": 0,
+      "outsideGrantedDomains": 0,
+      "overCapacity": 0,
+      "sensitive": 0,
+      "unreviewedCandidates": 0
+     },
+     "generatedAt": "2026-09-07T03:54:19.801097Z",
+     "includes": [],
+     "limits": {
+      "maxBytes": 49152,
+      "maxItems": 24,
+      "scanLimit": 1000,
+      "scanLimitReached": false
+     },
+     "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+     "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案，直接在回覆中輸出全文。",
+     "truncated": false
+    },
+    "bundleId": "bundle-de3222f7-4342-4797-8f76-eff5fbc28d0f",
+    "contentHash": "3aecdf6772adb67c5f11ed67c8e27806279f1e08f74b2b31c003478a5af05c45",
+    "generatedAt": "2026-09-07T03:54:19.801282Z",
+    "messageId": "msg-asession-c69f41d6-be87-4f54-8048-3cd43922d3f2-1"
+   }
+  ],
+  "createdAt": "2026-09-07T03:54:19.342698Z",
+  "dataScope": [],
+  "detail": "phase0 close after cancel (was Cancelled)",
+  "label": "phase0-cancel",
+  "lease": {
+   "expiresAt": "2026-09-07T04:14:19.342698Z",
+   "issuedAt": "2026-09-07T03:54:19.342698Z",
+   "renewable": true,
+   "revokeOnSessionEnd": true
+  },
+  "providerId": "provider.ai-agent.codex",
+  "providerSessionId": "01a07a00-ac27-74c2-94e2-a922510d74ad",
+  "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/codex-cancel-1/workdir",
+  "sessionId": "asession-c69f41d6-be87-4f54-8048-3cd43922d3f2",
+  "state": "cancelled",
+  "toolScope": []
+ },
+ "messages-to-session": [
+  {
+   "body": {
+    "contextBundle": {
+     "agentId": "codex",
+     "domains": [],
+     "excluded": {
+      "needsReview": [],
+      "notVisibleToAgent": 0,
+      "outsideGrantedDomains": 0,
+      "overCapacity": 0,
+      "sensitive": 0,
+      "unreviewedCandidates": 0
+     },
+     "generatedAt": "2026-09-07T03:54:19.801097Z",
+     "includes": [],
+     "limits": {
+      "maxBytes": 49152,
+      "maxItems": 24,
+      "scanLimit": 1000,
+      "scanLimitReached": false
+     },
+     "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+     "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案，直接在回覆中輸出全文。",
+     "truncated": false
+    },
+    "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案，直接在回覆中輸出全文。"
+   },
+   "createdAt": "2026-09-07T03:54:19.801244Z",
+   "deliveredAt": "2026-09-07T03:54:19.802030Z",
+   "direction": "to-session",
+   "kind": "task",
+   "messageId": "msg-asession-c69f41d6-be87-4f54-8048-3cd43922d3f2-1",
+   "sessionId": "asession-c69f41d6-be87-4f54-8048-3cd43922d3f2"
+  }
+ ],
+ "messages-from-session": [],
+ "status": {
+  "activeSensors": [],
+  "agentSessions": 0,
+  "capabilityVersion": 56,
+  "characterProtocol": {
+   "activeCharacter": null,
+   "instances": 0,
+   "version": "1.0"
+  },
+  "configErrors": [],
+  "emergencyStop": false,
+  "eventSequence": 110,
+  "hasReceipts": false,
+  "name": "adaptive-interaction",
+  "onboardingCompleted": false,
+  "pendingAiAssists": 0,
+  "presentation": {
+   "behaviorExplanation": null,
+   "behaviorState": null,
+   "character": null,
+   "connected": false,
+   "lastSeenSecondsAgo": null,
+   "packId": null,
+   "pendingCommands": 0,
+   "visible": false
+  },
+  "proactivePause": {
+   "paused": false
+  },
+  "quietHours": false,
+  "recipes": {
+   "errors": 0,
+   "loaded": 1
+  },
+  "schemaVersion": "1.0",
+  "session": null,
+  "startedAt": "2026-09-07T03:54:18.669599Z",
+  "unresolvedStopHealth": {
+   "overflowCount": 0,
+   "parked": false,
+   "recoveryUnknown": false,
+   "storage": "durable"
+  },
+  "uptimeSeconds": 15,
+  "version": "0.8.0"
+ },
+ "auditTail": [
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T03:54:31.929Z",
+   "detail": {
+    "revision": 4,
+    "truth": "cancelled"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T03:54:31.929Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "cancelled",
+    "messageId": "rt-11c08051654942b18e8d91eb04e69743",
+    "truthState": "cancelled"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "user",
+   "at": "2026-09-07T03:54:31.928Z",
+   "detail": {
+    "agentSessionId": "asession-c69f41d6-be87-4f54-8048-3cd43922d3f2",
+    "reason": "phase0 close after cancel"
+   },
+   "kind": "agent-session.closed"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T03:54:25.888Z",
+   "detail": {
+    "revision": 4,
+    "truth": "cancelled"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T03:54:25.887Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "cancelled",
+    "messageId": "rt-861d359284eb421e9fe4e02f008f9cea",
+    "truthState": "cancelled"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T03:54:19.845Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T03:54:19.802Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T03:54:19.344Z",
+   "detail": {
+    "revision": 2,
+    "truth": "queued"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T03:54:19.343Z",
+   "detail": {
+    "agentSessionId": "asession-c69f41d6-be87-4f54-8048-3cd43922d3f2",
+    "expiresAt": "2026-09-07T04:14:19.342698Z"
+   },
+   "kind": "agent-session.capability-issued"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T03:54:19.343Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "wait",
+    "messageId": "rt-9cf26fcb13a24edba7e82cdf0646974e",
+    "truthState": "queued"
+   },
+   "kind": "character.system-text"
+  }
+ ],
+ "psAgents": [
+  " 2805   741  1537 02-09:40:07 node /Users/user/Workspace/claude-code-mcp/claude-code-server/build/index.js",
+  " 4545  3695  3695       00:16 /opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/Resources/Python.app/Contents/MacOS/Python /private/tmp/claude-501/-Users-user-Workspac",
+  " 4549  4549  4545       00:16 /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai serve",
+  "45051 45019 45019    18:39:07 /Users/user/.codex/plugins/cache/openai-bundled/chrome/latest/extension-host/macos/arm64/ChatGPT for Chrome chrome-extension://hehggadaopoacecdllhhajmbjkdcmajg/",
+  "70588 70561 70561    11:03:48 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service) --type=utility -",
+  "70590 70561 70561    11:03:48 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service) --type=utility -",
+  "70818 70561 70561    11:03:47 /Applications/ChatGPT.app/Contents/Resources/codex -c features.code_mode_host=true app-server --analytics-default-enabled -c mcp_servers.codex_app={\"command\"=\"/Applicatio",
+  "70826 70561 70561    11:03:47 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "70895 70561 70561    11:03:43 /Users/user/.codex/computer-use/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
+  "71291 70561 70561    11:03:37 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "71333 71333 70818    11:03:32 /Applications/ChatGPT.app/Contents/Resources/codex-code-mode-host",
+  "71650 70561 70561    11:00:48 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service) --type=utility -",
+  "73588 70561 70561       16:42 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "73589 70561 70561       16:42 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "76696 76696 70818    03:28:36 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/user/.codex/plugins/cache/openai-bundled/unified-computer-use/26.901.51231/scripts/launch.mjs",
+  "79849 79849 70818    01:04:16 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/user/.codex/plugins/cache/openai-bundled/unified-computer-use/26.901.51231/scripts/launch.mjs",
+  "80153 80153 70818    01:04:14 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/user/.codex/plugins/cache/openai-bundled/unified-computer-use/26.901.51231/scripts/launch.mjs",
+  "80683 80683 70818    01:03:33 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/user/.codex/plugins/cache/openai-bundled/unified-computer-use/26.901.51231/scripts/launch.mjs",
+  "80816 80816 80720    01:03:32 /opt/homebrew/lib/node_modules/@colbymchenry/codegraph/node_modules/@colbymchenry/codegraph-darwin-arm64/node --liftoff-only --disable-warning=ExperimentalWarning /opt/ho",
+  "80904 80816 80816    01:03:32 /opt/homebrew/lib/node_modules/@colbymchenry/codegraph/node_modules/@colbymchenry/codegraph-darwin-arm64/node -e \\012const fs = require('fs');\\012const parentPid = Number",
+  "16272 16272   790       46:19 claude --dangerously-skip-permissions --chrome",
+  " 1486  1486   944       01:08 /opt/homebrew/bin/codex --yolo",
+  " 1853  1853  1486       01:04 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/user/.codex/plugins/cache/openai-bundled/unified-computer-use/26.901.51231/scripts/launch.mjs"
+ ],
+ "finishedAt": "2026-09-07T03:54:34.029Z",
+ "wallSeconds": 15.46
+}

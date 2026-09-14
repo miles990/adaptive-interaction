@@ -1,0 +1,514 @@
+{
+ "key": "G",
+ "found": {
+  "dimension": "G",
+  "rows": [
+   {
+    "id": "G-01",
+    "need": "對話、工作時間線、串流、待回答事項：WorkPage／work/ 元件、Timeline、ActivityPage 各吃哪個 API／SSE；有沒有「待回答」清單",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "fixture",
+     "integration",
+     "browser",
+     "native-desktop"
+    ],
+    "owner": "apps/interaction-desktop（pages/WorkPage.tsx、AiPage.tsx、work/TaskComposer.tsx、ActivityPage.tsx、Timeline.tsx、components/NotificationPanel.tsx）＋crates/interaction-runtime/src/{agents,gateway,activity}.rs＋crates/interaction-api/src/{lib,sse}.rs",
+    "entryPath": "Desktop: PageBody App.tsx:609-627 → WorkPage.tsx:84-107 → TaskComposer.tsx:460-502 (api.agentSessionCreate + agentSessionSend) / AiPage.tsx:311 (agentSessionsList) → SessionCard AiPage.tsx:523-542 (agentSessionMessages 'from-session' 5 s 輪詢) → transport.ts:166,303-308 → HTTP /v1/agent-sessions* (interaction-api/src/lib.rs:216-240) 或 Tauri IPC (src-tauri/src/lib.rs:1567,1582) → agents.rs mailbox_send/mailbox_read. 事件流: transport.ts:440-475 fetch /v1/events (Last-Event-ID) 或 :517 'runtime-event-raw' → App.tsx:108-111 events(last 300)+refreshKey. 待回答: App.tsx:295-299 loadDecisionInbox / HomePage.tsx:470 / ActivityPage.tsx:286-289 → api.activityInbox → transport.ts:154 GET /v1/activity/inbox (lib.rs:70; src-tauri lib.rs:1501) → activity.rs:93-365. CLI: commands.rs:1370-1395 `interact-ai inbox`、:1008-1016 messages、:1020-1025 report、:1396 events(SSE tail).",
+    "contract": "AgentSessionRecord (core agent.rs:183-243) + mailbox message {kind, body, deliveredAt}; RuntimeEvent SSE (sse.rs:15-54, agent.session.state human-only); ActivityInboxItem {kind,status,route,needsDecision,pendingCount,pendingCountExact} (activity.rs:43-57,351-362); 桌面投影 statusProjection/workState.ts:9-35,112-170、inbox.ts:17-154; delivery 六態 work/delivery.ts:22-49,235-261",
+    "stateOwner": "Runtime agents.rs (agent_sessions map + persist_agent_session；mailbox VecDeque per session agents.rs:1515-1521)；SSE replay buffer events.rs；桌面只保留最近 300 則事件與輪詢結果，不持久化",
+    "existingTests": [
+     "apps/interaction-desktop/src/test/workPage.test.tsx:121-433（交代／六態送達／預填）",
+     "apps/interaction-desktop/src/test/aiPageResume.test.tsx:141-200（再交代六態）",
+     "apps/interaction-desktop/src/test/statusProjection.test.tsx:234-380（SessionCard／NotificationPanel／ActivityPage 收件匣投影）",
+     "apps/interaction-desktop/src/test/regressions-v04.test.tsx:440-480（收件匣查詢失敗／複合篩選／NowStrip pendingCount）",
+     "apps/interaction-desktop/src/test/pendingCountExact.test.tsx:35-110",
+     "apps/interaction-desktop/src/test/homePage.test.tsx:189-243",
+     "apps/interaction-desktop/e2e/work-delegate.spec.ts:110-360（fixture agent：處理中／取消／關閉／claimed≠verified／unknown／拒絕真的寫進 fixture stdin）",
+     "apps/interaction-desktop/e2e/home-state.spec.ts:76-200、evidence.spec.ts:320-432,515、app.spec.ts:288（Inbox）",
+     "crates/interaction-runtime/tests/gateway_loop.rs:138,624,703,782,903,957,1133,1286,1772（fixture 子程序）",
+     "crates/interaction-runtime/tests/agents_loop.rs:681",
+     "crates/interaction-api/tests/api_e2e.rs:475-501（/v1/activity/inbox 篩選）",
+     "scripts/v03-cli-e2e.sh:182-198（agents create/send/report/verify）",
+     "scripts/tests/tauri-work-cancel.py（原生 AX 走查，fixture agent）"
+    ],
+    "evidence": [
+     "對話面＝SessionCard「查看結果／訊息」清單＋「再交代一句」：AiPage.tsx:523-542 每 5 s 輪詢 api.agentSessionMessages(id,'from-session')（MESSAGE_POLL_MS AiPage.tsx:153）；:716-741 送 task 走 classifyDelivery 六態",
+     "後端只寫三種 from-session 信箱訊息：approval-request gateway.rs:446-454、result gateway.rs:528-536、approval-resolved gateway.rs:938；agents.rs 只寫 'task'（:1837）。TaskProgress／ToolStarted／ToolCompleted／ArtifactProduced／TokenUsage 一律走 report_agent_session('progress') gateway.rs:407-509 → 只改狀態 Active＋agent.session.state 事件＋agent.session 觀察（agents.rs:1246-1259；runtime.rs:839 receptor.observation），不進信箱 → 一般模式的訊息清單看不到進度／工具／產出；AiPage.tsx:212-222 的 progress/question/note/error/text 標籤沒有後端生產者（grep '\"question\"' crates → 無）",
+     "SSE：transport.ts:440-475（HTTP 模式 fetch /v1/events＋Last-Event-ID）、:517（Tauri runtime-event-raw）；App.tsx:108-111 每則事件 refreshKey+1 觸發清單重抓；sse.rs:35-53 agent.session.state 只給 human principal。沒有 token 級串流輸出",
+     "Timeline：Timeline.tsx:18-75 只吃 App 記憶體內 events（App.tsx:125-126 eventsRecent(200)＋SSE 尾巴 300 則），只在進階模式（routing.ts:48 adv-timeline；App.tsx:379-395 gating；App.tsx:743-744）；沒有任何測試渲染它（deep-links.test.tsx:70 只 stub）",
+     "一般模式的『時間線』＝ActivityPage：api.actionsList(30)（ActivityPage.tsx:31 → transport.ts:106 GET /v1/actions）故事卡＋SystemFeed 事件白名單（:194-230）＋統一收件匣（:259-380）",
+     "待回答清單三處共用 activity_inbox：NotificationPanel.tsx:42-121（decisionPage ConnectPage.tsx:112-137）、HomePage NowStrip:470,546-582、ActivityPage InboxSection:286-380；needsDecision 判準 activity.rs:118-121（waiting-for-consent／waiting-for-input／claimed-completed）、:96-111 ai-assist→route 'automations'、:393-394 receipts uncertain/blocked、inbox.ts:130-138 sensor.stop-uncertain",
+     "『等你回答』(waiting-for-input) 沒有任何 connector 產生：interaction-agent-gateway/src/lib.rs:89-99、core agent.rs:21-30；只能由 POST /v1/agent-sessions/{id}/report（lib.rs:220；gateway.rs:413-418 僅轉發）或 CLI agents report（commands.rs:1020-1025）手動回報；e2e／evidence 只覆蓋 等你允許／對方說已完成／已由你確認／處理中／結果不確定／已取消",
+     "ai-assist 待回答項目 route='automations'（activity.rs:103）但桌面沒有任何頁面呼叫 api.aiAssistResolve（api.ts:349 定義；grep src pages/components → 無）；HomePage.tsx:313-317 只顯示計數並說逾時自動處理"
+    ],
+    "limitation": "(1) 進度／工具／產出不進信箱，一般模式只看得到最終 result 與核可請求；(2) 訊息靠 5 s 輪詢而非事件驅動，SSE 只用來 bump refreshKey；(3) waiting-for-input 僅手動回報可達，真 agent 永遠不會出現『等你回答』；(4) ai-assist 待決定項在桌面沒有裁決入口（未通讀 AutomationsPage，以 grep 為準）；(5) 進階時間軸無測試；(6) 真 agent 證據為零（E2E_REAL_AGENTS=1 時 evidence/work-delegate 測試 skip：evidence.spec.ts:325-328、work-delegate.spec.ts:39-41）",
+    "nextAction": "決定是否把 progress/tool/artifact 寫成信箱訊息或改為 SSE 驅動的訊息重抓；把 ai-assist 裁決接進 AutomationsPage 或改 route；在文案／文件標明 waiting-for-input 只有手動回報；為 TimelinePage 補最小渲染測試；跑一次 E2E_REAL_AGENTS=1 記錄真 agent 的訊息形狀",
+    "reproCommand": "grep -n 'MailboxDirection::FromSession' -A 4 crates/interaction-runtime/src/gateway.rs; grep -rn 'aiAssistResolve' apps/interaction-desktop/src --include='*.tsx' | grep -v test",
+    "confidence": "high"
+   },
+   {
+    "id": "G-02",
+    "need": "角色與 UI 是否使用同一工作真相：character.rs 對 agent session 狀態的投影 vs statusProjection/workState.ts；角色會不會自己推測完成",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration",
+     "fixture",
+     "browser"
+    ],
+    "owner": "crates/interaction-runtime/src/{agents,character,character_session}.rs（真相與投影）；apps/interaction-desktop/src/statusProjection/workState.ts、pages/AiPage.tsx（UI）；apps/interaction-desktop/src/companion/{CompanionApp.tsx,gatewayWiring.ts,machine.ts}、character/{gateway.ts,lines.ts}、character/adapters/shuTables.ts（角色）；apps/interaction-ios CharacterSemantic.swift（iPhone）",
+    "entryPath": "唯一寫入路徑 agents.rs report_agent_session:1174-1261（state＋claim_id、清 human_verified）／verify_agent_session:1111-1172（唯一 verified 來源，state 不變、加 human_verified）／close:1367-1379／expire:697-701／restart→unknown:1506-1513 → emit_agent_session_state:1098-1106 → (a) EventType::AgentSessionState SSE → UI 重抓 GET /v1/agent-sessions（record.state＋humanVerified＋claimId）→ projectWorkState；(b) character_project_session character.rs:1878-1893 → session_projection:467-486 → character.intent（truthState）＋ character_session_note_agent_state character_session.rs:1394-1413（只轉錄）→ 桌面 CompanionApp.tsx:1395-1404（protocol feed）／legacy mapRuntimeEvent machine.ts:499-533；iPhone 由 Character Session snapshot 讀 truth.state（CharacterSemantic.swift:460-497,637-638）",
+    "contract": "agent.session.state payload {agentSessionId, agentId, state}（agents.rs:1099-1102）；CPP §11 對照表 session_projection（claimed-completed→ClaimCompleted/Claimed、verified→VerifiedSuccess/Verified、closed→Idle/None、expired→Unknown/Expired）；桌面 WORK_STATE_PROJECTION workState.ts:112-170（同一組 raw 值含 taxonomy 別名 fetched/working/waiting-input）",
+    "stateOwner": "Runtime：AgentSessionRecord.state／claim_id／human_verified（持久化 persist_agent_session）；角色端無持久化真相，只吃事件（machine.ts transient 2.5 s：73），Character Session 另存 truth 快照（interaction-session）",
+    "existingTests": [
+     "crates/interaction-runtime/src/character.rs:2552 projection_tables_follow_readme_section_11（unit）",
+     "crates/interaction-runtime/tests/character_loop.rs:361 every_readme_section_11_row_projects_the_expected_intent、:704 receipts_settle_the_presentation_receipt_honestly_never_verified（integration）",
+     "crates/interaction-runtime/tests/agents_loop.rs:681 agent_session_state_taxonomy_is_emitted_for_every_rung_of_the_ladder",
+     "crates/interaction-runtime/tests/gateway_loop.rs:1286 a_second_turn_that_dies_is_not_covered_by_the_first_turns_claim、:1772 an_interrupted_codex_turn_is_cancelled_not_claimed_completed（fixture 子程序）",
+     "apps/interaction-desktop/src/test/statusProjection.test.tsx:101-124（needsDecision／claimed 永不成 verified／isOpenWorkState 對齊 is_open）",
+     "apps/interaction-desktop/src/test/regressions-v06-general-mode.test.tsx:135-147",
+     "apps/interaction-desktop/src/test/rig.test.ts:142（success 無 slice 才綠勾）",
+     "apps/interaction-desktop/src/test/character-gateway.test.ts（存在，內容未逐條核對）",
+     "apps/interaction-ios/InteractionCompanionTests/SessionClientTests.swift:474（claimed 不是 verified）、AIPConformanceTests.swift:222-224（verified runtime-only）",
+     "apps/interaction-desktop/e2e/evidence.spec.ts:320-432（UI 四態，fixture）"
+    ],
+    "evidence": [
+     "同一來源：UI 與角色都由 agents.rs report_agent_session/verify_agent_session 的同一次轉換驅動（emit_agent_session_state agents.rs:1098-1106 同時發事件與投影）；角色投影表 character.rs:467-486 與桌面表 workState.ts:112-170 涵蓋同一組 raw 值（含 fetched/working/waiting-input 別名）",
+     "角色不自行推測完成：character_session.rs:1393-1413『只轉錄，不推論』，verified 只從 verify 路徑來；桌面 character/gateway.ts:824-838 非 runtime 來源的 truthState 強制 none 並 audit forged-truth-state、:1169-1170 回執帶 truthState/verified 一律忽略；lines.ts:47-57 綠勾只在 truthState==='verified'；shuTables.ts:252-256；machine.ts:484-489,513-516 claimed→verified:false、action.observed/verified→true（legacy feed 亦不推測）；CompanionApp.tsx:1428-1431 protocol 模式下 legacy 映射只收基態",
+     "AI 主動呈現不能帶 truth：presentationCommands.ts:11、gateway.ts:62（ai 來源強制 none／≤50）",
+     "iPhone：CharacterSemantic.swift:487-497 claimed→『宣稱完成（尚未驗證）』、verified→『已驗證成功』；:637-638 showsVerifiedCheck 只在 verified",
+     "載體差異（非矛盾）：UI 的『已由你確認』要求 state==claimed-completed && humanVerified && claimId 相符（AiPage.tsx:177-189,510-513）並在 closed 後仍顯示『已確認並收尾』（:198-210,589-596）；角色只收到一次性的 verified 事件（machine.ts:73 2.5 s transient），closed 後投影成 Idle/None（character.rs:482）；重啟後兩端同為 unknown（agents.rs:1506-1513）",
+     "UI 不認得的 raw 值→『結果不確定』known:false（workState.ts:177-199）；角色端 session_projection 認不得→None 不投影（character.rs:484）——兩端對未知值的處置不同（一個顯示不確定、一個不演）"
+    ],
+    "limitation": "角色與 UI 的『同一真相』是同一轉換源、兩種載體（持久化 record vs 一次性事件）；未核對 character-gateway.test.ts／character.spec.ts 是否覆蓋 forged-truth；未知 raw 值時 UI 顯示『結果不確定』而角色沉默；沒有真 agent／真機證據",
+    "nextAction": "補一支跨端測試：對同一 session 走 ladder，同時斷言 GET /v1/agent-sessions 投影、agent.session.state 事件、character.intent truthState 與 Character Session truth 四者一致；核對 character-gateway.test.ts 的 forged-truth 案例",
+    "reproCommand": "grep -n 'fn session_projection' -A 20 crates/interaction-runtime/src/character.rs; grep -n 'verified: true' apps/interaction-desktop/src/companion/machine.ts",
+    "confidence": "high"
+   },
+   {
+    "id": "G-03",
+    "need": "五入口與主要操作：general-mode-ux.md 五入口對應頁面與測試",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "browser",
+     "native-desktop",
+     "fixture"
+    ],
+    "owner": "apps/interaction-desktop/src/routing.ts（純資料）、App.tsx PageBody、components/NarrowNav.tsx、pages/{HomePage,CompanionPage,WorkPage,ConnectPage,MorePage}.tsx；docs/aip/general-mode-ux.md §1、docs/DESKTOP-GUIDE.md",
+    "entryPath": "routing.ts:25-31 SIMPLE_NAV（home／companion／work／connect／more）→ App.tsx:584-748 PageBody：home→HomePage:587；companion→CompanionPage:601；work/ai→WorkPage(initial sessions):612、automations→WorkPage(automations):621；connect/capabilities→ConnectPage:636、safety→ConnectPage(initial safety):648；more/memory/activity/settings/backup/manage/advanced-features→MorePage:666-729；adv-*→進階頁:731-748；LEGACY_ANCHORS routing.ts:55-71 折疊舊 id；窄視窗 NARROW_PRIMARY:92＋NARROW_MORE_ITEMS:96-102",
+    "contract": "general-mode-ux.md:8-20（主入口恰五個；角色同步不是第六入口）；DESKTOP-GUIDE.md:176-188（現在三答＋快速操作）、:276-293（工作）",
+    "stateOwner": "useNavigation.ts（目前路由；未讀）；prefs.mode（simple/advanced）由後端 UI 偏好持久化（MorePage.tsx:132-165 setMode）",
+    "existingTests": [
+     "apps/interaction-desktop/src/test/regressions-v06-general-mode.test.tsx:57-65（SIMPLE_NAV 長度 5 與 id 鎖死）",
+     "apps/interaction-desktop/e2e/app.spec.ts:122-137（五入口全部可達，真 daemon＋Chromium）、:62（現在三件事）、:198（工作 task-first）、:230（更多五入口）、:350（交代一件事帶到工作頁）",
+     "apps/interaction-desktop/src/test/homePage.test.tsx:189-243,319-401（快速操作五個、緊急停止二段）",
+     "apps/interaction-desktop/src/test/narrowNav.test.tsx:37-100、deep-links.test.tsx:170-300（13 個舊錨點、通知中心 route 白名單外處置）",
+     "apps/interaction-desktop/e2e/evidence.spec.ts:85,167（每個一級頁截圖 1200px／390px）、general-mode-tasks.spec.ts:574-724（任務量測；模擬 iPhone fixture＋fixture agent）",
+     "scripts/tests/tauri-settings-walkthrough.py、tauri-work-cancel.py（原生 AX，fixture）"
+    ],
+    "evidence": [
+     "五入口純資料 routing.ts:25-31；第二入口執行期換成角色名 routing.ts:33-38；ADVANCED_NAV 九頁只在 advanced 顯示 App.tsx:379-395",
+     "主要操作：現在＝交代一件事（HomePage.tsx:100-110 sessionStorage 預填→work；TaskComposer.tsx:376-385 peek/clear）、暫停／恢復主動互動（:139-148）、加入裝置（:150）、停止所有感測（:79-98 送出後重讀 status）、緊急停止二段且無解除（:152-171）；工作＝TaskComposer 開始前三答（TaskComposer.tsx:556-599）＋『開始』（:698）；更多五分頁 MorePage.tsx:27-32",
+     "文件漂移：DESKTOP-GUIDE.md:181 列『排隊中／進行中／說做完了／驗證成功』，程式標籤是『正在準備／處理中／對方說已完成／已由你確認』（workState.ts:73,86,130,137）；同檔 :289-291 才是對的清單",
+     "真人可用性為零：v0.8.0-known-limitations.md『真人可用性與解除 emergency stop』needs-environment；general-mode-tasks.spec 的耗時是腳本不是人"
+    ],
+    "limitation": "五入口與操作皆由靜態表與 e2e 覆蓋；文件 DESKTOP-GUIDE.md:181 與程式標籤不一致；沒有真人受測；未讀 useNavigation.ts 與 CompanionPage 內文",
+    "nextAction": "修 DESKTOP-GUIDE.md:181 文案對齊 workState.ts；把『主入口恰五個』的守門也加進 docs-claims.sh 或 e2e 斷言 nav 數量",
+    "reproCommand": "sed -n '25,31p' apps/interaction-desktop/src/routing.ts; sed -n '181p;289,291p' docs/DESKTOP-GUIDE.md",
+    "confidence": "high"
+   },
+   {
+    "id": "G-04",
+    "need": "一般文案與進階診斷：技術詞守門測試、進階頁",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "browser"
+    ],
+    "owner": "apps/interaction-desktop/src/statusProjection/*（投影）、pages/MorePage.tsx AdvancedFeaturesSection、App.tsx（ADVANCED_NAV gating）、各頁 advanced prop；測試 src/test/general-mode-no-technical-terms.test.tsx、workPage.test.tsx、statusProjection.test.tsx、regressions-v05.test.tsx",
+    "entryPath": "更多→進階模式 MorePage.tsx:134-165（checkbox → setMode('advanced'|'simple') 後端 UI 偏好）→ App.tsx:379-395 顯示 ADVANCED_NAV → PageBody adv-* 頁 App.tsx:731-748；各頁以 advanced 開關次要行：AiPage.tsx:553-575（狀態碼／provider session／id／費用）、:774-779 技術詳情 JSON；ActivityPage.tsx:184-189,219-224,366-371；TaskComposer.tsx:694,711；MemoryKnowledgePage.tsx:75-88,124-125（收據／Bundle 分頁）、:1324-1328；CharacterSyncCard 連接診斷（general-mode-ux.md:82-84,139-149）",
+    "contract": "general-mode-ux.md §2/§5（一般模式不出現 revision/sequence/epoch/eventLog/storeNote/token/provider id/裝置識別碼/原始 payload）；DESKTOP-GUIDE.md:292『一般模式不顯示 JSON』",
+    "stateOwner": "prefs.mode（Runtime UI 偏好，CLI 亦可讀寫 MorePage.tsx:132）",
+    "existingTests": [
+     "apps/interaction-desktop/src/test/general-mode-no-technical-terms.test.tsx:21,137-280（同步卡與未解決停止 DOM 掃描；:228 進階模式反向斷言）",
+     "apps/interaction-desktop/src/test/workPage.test.tsx:511-570（WorkPage DOM 掃描＋WorkPage/TaskComposer 原始碼字面掃描 banned regex :552）",
+     "apps/interaction-desktop/src/test/statusProjection.test.tsx:88,182-216,252,340-380,455-479（未知值不外洩、進階才顯示原始碼）",
+     "apps/interaction-desktop/src/test/regressions-v05.test.tsx:411-427（記憶頁一般模式三分頁、無候選／收據／Context Bundle）",
+     "apps/interaction-desktop/src/test/regressions-v06-general-mode.test.tsx:68-80",
+     "apps/interaction-desktop/e2e/app.spec.ts:245（記憶與知識不外洩）、:301-322（進階切換後出現配方 YAML）"
+    ],
+    "evidence": [
+     "投影兜底：workState.ts:177-199 未知 raw→『結果不確定』known:false；inbox.ts:148-154、:208-247 inboxItemTitle 不印原始 event type；ActivityPage.tsx:350 inboxDeviceLabel 不印原始 id",
+     "一般模式刻意可見的技術值：TaskComposer『查看技術細節』折疊區（TaskComposer.tsx:600-677）含原始授權範圍字串 workspace:/path、workspace.write、agent-session:workspace-write（:429-445 由 buildSessionCreateInput 算出）——文件已揭露 DESKTOP-GUIDE.md:281-283",
+     "一般模式仍會印後端原文的地方：ActivityPage.tsx:144 receipt.errors[].message（英文錯誤原文）、:363 item.domains 原始 domain id；AiPage.tsx:339 agents discovery detail 原文（a.detail）——沒有守門測試覆蓋這三處",
+     "守門測試是逐元件 DOM 掃描（同步卡、未解決停止、WorkPage、記憶頁），沒有全 app 的技術詞 regex 掃描；HomePage／ActivityPage／ConnectPage 只有針對特定字串的斷言"
+    ],
+    "limitation": "守門為局部而非全域；ActivityPage 錯誤原文與 AiPage 偵測 detail 原文在一般模式直出；進階頁（adv-*）無 vitest 渲染測試（deep-links 只 stub）",
+    "nextAction": "加一支以 TECHNICAL regex 掃 HomePage／ActivityPage／ConnectPage 一般模式 DOM 的測試；為 receipt.errors 與 discovery detail 加人話投影或收進進階",
+    "reproCommand": "sed -n '21p;137,145p' apps/interaction-desktop/src/test/general-mode-no-technical-terms.test.tsx; sed -n '140,146p;360,365p' apps/interaction-desktop/src/pages/ActivityPage.tsx",
+    "confidence": "high"
+   },
+   {
+    "id": "G-05",
+    "need": "上下文來源、執行證據與成果是否可查看：bundle viewer？receipts viewer？evidence.spec",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration",
+     "fixture",
+     "browser"
+    ],
+    "owner": "crates/interaction-runtime/src/{agents,memory,executor}.rs（證據產生）；crates/interaction-api（/v1/agent-sessions、/v1/actions、/v1/knowledge/receipts、/v1/memory/bundle）；apps/interaction-desktop/src/pages/{MemoryKnowledgePage,ActivityPage,HomePage,AiPage}.tsx；CLI commands.rs",
+    "entryPath": "真實 bundle：agents.rs:860-886 dispatch 時 memory_context_bundle → 寫進 to-session task body.contextBundle（:885）＋ AgentContextBundleReceipt 進 record.context_bundles（:928-941，cap 32 :51；core agent.rs:243）→ 只能經 GET /v1/agent-sessions／{id}（lib.rs:216-218）或 messages?direction=to-session（lib.rs:224；CLI commands.rs:1008-1016）看到。桌面預覽：MemoryKnowledgePage.tsx:1286-1332 api.memoryBundle(task,agent,[]) → transport.ts:181 → /v1/memory/bundle（一般模式 BundleHumanSummary :1344；進階 raw JSON :1325）。執行證據：AiPage SessionCard 訊息 result summary/costUsd（gateway.rs:520-536；messageSummary AiPage.tsx:275-288）、核可裁決含 deliveredToAgent（:240-272）、進階 budget/id（:553-575）；動作收據 ActivityPage.tsx:80-192（policyDecisions／verification.verdict／重新驗證 POST /v1/actions/{id}/verify lib.rs:297）；HomePage LastInteraction:675-743（plan metadata aiGate）；知識收據 ReceiptsSection MemoryKnowledgePage.tsx:1229-1280（進階）＋HomePage:400-408 摘要；audit tail SafetyPage.tsx:51",
+    "contract": "AgentContextBundleReceipt（core agent.rs:243）；mailbox task body.contextBundle；ActionReceipt {policyDecisions, verification{verdict,detail}, errors}（core action.rs:209-218 VerificationVerdict）；knowledge receipts {verification.humanReviewed, published.claims}",
+    "stateOwner": "Runtime：record.context_bundles（隨 session 持久化）、receipts（storage）、knowledge receipts（knowledge.rs）；桌面不快取",
+    "existingTests": [
+     "apps/interaction-desktop/e2e/evidence.spec.ts:85-740（各頁截圖；:320-432 工作四態；:515 待確認＋通知中心；fixture agent／模擬 adapter）",
+     "apps/interaction-desktop/src/test/regressions-review2-ia.test.tsx:292-345（重新驗證只說觀察到的事實、失敗不靜默）",
+     "apps/interaction-desktop/src/test/regressions-v05.test.tsx:411-427（一般模式不出現 Context Bundle）",
+     "apps/interaction-desktop/src/test/knowledgeReceipts.test.ts（存在，未讀）",
+     "crates/interaction-runtime/tests/agents_loop.rs、gateway_loop.rs、proactive_loop.rs（含 contextBundle 斷言；fixture 子程序）",
+     "crates/interaction-api/tests/api_e2e.rs:475-501"
+    ],
+    "evidence": [
+     "桌面看不到『這次真的送了什麼』：api.ts 沒有 contextBundles 存取（grep 無）；SessionCard 只抓 from-session（AiPage.tsx:528），to-session 的 task 訊息（含 contextBundle）在桌面沒有讀取點（grep 'to-session' src 非測試 → 無）；只有預覽且固定 domains=[]（MemoryKnowledgePage.tsx:1307；BUNDLE_PREVIEW_DOMAINS_NOTE :1282-1284 已誠實標示）",
+     "執行過程證據（tool started/completed、artifact、token usage）只進 agent.session 觀察（gateway.rs:456-509→agents.rs:1255-1259 confidence 0.5→runtime.rs:839 receptor.observation），一般模式沒有任何檢視面；進階 Timeline 可見原始事件",
+     "成果檢視：messageSummary 認得 artifact/tool 鍵（AiPage.tsx:282-286）但後端不會寫這類信箱訊息；沒有產出檔案清單",
+     "動作收據可查：ActivityPage 故事卡＋『重新驗證』與『取消』（:149-181）；進階 JSON（:184-189）；知識收據進階分頁（MemoryKnowledgePage.tsx:88,124）",
+     "CLI／HTTP 可完整查看：interact-ai agents messages --direction to-session、memory bundle（main.rs:665）、GET /v1/agent-sessions/{id}（含 contextBundles）"
+    ],
+    "limitation": "真實 bundle 收據與 to-session 內容在桌面 UI 無檢視面（僅 CLI/HTTP）；進度／工具／產出不可見於一般模式；knowledgeReceipts.test.ts 與 SafetyPage audit 未讀；證據為 fixture／整合，無真 agent",
+    "nextAction": "在 SessionCard 加『這次提供了什麼』讀 record.contextBundles（或 to-session task）；決定 progress/tool/artifact 的一般模式呈現；把 evidence.spec 的截圖加入 bundle／收據頁",
+    "reproCommand": "grep -n 'context_bundles' crates/interaction-runtime/src/agents.rs crates/interaction-core/src/agent.rs; grep -rn 'contextBundle' apps/interaction-desktop/src/api.ts apps/interaction-desktop/src/pages",
+    "confidence": "medium"
+   },
+   {
+    "id": "G-06",
+    "need": "unknown／submitted／claimed／verified 是否混淆：workState.ts 映射表、文案、estop/unknown 呈現；找出任何把 claimed 顯示成完成的地方",
+    "status": "confirmed-defect",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit",
+     "integration",
+     "fixture",
+     "browser",
+     "native-desktop"
+    ],
+    "owner": "apps/interaction-desktop/src/statusProjection/{workState,inbox}.ts、ui.tsx statusBadgeKind、appstate.tsx actionStatusLabel、pages/{ActivityPage,HomePage,AiPage,Timeline}.tsx、work/delivery.ts；crates/interaction-runtime/src/executor.rs、crates/interaction-core/src/receipt.rs",
+    "entryPath": "Agent session：record.state → projectWorkState（workState.ts:196-199）→ AiPage SessionCard:510-551、HomePage NowStrip:533-537、Inbox（inbox.ts:149）；verified 只在 verifiedForCurrentClaim（AiPage.tsx:177-189）。動作收據：receipt.currentStatus → statusBadgeKind（ui.tsx:10-30）＋actionStatusLabel（appstate.tsx:209-239）→ ActivityPage.tsx:104-106,129-133；HomePage.tsx:735-738；inbox.ts:86-91；Timeline.tsx:12（進階）。後端：executor.rs:1060-1063（observed→completed）與 :1115-1134（ack-only 但 actuator 宣告 ack=delivered → Completed，verdict AcknowledgedOnly）",
+    "contract": "CLAUDE.md 誠實階梯 completed≠verified；CPP README §11 action.completed→claim-completed/claimed（docs/character-protocol/README.md:367；character.rs:495）；core receipt.rs:29-30 卻註解 Completed＝『goal achieved and verified to the configured standard』；VerificationVerdict action.rs:209-218",
+    "stateOwner": "Runtime（record.state／human_verified／claim_id；ActionReceipt.current_status／verification）；桌面純投影",
+    "existingTests": [
+     "apps/interaction-desktop/src/test/statusProjection.test.tsx:75-124（窮舉表、needsDecision、claimed 帶誠實註記且無路徑成 verified、未知不回原字）、:155-195（inbox：completed kind=claimed、observed kind=verified——只斷言 kind 不斷言 badge）",
+     "apps/interaction-desktop/src/test/honesty.test.ts:7-28（actionStatusLabel：accepted/dispatched/acknowledged 不含『完成』；未覆蓋 completed）",
+     "apps/interaction-desktop/src/test/workPage.test.tsx:433-510、delivery.test.ts（六態無 ok）",
+     "apps/interaction-desktop/e2e/evidence.spec.ts:320-432（claimed 無 ✓、verified 才 ✓）、work-delegate.spec.ts:252-326（claimed≠verified、unknown 無驗證鈕）、home-state.spec.ts:94-200（首頁不變綠勾；unknown/取消不算完成）",
+     "crates/interaction-runtime/tests/gateway_loop.rs:624（無聲結束＝unknown、只有真錯誤才 failed）、:1286、:1772；agents_loop.rs:681",
+     "scripts/v03-cli-e2e.sh:192-198（report claimed-completed → humanVerified None → verify）",
+     "scripts/tests/tauri-work-cancel.py（原生，fixture）"
+    ],
+    "evidence": [
+     "Agent session 這一層乾淨：claimed-completed→『對方說已完成』warn＋honesty＋needsDecision（workState.ts:128-135）；verified→ok 只有 AiPage 在 humanVerified＋claimId 相符時才投影（AiPage.tsx:177-189,512）；SessionCard 文案 :576-581『這是它的說法，尚未經過檢查』；上一輪驗證不沿用綠勾 :597-602；關閉只說『已要求終止子程序』:683；unknown→『結果不確定』warn＋『既不是成功也不是失敗』（workState.ts:161-167）；UNRECOGNIZED :179-182；送出六態無 ok 且不宣稱完成（delivery.ts:41-49,210-227）；sensor.stop-uncertain needsDecision（inbox.ts:130-138）；estop 固定安全句 HomePage.tsx:443、inbox emergency bad（inbox.ts:105-110）",
+     "混淆點（動作收據 completed）：executor.rs:1115-1134 對宣告 ack=delivered 的 actuator，Acknowledged 直接轉 Completed 且 verdict=AcknowledgedOnly（『driver acknowledged; no environmental confirmation』）；CPP 把 action.completed 投影為 claimed（character.rs:495）；但桌面把 completed 畫成成功綠：ui.tsx:12-16 statusBadgeKind('completed')→'ok' 供 ActivityPage.tsx:104-106 故事卡徽章（:131-133 只在 acknowledged-only 時再加一顆 warn『僅確認送出』，綠與警並列）；HomePage.tsx:735-738 LastInteraction completed→'ok'（『已驗證』另加，只在 observed）；inbox.ts:86-91 completed→label『已完成』、kind 'claimed'、badge 'ok'（註解自承依 §11 是 claimed，卻是整張表唯一 kind=claimed 而 badge=ok 的列；對照 workState claimed-completed=warn）；appstate.tsx:223-224 actionStatusLabel('completed')＝『已完成』無限定語；Timeline.tsx:12 action.completed→ok（進階）",
+     "模型層自相矛盾：core receipt.rs:29-30 說 Completed＝verified to configured standard，executor 卻允許 ack-only Completed，CPP 又把它當 claimed——三份定義不一致，UI 綠色沿用 core 的說法",
+     "測試缺口：statusProjection.test.tsx:178 只斷言 projectInboxStatus('completed').kind==='claimed'，沒有斷言 badge；honesty.test.ts 沒有 completed 案例；沒有測試斷言 ActivityPage 的 completed＋acknowledged-only 不得綠",
+     "次要不一致：HomePage AgentSessionsSection 以 !s.closedAt 計『交代中』（HomePage.tsx:787），NowStrip 用 isOpenWorkState（:489）；failed/unknown/timed-out 未關閉前 closedAt 可能為空（closed_at 只在 close 設定，agents.rs:1367 附近；未逐行核實）→ 詳細狀態區可能把失敗／未知工作算成『交代中』"
+    ],
+    "limitation": "缺陷限於動作收據的 completed 視覺語法（agent session 層無混淆）；嚴重度低到中：對宣告 ack=delivered 的本機呈現面（conversation/web-ui/log）綠色算誠實，對其他 actuator 的 completed 仍需 observed 才到（executor.rs:1060-1063）；closedAt 與 is_open 的差異未實跑驗證；證據皆 fixture／整合，無真硬體 actuator",
+    "nextAction": "裁定 ActionStatus::Completed 的語意（core 註解 vs executor vs CPP）；把 inbox.ts completed badge 改成非 ok（kind 已是 claimed）、statusBadgeKind/LastInteraction 對 verdict!==observed 的 completed 改 info/pending 並加『（未觀察到效果）』；補 badge 斷言測試；統一 HomePage 兩處『進行中』判準",
+    "reproCommand": "sed -n '10,16p' apps/interaction-desktop/src/ui.tsx; sed -n '86,91p' apps/interaction-desktop/src/statusProjection/inbox.ts; sed -n '1115,1134p' crates/interaction-runtime/src/executor.rs; sed -n '29,30p' crates/interaction-core/src/receipt.rs",
+    "confidence": "medium"
+   }
+  ],
+  "openQuestions": [
+   "ActionStatus::Completed 的權威語意是哪一份：core receipt.rs:29-30（已驗證到設定標準）、executor.rs:1115-1134（ack-only 亦可 Completed）、CPP §11（claimed）？決定後才能判 G-06 綠色是否為缺陷或刻意設計",
+   "record.context_bundles 與 to-session task 內容不在桌面顯示，是隱私取捨還是未接線？（G-05）",
+   "ai-assist 待決定項 route='automations'，AutomationsPage 是否真的沒有裁決 UI？本輪只以 grep aiAssistResolve 為證，未通讀 AutomationsPage.tsx（G-01）",
+   "failed／unknown／timed-out 的 session 在關閉前 closedAt 是否為空？若是，HomePage.tsx:787 會把它們算成『交代中』（G-06 次要）",
+   "character-gateway.test.ts／character.spec.ts 是否覆蓋 forged truthState／receipt verified 被忽略的路徑？本輪未讀（G-02）",
+   "進度／工具／產出（gateway.rs:456-509）是否應該進信箱或另開一般模式檢視面？目前只在進階 Timeline 以 receptor.observation 出現（G-01／G-05）"
+  ],
+  "notes": "方法：只讀程式與測試，不跑 cargo／pnpm；證據層級只標 repo 內現有測試實際覆蓋的層級。真 agent 證據在本維度為零：evidence.spec.ts:325-328、work-delegate.spec.ts:39-41、home-state.spec.ts:30-32 在 E2E_REAL_AGENTS=1 時 skip；global-setup.ts:60-64,92 預設把 Codex／Claude Code 指到 tests/fixtures/fake_{codex,claude}.sh。fixture 能模擬到：fake_claude 預設一輪回 result（＝claimed）、fake_codex 預設丟一個 approval ServerRequest（＝waiting-for-consent）或 turns 模式開 turn 後沉默（＝active）、無聲結束＝unknown（gateway_loop.rs:624）；沒有任何 fixture 或真 connector 產生 waiting-for-input（interaction-agent-gateway/src/lib.rs:89-99；core agent.rs:21-30；docs/acceptance-evidence.md:498 亦已揭露）。iPhone 端只看到 Character Session truth（CharacterSemantic.swift:460-497），沒有工作清單 UI。原生 AX 走查 scripts/tests/tauri-work-cancel.py 明言 fixture agent、不宣稱人類／硬體驗收。docs/releases/v0.8.0-known-limitations.md 未列本維度的 completed 綠色、progress 不可見、ai-assist 無裁決入口三項；v0.7.0-known-limitations.md:114 general-mode-ux-029 為 e2e 量測誠實修正，與 G-03 相關。文件漂移：DESKTOP-GUIDE.md:181 工作狀態文案與 workState.ts 不符（:289-291 正確）。同一份 JSON 已寫到 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/matrix/find-G.json。"
+ },
+ "verdicts": [
+  {
+   "id": "G-01",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "unit",
+    "fixture",
+    "integration",
+    "browser",
+    "native-desktop"
+   ],
+   "reason": "Independently re-traced every hop; the row holds. Verified the crux directly in source: report_agent_session (agents.rs:1174-1234) only mutates AgentSessionRecord.state and emits EventType::AgentSessionState + an observation — it never calls mailbox_send. In gateway.rs, only TaskWaitingForConsent (:446-454, kind='approval-request'), TaskClaimedCompleted (:528-536, kind='result'), and gateway_resolve_approval (:935-941, kind='approval-resolved') write to the from-session mailbox; TaskProgress/ToolStarted/ToolCompleted/ArtifactProduced/TokenUsage all go through report_agent_session only. So the message-list UI (AiPage.tsx:523-542, 5s poll) is structurally blind to progress/tool/artifact events; MESSAGE_KIND_LABEL's 'question' (AiPage.tsx:212-222) has no backend producer anywhere in crates/ (grep confirms only unrelated JSON keys in test fixtures). Confirmed Timeline.tsx is gated behind advanced mode (App.tsx:379-395,743-744) and is only ever mocked as an opaque stub in deep-links.test.tsx:70 — zero render coverage, as claimed. Confirmed aiAssistResolve (api.ts:349) is defined but called nowhere in src, including AutomationsPage.tsx (grep empty) — the ai-assist route:'automations' items (activity.rs:103) genuinely have no decision UI. Confirmed work-delegate.spec.ts:39-41 and evidence.spec.ts:320-328 both skip when E2E_REAL_AGENTS=1, correctly justifying the absence of 'real-agent' from evidenceLevel. All other cited file:line locations (App.tsx:608-627/295-299, WorkPage.tsx:84-107, TaskComposer.tsx:460-502, HomePage.tsx:465-475, ActivityPage.tsx:283-292, transport.ts SSE, sse.rs human-only filter, Tauri IPC lib.rs:1566-1592) check out exactly. No corrections needed.",
+   "evidence": [
+    "crates/interaction-runtime/src/gateway.rs:390-540,920-945",
+    "crates/interaction-runtime/src/agents.rs:1174-1234,1800-1850",
+    "crates/interaction-runtime/src/activity.rs:85-135",
+    "crates/interaction-api/src/sse.rs:1-60",
+    "apps/interaction-desktop/src/pages/AiPage.tsx:153,212-222,335-339,523-542",
+    "apps/interaction-desktop/src/pages/Timeline.tsx:1-75",
+    "apps/interaction-desktop/src/api.ts:198,349",
+    "apps/interaction-desktop/src/test/deep-links.test.tsx:60-80",
+    "apps/interaction-desktop/e2e/work-delegate.spec.ts:30-45",
+    "apps/interaction-desktop/e2e/evidence.spec.ts:315-335",
+    "apps/interaction-desktop/src/App.tsx:608-627,295-299,743-744,379-395"
+   ]
+  },
+  {
+   "id": "G-02",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "unit",
+    "integration",
+    "fixture",
+    "browser"
+   ],
+   "reason": "Confirmed the single-emission-point mechanism directly: agents.rs:1098-1105 emit_agent_session_state fires EventType::AgentSessionState AND calls character_project_session from the same function body — the concrete basis for 'same truth for UI and character'. Confirmed verify_agent_session (agents.rs:1111-1172) is the sole writer of human_verified, matching the claim that character truthState:Verified can only come from this human-only route. Confirmed session_projection (character.rs:466-486) maps the identical raw-state vocabulary that workState.ts:60-175 (WORK_STATE_PROJECTION) also consumes — two independent projection tables reading the same source. Confirmed the anti-forgery mechanism precisely: character/gateway.ts:824-838 forces truthState:'none' for AI-sourced envelopes and audits 'forged-truth-state' (exact line 837) when the AI tries otherwise; machine.ts:484-489/513-516 likewise never promote claimed-completed to verified in the legacy feed. evidenceLevel is correctly conservative — no real-agent/real-iphone claimed even though iOS files are cited as owner, since the cited iOS tests are unit-level Swift, not device runs. No corrections needed.",
+   "evidence": [
+    "crates/interaction-runtime/src/agents.rs:1090-1172",
+    "crates/interaction-runtime/src/character.rs:460-490",
+    "apps/interaction-desktop/src/statusProjection/workState.ts:60-175",
+    "apps/interaction-desktop/src/character/gateway.ts:815-840",
+    "apps/interaction-desktop/src/companion/machine.ts:480-525"
+   ]
+  },
+  {
+   "id": "G-03",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "unit",
+    "browser",
+    "native-desktop",
+    "fixture"
+   ],
+   "reason": "Confirmed routing.ts:25-31 SIMPLE_NAV is exactly the five entries (home/companion/work/connect/more), with simpleNavFor (:33-38) only swapping label/icon for 'companion' at runtime — never a sixth entry. Confirmed regressions-v06-general-mode.test.tsx:57-65 is a real regression lock asserting SIMPLE_NAV.length===5, the exact id sequence, and that no '同步' label appears via simpleNavFor. Confirmed app.spec.ts:122-137 drives all five nav labels through a real Playwright click-through against a live daemon+Chromium with a distinct marker assertion per page — genuine browser-level reachability coverage. Confirmed the documentation-drift claim verbatim: DESKTOP-GUIDE.md line 181 literally reads '排隊中／進行中／等你回答／說做完了／驗證成功／結果不確定' while workState.ts's actual code labels are '正在準備'/'處理中'/'對方說已完成'/'已由你確認' — a real mismatch — and confirmed the same file's lines 289-291 do carry the correct label set. No corrections needed.",
+   "evidence": [
+    "apps/interaction-desktop/src/routing.ts:20-40",
+    "apps/interaction-desktop/src/test/regressions-v06-general-mode.test.tsx:55-66",
+    "apps/interaction-desktop/e2e/app.spec.ts:118-140,225-238",
+    "docs/DESKTOP-GUIDE.md:178-192,285-295",
+    "apps/interaction-desktop/src/statusProjection/workState.ts:60-95"
+   ]
+  },
+  {
+   "id": "G-04",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "unit",
+    "browser"
+   ],
+   "reason": "Confirmed both named general-mode leaks as literal, ungated JSX: ActivityPage.tsx (~141-146) renders receipt.errors.map(e=>e.message) unconditionally with no advanced-mode gate and no translation of backend error text; AiPage.tsx:339 renders {String(a.detail ?? '')} for agent-discovery entries, also ungated. Also confirmed ActivityPage.tsx:363 prints item.domains.join(', ') as raw domain ids in the same block. Confirmed the existing TECHNICAL regex in general-mode-no-technical-terms.test.tsx:21 (revision|epoch|sequence|generation|sourceid|uuid|hex-uuid pattern) would not catch plain English error prose or non-UUID domain-id strings, supporting the claim that the guard is component-scoped rather than an app-wide sweep. evidenceLevel correctly stops at browser (app.spec.ts:245,301-322) with no native-desktop/real-* claim, since no AX walkthrough targets these two leak sites specifically. No corrections needed.",
+   "evidence": [
+    "apps/interaction-desktop/src/pages/ActivityPage.tsx:138-148,358-368",
+    "apps/interaction-desktop/src/pages/AiPage.tsx:335-342",
+    "apps/interaction-desktop/src/test/general-mode-no-technical-terms.test.tsx:18-26"
+   ]
+  },
+  {
+   "id": "G-05",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "reason": "Verified the core chain end-to-end: mailbox_send computes context_bundle at dispatch and stores AgentContextBundleReceipt capped at 32 (crates/interaction-runtime/src/agents.rs:860-886,928-941; cap const :51; core field crates/interaction-core/src/agent.rs:243). AgentSessionRecord derives camelCase Serialize with no skip_serializing_if on context_bundles, so GET /v1/agent-sessions/{id} (routes.rs:1397-1404, route wired at lib.rs:218) does return contextBundles verbatim. Desktop wrapper api.agentSessionMessages(id, direction) exists (api.ts:369-370) but AiPage.tsx calls it ONLY with \"from-session\" (line 528) — confirmed zero occurrences of a 'to-session' call or any contextBundles read anywhere in apps/interaction-desktop/src outside tests (grep both empty). MemoryKnowledgePage preview is confirmed fixed at domains=[] with the exact honesty note BUNDLE_PREVIEW_DOMAINS_NOTE (line 1283) and preview call api.memoryBundle(task, agent, []) at line ~1307 — matches claim almost exactly (off by ~1-2 lines only, immaterial). CLI commands memory bundle (--task/--agent/--domain, main.rs ~665) and agents messages --direction (commands.rs:1013-1016) both real. One citation is imprecise: crates/interaction-api/tests/api_e2e.rs:475-501 is actually a knowledge-node/activity-inbox test, not a context-bundle-specific assertion — genuine knowledge-receipt and action-receipt tests exist elsewhere in that same file (lines ~389-390, 585-654, 2663-2667) but not at the cited range. This is a minor line-range sourcing error, not a status error. context_bundles assertions ARE correctly present in agents_loop.rs:309-383 and proactive_loop.rs:426-427 as cited, and gateway_loop.rs:277 does check the wire body contains \"contextBundle\". Overall the finding's central claim — real bundle/receipt data exists and is queryable via CLI/HTTP but has no desktop UI viewing surface for the to-session/contextBundle content — holds up under direct inspection.",
+   "evidence": [
+    "crates/interaction-runtime/src/agents.rs:860-886,928-941 (bundle computed+capped at dispatch)",
+    "crates/interaction-core/src/agent.rs:243 (context_bundles field, no skip_serializing_if -> always serialized)",
+    "crates/interaction-api/src/lib.rs:216-218,224 (GET /v1/agent-sessions/{id} and .../messages routes wired)",
+    "crates/interaction-api/src/routes.rs:1397-1404 (agent_session_get serializes full record incl. contextBundles)",
+    "apps/interaction-desktop/src/api.ts:369-370 and pages/AiPage.tsx:528 (only 'from-session' ever called; grep for 'to-session'/'contextBundles' in non-test src returns zero)",
+    "apps/interaction-desktop/src/pages/MemoryKnowledgePage.tsx:1283 (BUNDLE_PREVIEW_DOMAINS_NOTE const) and ~1307 (api.memoryBundle(task, agent, []))",
+    "crates/interaction-cli/src/main.rs Bundle{task,agent,domains} subcommand; commands.rs:1013-1016 Messages{id,direction}",
+    "MISMATCH: crates/interaction-api/tests/api_e2e.rs:475-501 is knowledge-node/inbox content, not context-bundle-specific — receipts tests exist instead at ~389-390/585-654/2663-2667",
+    "crates/interaction-runtime/tests/agents_loop.rs:309-383 and proactive_loop.rs:426-427 do assert context_bundles as cited"
+   ]
+  },
+  {
+   "id": "G-06",
+   "refuted": false,
+   "correctedStatus": "confirmed-defect",
+   "reason": "Every load-bearing citation checked out at or within 1-2 lines of the claimed location. ui.tsx:10-16 statusBadgeKind('completed') -> 'ok' confirmed verbatim. statusProjection/inbox.ts:86-91 'completed' entry confirmed exact (label '已完成', kind 'claimed', badge 'ok' — line 86 exact match). crates/interaction-core/src/receipt.rs:29-30 'Completed: goal achieved and verified to the configured standard' confirmed verbatim. crates/interaction-runtime/src/character.rs:495 EventType::ActionCompleted => (I::ClaimCompleted, T::Claimed) confirmed at the exact cited line. crates/interaction-runtime/src/executor.rs ack-only-completes-when-actuator-declares-ack=delivered branch confirmed (ack_means_delivered logic ~1118-1134, transitions Acknowledged->Completed with VerificationVerdict::AcknowledgedOnly and still emits ActionCompleted). apps/interaction-desktop/src/pages/ActivityPage.tsx confirmed: the Section title badge always uses statusBadgeKind(receipt.currentStatus) (green 'ok' for any 'completed', regardless of verdict) while a separate inline warn badge '僅確認送出 — 尚未觀察到實際效果' only appears in the body when verdict==='acknowledged-only' — i.e. green title badge and warn body badge genuinely coexist, exactly as claimed ('綠與警並列'). HomePage.tsx LastInteraction: badge is 'ok' iff currentStatus==='completed' (confirmed near line 732), and the separate '已驗證' badge is gated on verified = receipt.verification?.verdict === 'observed' (line 678) — confirmed 'only in observed' claim. appstate.tsx actionStatusLabel('completed') -> '已完成' with no qualifier confirmed (no 'completed' case has special wording). Test-gap claims verified precisely: statusProjection.test.tsx only asserts projectInboxStatus('completed').kind==='claimed' and never asserts .badge; honesty.test.ts has no 'completed' test case (only accepted/dispatched/acknowledged/uncertain/blocked). The secondary inconsistency claim was also verified directly: HomePage.tsx line 787 uses `!s.closedAt` while line 489 (NowStrip) uses isOpenWorkState(s.state); report_agent_session (agents.rs ~1174-1215) sets state to Failed/Unknown/TimedOut WITHOUT setting closed_at (closed_at is only set in close_agent_session and the two expiry paths), and AgentSessionState::is_open() (core/agent.rs:48-57) excludes Failed/Unknown/TimedOut/Cancelled — so a failed/unknown/timed-out-but-not-yet-closed session genuinely would show under '交代中的工作' (HomePage AgentSessionsSection) while being correctly excluded from NowStrip's open count. This is a real, verified discrepancy, not speculation. The 'confirmed-defect' classification is justified given CLAUDE.md's explicit invariant 'completed≠verified' is honored at the agent-session layer but visually blurred at the action-receipt layer (top-level badge for completed is 'ok' regardless of AcknowledgedOnly vs Observed verdict) — this is a real, reproducible violation of the stated honesty-ladder invariant, even though its severity is legitimately tempered (a secondary warn badge does exist inline) as the original finding itself acknowledges. All evidenceLevels cited (browser via e2e/evidence.spec.ts, e2e/work-delegate.spec.ts, e2e/home-state.spec.ts — confirmed genuine Playwright specs with real-daemon/fixture-agent setup; native-desktop via scripts/tests/tauri-work-cancel.py — confirmed exists) are appropriately scoped and not over-claimed to real-agent/real-hardware.",
+   "evidence": [
+    "apps/interaction-desktop/src/ui.tsx:10-16 statusBadgeKind('completed')->'ok' verbatim match",
+    "apps/interaction-desktop/src/statusProjection/inbox.ts:86 'completed:' entry (label 已完成/kind claimed/badge ok) exact line match",
+    "crates/interaction-core/src/receipt.rs:29-30 'Terminal: goal achieved and verified to the configured standard' verbatim",
+    "crates/interaction-runtime/src/character.rs:495 ActionCompleted => (ClaimCompleted, Claimed) exact line match",
+    "crates/interaction-runtime/src/executor.rs:~1108-1145 ack_means_delivered -> Completed+AcknowledgedOnly verdict, still emits ActionCompleted",
+    "apps/interaction-desktop/src/pages/ActivityPage.tsx: title Badge=statusBadgeKind(currentStatus) always green for completed; separate inline warn badge only for verdict==='acknowledged-only'",
+    "apps/interaction-desktop/src/pages/HomePage.tsx:678 verified=verdict==='observed'; ~732-738 badge ok iff completed",
+    "apps/interaction-desktop/src/appstate.tsx actionStatusLabel('completed')='已完成' no qualifier",
+    "apps/interaction-desktop/src/test/statusProjection.test.tsx:~178 only asserts .kind==='claimed', never .badge",
+    "apps/interaction-desktop/src/test/honesty.test.ts:7-28 has no 'completed' case",
+    "HomePage.tsx:489 isOpenWorkState vs :787 !s.closedAt — confirmed two different open-work criteria",
+    "crates/interaction-runtime/src/agents.rs report_agent_session (~1174-1215) sets Failed/Unknown/TimedOut state without touching closed_at; closed_at only set in close_agent_session/expiry paths (lines 679,1312,1494)",
+    "crates/interaction-core/src/agent.rs:48-57 is_open() excludes Failed/Unknown/TimedOut/Cancelled — confirms the closedAt-vs-is_open gap is real"
+   ]
+  }
+ ],
+ "critic": {
+  "missingRows": [
+   {
+    "need": "G-07 多 Agent 的選擇、可用性與『誰在做／用什麼模型』的呈現：一般模式怎麼決定這件事交給 claude-code 還是 codex、agent 未安裝／已停用／登入失效怎麼說、agent_route_suggestion 有沒有 UI 消費端、模型是否可見",
+    "whyItMatters": "產品方向明列『多 Agent』。現行六列完全沒有一列追這條路徑：使用者看不到選擇依據就無法信任結果，且 route suggestion 這條 API 若無任何 UI 呼叫端，就是典型的『端點存在但非 production 功能』，正是階段 0 要抓的漂移。",
+    "whereToLook": "apps/interaction-desktop/src/pages/work/TaskComposer.tsx:52-56,103-110,403-422,461（agentForKind(prefs.agentRoutes)＋agentAvailability＋disabledAgents）；pages/AiPage.tsx:305-345（偵測清單，:339 直出後端 a.detail 原文）；crates/interaction-runtime/src/gateway.rs:1144 agent_route_suggestion；crates/interaction-api/src/routes.rs:2064；src-tauri/src/lib.rs:1293（三入口都在，grep 全 src 無 UI 呼叫端）；crates/interaction-runtime/tests/human_layer.rs:186（唯一消費者是測試）；e2e/agent-not-installed.spec.ts；scripts/tests/phase0/README.md（模型無法經 gateway 指定或回報，只能事後讀 provider 本機 log）",
+    "likelyStatus": "implemented-partial（選擇與可用性已接線；agent_route_suggestion 在 UI 層 defined-only；『用了哪個模型』absent）"
+   },
+   {
+    "need": "G-08 核可／拒絕／取消／中斷／關閉的一般模式操作面與逾時呈現：approval TTL 倒數與過期後不得假裝可按、拒絕、interrupt vs close、emergency stop 的畫面路徑",
+    "whyItMatters": "產品方向明列『核准／取消』。G-01 只把 approval-request／approval-resolved 當成信箱訊息種類帶過，沒有一列盤點『按下去之後 runtime 到子程序真的怎麼了』與『TTL 過期時畫面怎麼說』——正是誠實階梯最容易破的地方（已要求終止 ≠ 已終止）。",
+    "whereToLook": "apps/interaction-desktop/src/pages/AiPage.tsx:154,238-272,683,752-790,820-860；crates/interaction-runtime/src/gateway.rs:419-455（PendingApproval＋autoDenyAt）、:920-945（gateway_resolve_approval）、gateway_interrupt；agents.rs close_agent_session；e2e/work-delegate.spec.ts、e2e/estop.spec.ts；scripts/tests/tauri-work-cancel.py；scripts/tests/phase0/agent_smoke.py（--approve／--cancel-when-active／--cancel-mode interrupt）",
+    "likelyStatus": "implemented-and-connected（桌面＋CLI 皆可達），但『取消後子程序真的消失』只有 fixture 級證據"
+   },
+   {
+    "need": "G-09 iPhone 端的工作可見度：手機上看不看得到工作狀態、待回答、核可請求、時間線",
+    "whyItMatters": "產品方向明列『桌面／iPhone 入口＋跨裝置』。G-02 把 iOS 檔案列為 owner，容易讓人以為 iPhone 是工作真相的呈現端；實際上 iOS 只有角色／感測／配對三個 view，一個 agent session 面都沒有。這是 G 維度最大的一塊缺口卻無列覆蓋。",
+    "whereToLook": "apps/interaction-ios/InteractionCompanion/Views/{ContentView.swift(87行),CharacterView.swift(376行),SensorsView.swift(186行),PairingView.swift(420行)}——grep agent|work|approve|核可 全部 0 命中；Models/CharacterSemantic.swift:460-497,637-638（只有一句 truth.state 文字，沒有清單、沒有裁決鈕）；crates/interaction-runtime/src/mobile.rs；docs/aip/iphone-companion.md",
+    "likelyStatus": "absent（工作／待回答／核可面）；角色真相同步本身 implemented-and-connected"
+   },
+   {
+    "need": "G-10 首次使用與第一次成功的視覺流程：Onboarding 精靈與 FirstSuccess 是否接線、跳過與重跑、是否假造成功",
+    "whyItMatters": "『安裝完到第一次成功』是一般模式最關鍵的一段體驗，且 FirstSuccess 天生有誇大成功的誘因（宣稱『成功了』但實際只是送出）。六列都沒覆蓋。",
+    "whereToLook": "apps/interaction-desktop/src/App.tsx:206,289,343-349,515,671；pages/Onboarding.tsx:237,389,499,631；pages/FirstSuccess.tsx；src/test/onboarding.test.tsx、src/test/firstSuccess.test.tsx:60-170；docs/QUICKSTART.md、scripts/get.sh",
+    "likelyStatus": "implemented-and-connected（unit 覆蓋存在），誠實度與 e2e 覆蓋 needs-investigation"
+   },
+   {
+    "need": "G-11 離線／Runtime 不可達／token 失效／Agent 未安裝時的誠實呈現：畫面說什麼、會不會保留舊資料冒充現況",
+    "whyItMatters": "『結果未知要標 uncertain』適用於整個呈現層，不只工作狀態。這條路徑有專屬 e2e 與 tray 文字，卻沒有任何一列盤點。",
+    "whereToLook": "e2e/offline.spec.ts、e2e/agent-not-installed.spec.ts；apps/interaction-desktop/src/transport.ts（fetch/SSE 失敗路徑）；src-tauri/src/tray.rs:204-213（啟動中／離線（無法連線 Runtime）／緊急停止中）；src/test/regressions-v04.test.tsx:440-480（收件匣查詢失敗）",
+    "likelyStatus": "needs-investigation（有 e2e，但『舊資料是否被標記為過期』未查）"
+   },
+   {
+    "need": "G-12 狀態列常駐（tray）與可信 overlay 的工作可見度與誠實度：tray 只印『AI 工作階段：N』，沒有待決定數、沒有 claimed／verified 之分，也沒有原生走查腳本",
+    "whyItMatters": "『電腦主核心＋狀態列常駐』是產品主張，tray 是唯一永遠可見的 UI。G-01 的『待回答清單三處』沒把 tray 算進去；若 tray 計數口徑與 NowStrip／收件匣不同（見 G-06 的 closedAt vs is_open），使用者會在最顯眼的地方看到第三種數字。",
+    "whereToLook": "apps/interaction-desktop/src-tauri/src/tray.rs:32、:203-240（tray_view 只有系統狀態／感測／主動互動／AI 工作階段：N）、:388-438；grep 待決定|decision|inbox tray.rs → 0 命中；src-tauri/src/host_safety.rs；scripts/tests/ 下無 tauri-tray*.py",
+    "likelyStatus": "implemented-partial（有常駐文字，工作面資訊最薄且無待辦計數、無原生走查證據）"
+   },
+   {
+    "need": "G-13 一般模式的用量與花費可見度：使用者在一般模式看得到『已經花了多少／用了幾則』嗎",
+    "whyItMatters": "政策不變量寫明有效值受『剩餘預算』限制；一般模式只顯示上限、把已花費藏進進階，等於把最會讓人喊停的資訊藏起來，而 Codex 連上限都不送 → 一般模式對 codex session 完全沒有任何金額字樣。",
+    "whereToLook": "apps/interaction-desktop/src/pages/AiPage.tsx:561-572（advanced 才印 spentMessages/spentCost；一般模式僅 maxCost>0 時印上限）；work/TaskComposer.tsx:33,165-172,229；crates/interaction-agent-gateway/src/lib.rs:123-124（codex 只回 token 數、無 USD，不換算）",
+    "likelyStatus": "implemented-partial（後端有數字、一般模式呈現面 absent）"
+   },
+   {
+    "need": "G-14 記憶與知識在一般模式的呈現與人審入口：候選、人審、知識收據在一般模式看得到什麼、能不能動",
+    "whyItMatters": "產品方向明列『記憶』。G-05 只從『上下文 bundle／執行證據』角度掃過 MemoryKnowledgePage，沒盤點記憶本身的一般模式呈現與人審動作（curator 產物若只有進階看得到＝等於沒有人審）。",
+    "whereToLook": "pages/MemoryKnowledgePage.tsx:75-125、:1229-1280（ReceiptsSection 進階）、:1286-1332；src/test/regressions-v05.test.tsx:411-427（一般模式無候選／收據／Bundle——需確認人審入口去哪了）；src/test/knowledgeReceipts.test.ts、interactionMemory.test.ts；crates/interaction-runtime/src/{curator,knowledge,memory}.rs",
+    "likelyStatus": "needs-investigation"
+   },
+   {
+    "need": "G-15 主動說話／安靜時段的呈現與可控性，以及它與工作狀態的關係（主動發話會不會蓋掉待回答）",
+    "whyItMatters": "『角色主動說話』是這產品與一般 CLI 最大的差別，也是呈現層最容易製造假訊息的地方。G-02 只驗到『AI 主動內容不得帶 truthState』這條規則，沒驗它的可控性與可見性。",
+    "whereToLook": "pages/CompanionPage.tsx:105-220（proactiveDialogueGet/Patch/Quiet）；pages/HomePage.tsx:138-148,209,292,383,447；pages/Onboarding.tsx:389,631；src/test/quietHours.test.ts；src/character/presentationCommands.ts:11 與 character/gateway.ts:62；crates/interaction-runtime/src/proactive.rs",
+    "likelyStatus": "implemented-and-connected（開關與文案齊全），與工作狀態的互動 needs-investigation"
+   },
+   {
+    "need": "G-16 通知中心／全域搜尋／tray 深連結／舊錨點的路由一致性：從任何入口點進去會不會落到不存在或空白的頁",
+    "whyItMatters": "五入口只證明『入口有五個』，沒證明『所有通往頁面的路都到得了正確的家』；LEGACY_ANCHORS 有 13 個折疊項，任一漂移就會讓 tray 深連結或收件匣『前往』變空白頁。G-03 只鎖了 SIMPLE_NAV 長度。",
+    "whereToLook": "apps/interaction-desktop/src/routing.ts:55-71、:73-90（titleFor 的『未知頁面』兜底）、:92-110；src/test/deep-links.test.tsx:170-300、compat-routes.test.tsx；components/NotificationPanel.tsx:42-121（route 白名單）；src-tauri/src/tray.rs 深連結",
+    "likelyStatus": "implemented-and-connected（測試存在），但未被任何 G 列引用為獨立需求"
+   },
+   {
+    "need": "G-17 進階模式九頁（ADVANCED_NAV）本身的內容與覆蓋：九頁各吃哪個 API、有沒有一頁是空殼",
+    "whyItMatters": "『一般文案 vs 進階診斷』的另一半是進階診斷真的診斷得出東西。G-04 只說『adv-* 無 vitest』，沒逐頁盤點；九頁裡只有配方 YAML 有 e2e 斷言，Timeline 連 render 測試都沒有。",
+    "whereToLook": "routing.ts:40-51（九項）；App.tsx:731-748；pages/{Overview,Receptors,Actuators,Tools,Recipes,Policy,Timeline,ProvidersAdvanced,KnowledgeAdvanced}.tsx；e2e/app.spec.ts:301-322（唯一覆蓋）",
+    "likelyStatus": "implemented-partial（頁面存在且路由可達，覆蓋與資料來源逐頁未證）"
+   },
+   {
+    "need": "G-18 無障礙與窄視窗（<700px）下的一般模式：五入口在窄視窗變四＋更多，鍵盤與 aria 是否成立",
+    "whyItMatters": "『一般模式』的可用性不只是文案，還包括鍵盤／螢幕閱讀器與小視窗；repo 已有 a11y.spec.ts、narrow.spec.ts、global-search-a11y.test.tsx 三處證據，卻沒有任何一列引用，等於這塊證據在矩陣裡消失。",
+    "whereToLook": "e2e/a11y.spec.ts、e2e/narrow.spec.ts；src/test/narrowNav.test.tsx:37-100、global-search-a11y.test.tsx、companion-preset-a11y.test.tsx；components/NarrowNav.tsx；routing.ts:92-102",
+    "likelyStatus": "implemented-and-connected（browser＋unit 證據齊，只是未被盤點）"
+   }
+  ],
+  "contradictions": [
+   "G-02 的結論範圍被寫得比證據大：它以 agent session 層（agents.rs:1098-1106 同時發事件與投影）斷定『角色與 UI 使用同一工作真相』並給 implemented-and-connected，但 G-06 已確認在動作收據層 character.rs:495 把 ActionCompleted 投影成 ClaimCompleted/Claimed、桌面 ui.tsx:12-16 卻把同一個 'completed' 畫成綠色 'ok'——同一事件，角色說『宣稱』、UI 說『完成』。兩列不能同時成立：G-02 應限縮為『agent session 層同源』或降為 implemented-partial。",
+   "G-03 與 G-01 對 DESKTOP-GUIDE 的處置互相抵觸：G-03 說 :289-291 才是『對的清單』並打算把 :181 對齊它，但 :289-291 同樣列了『等你回答』，而 G-01 已證明 waiting-for-input 沒有任何 connector 會產生（crates/interaction-agent-gateway/src/lib.rs:89-99 註解自陳）。照 G-03 的 nextAction 改只會把假承諾複製到兩處；必須先採 G-01 的處置（標明只有手動 report 可達）再談文案對齊。",
+   "同一份測試被兩列當成不同東西的證據：G-01 引 crates/interaction-api/tests/api_e2e.rs:475-501 作為 /v1/activity/inbox 篩選證據，G-05 引同一行段作為 bundle／收據證據；G-05 的懷疑者實查該範圍是 knowledge-node／inbox 內容。結論是 G-01 引用成立、G-05 不成立，G-05 evidenceLevel 的 'integration' 少一項來源，應改引 agents_loop.rs:309-383／proactive_loop.rs:426-427／gateway_loop.rs:277。",
+   "狀態分類尺度不一致：G-04 自己確認 ActivityPage.tsx:141-146 的 receipt.errors[].message 與 AiPage.tsx:339 的 a.detail 在一般模式無條件直出後端英文原文，違反 docs/aip/general-mode-ux.md §2 明文契約，卻標 implemented-and-connected；G-06 是同一類（可指出具體錯誤路徑的契約違反）卻標 confirmed-defect。證據強度相同、狀態差兩級，整合者必須統一判準，否則缺陷計數失真。",
+   "G-01 與 G-05 把同一缺陷計了兩次且開出兩種藥方：『progress／tool／artifact 不進信箱、一般模式看不到執行過程』在兩列都列為 limitation；G-01 的 nextAction 是『寫成信箱訊息或改 SSE 驅動』，G-05 是『SessionCard 加「這次提供了什麼」讀 contextBundles』。這是一個決策點，不是兩件事。",
+   "G-06 列內 confidence=medium 與其懷疑者結論脫節：列裡把『HomePage.tsx:787 用 !s.closedAt vs :489 用 isOpenWorkState』寫成『未逐行核實』的次要不一致，懷疑者已用 agents.rs（report_agent_session 設 Failed/Unknown/TimedOut 時不碰 closed_at；closed_at 只在 close 與兩條到期路徑設）＋core agent.rs:48-57 is_open() 排除這四態確認為真。此項應獨立升為 confirmed-defect，列的 confidence 也應提高。",
+   "G-01 對 ai-assist 的缺口描述小於實情：列裡只說 aiAssistResolve（api.ts:349）沒有呼叫端；實際上 aiAssistsList（api.ts:348）同樣在整個 src 找不到非測試呼叫端，即 ai-assist 在桌面連『列出來』都沒有，只有 HomePage 一個計數。activity.rs:103 把這些項目 route 到 'automations'，而 AutomationsPage.tsx grep assist 為 0 命中——收件匣會把使用者送到一個不處理該事項的頁。",
+   "evidenceLevel 對不上 need：G-01 含 native-desktop，但唯一原生證據 scripts/tests/tauri-work-cancel.py 走的是取消路徑，不覆蓋這列的核心需求（訊息清單、時間線、待回答清單）；G-06 同樣把 native-desktop 掛在純 TS 呈現層缺陷上。證據層級應對到 need，不是對到列裡順帶提到的任何測試。",
+   "文件對外承諾與兩列的發現相衝突且不在既有限制清單裡：docs/USER-GUIDE.md:23 寫『活動紀錄＝每次互動的完整歷程與憑證』、docs/FEATURES.md:147 寫『統一待辦收件匣＋真實畫面證據』，但 G-01／G-05 已證明執行過程（progress/tool/artifact）與實際送出的 contextBundle 在桌面沒有檢視面；docs/releases/v0.8.0-known-limitations.md 沒有任何一般模式可見度限制列。六列都只把它當 nextAction，沒標成文件缺陷。",
+   "G-02 把 apps/interaction-ios 列為 owner 並引 CharacterSemantic.swift 的 claimed／verified 文案，容易讀成『iPhone 也呈現工作真相』；實際上 iOS 四個 View 裡 grep agent|work|approve 為 0 命中，手機上只有角色一句話，沒有工作清單、待回答或核可鈕。iPhone 的工作面應獨立成 absent 列（見 G-09），不該被 G-02 的 implemented-and-connected 吸收。"
+  ],
+  "reproCandidates": [
+   {
+    "what": "證明真 Agent 不會產生 waiting-for-input，且 from-session 信箱只有三種 kind（驗 G-01 核心主張與 G-03 的文件假承諾）",
+    "command": "python3 scripts/tests/phase0/agent_smoke.py --agent claude-code --port 19010 --out /tmp/p0/claude-smoke --timeout 240",
+    "expected": "record.state 走 dispatched→active→claimed-completed；mailbox 只出現 approval-request／result／approval-resolved 三種 kind；全程不出現 waiting-for-input。若真的出現，G-01 與 gateway lib.rs:89-99 的註解都要改。"
+   },
+   {
+    "what": "證明 codex 唯讀 sandbox 會走 waiting-for-consent 並產生 approval-request（驗 G-08 核可路徑與 TTL 自動拒絕）",
+    "command": "python3 scripts/tests/phase0/agent_smoke.py --agent codex --port 19011 --out /tmp/p0/codex-approve --approve approve",
+    "expected": "出現 state=waiting-for-consent＋一則 approval-request 信箱訊息；核可後續跑並收到 approval-resolved。不帶 --approve 時停在 waiting-for-consent 直到 timeout＝correctly-blocked，不是失敗。"
+   },
+   {
+    "what": "證明取消／中斷不會被寫成 claimed-completed，且子程序真的消失（驗 G-08 與 G-06 的誠實階梯）",
+    "command": "python3 scripts/tests/phase0/agent_smoke.py --agent claude-code --port 19012 --out /tmp/p0/claude-cancel --task \"請用繁體中文寫一篇約 1500 字的短文\" --cancel-after 3 --cancel-when-active --cancel-mode interrupt --close-after-cancel 5",
+    "expected": "最終 state=cancelled（不是 claimed-completed），對照 crates/interaction-runtime/tests/gateway_loop.rs:1772；腳本記錄的子程序在 close 後不再存在。"
+   },
+   {
+    "what": "證明 contextBundle 只在 HTTP/CLI 可見、桌面無檢視面（驗 G-05）",
+    "command": "INTERACT_AI_HOME=/tmp/p0/claude-smoke/home interact-ai agents messages --id <sessionId> --direction to-session; curl -s -H \"Authorization: Bearer $(cat /tmp/p0/claude-smoke/home/state/api-token)\" http://127.0.0.1:19010/v1/agent-sessions/<sessionId> | python3 -c \"import json,sys;d=json.load(sys.stdin);print(len(d.get('contextBundles',[])), list(d.keys()))\"",
+    "expected": "to-session 的 task 訊息 body 含 contextBundle；contextBundles 長度 ≥1（上限 32）。同時 grep -rn \"to-session\\|contextBundles\" apps/interaction-desktop/src --include='*.tsx' --include='*.ts' | grep -v test 回 0 行，證明桌面沒有讀取點。"
+   },
+   {
+    "what": "重現 G-06 的綠徽章缺陷缺乏守門：現行測試全綠，代表沒有任何斷言擋住 completed→ok",
+    "command": "cd apps/interaction-desktop && pnpm vitest run src/test/statusProjection.test.tsx src/test/honesty.test.ts",
+    "expected": "全綠。搭配 grep -n 'projectInboxStatus(\"completed\")' -A3 src/test/statusProjection.test.tsx 可看到只斷言 .kind==='claimed'、從不斷言 .badge；honesty.test.ts 沒有 'completed' 案例。這是缺口（缺測試）而非紅燈。"
+   },
+   {
+    "what": "確認後端與角色端對 ack-only completed 的處置（驗 G-06 的三方定義不一致）",
+    "command": "cargo test -p interaction-runtime --test character_loop receipts_settle_the_presentation_receipt_honestly_never_verified -- --nocapture; cargo test -p interaction-runtime --test presentation_loop AcknowledgedOnly",
+    "expected": "測試綠，且可見 ActionCompleted 在 CPP 側被投影為 Claimed、verdict=AcknowledgedOnly——與桌面 ui.tsx:12-16 的綠色 'ok' 直接對照。（需 Rust toolchain，勿與正在跑的基線並行。）"
+   },
+   {
+    "what": "確認 /v1/activity/inbox 的待回答清單內容與 needsDecision 判準（驗 G-01 三處共用同一 API，並看 ai-assist 的 route）",
+    "command": "curl -s -H \"Authorization: Bearer $(cat $INTERACT_AI_HOME/state/api-token)\" \"http://127.0.0.1:8787/v1/activity/inbox?needsDecision=true\" | python3 -m json.tool | head -60",
+    "expected": "回傳項目的 kind／route／needsDecision／pendingCount(Exact) 與 activity.rs:43-57,96-121,351-362 一致；ai-assist 項目 route='automations'，可據此驗證『收件匣會送到不處理該事項的頁』。"
+   },
+   {
+    "what": "確認文件守門不覆蓋 DESKTOP-GUIDE 的人話標籤漂移（驗 G-03 的 nextAction 必要性）",
+    "command": "bash scripts/tests/docs-claims.sh; bash scripts/tests/architecture-checks.sh --docs; sed -n '181p;289,291p' docs/DESKTOP-GUIDE.md; grep -n '正在準備\\|對方說已完成\\|已由你確認' apps/interaction-desktop/src/statusProjection/workState.ts",
+    "expected": "兩支守門通過（PASS），但 :181 仍寫『排隊中／進行中／等你回答／說做完了／驗證成功』而程式標籤是『正在準備／處理中／對方說已完成／已由你確認』——證明這類文案漂移目前不在任何 lint 範圍。"
+   },
+   {
+    "what": "以 fixture agent 重跑一般模式的四態畫面證據（G-01／G-02／G-06 的 browser 層來源）",
+    "command": "cd apps/interaction-desktop && pnpm exec playwright test e2e/work-delegate.spec.ts e2e/evidence.spec.ts e2e/home-state.spec.ts",
+    "expected": "claimed-completed 無綠勾、verified 才有、unknown 無驗證鈕、取消不算完成。注意 E2E_REAL_AGENTS=1 時 work-delegate.spec.ts:39-41 與 evidence.spec.ts:325-328 會 skip，故此命令的證據永遠只到 fixture 級，不得標 real-agent。"
+   },
+   {
+    "what": "確認 agent_route_suggestion 在 UI 層沒有消費端（驗 G-07 的 defined-only 判定）",
+    "command": "curl -s -H \"Authorization: Bearer $(cat $INTERACT_AI_HOME/state/api-token)\" \"http://127.0.0.1:8787/v1/agents/route-suggestion?kind=code\"; grep -rn \"route-suggestion\\|routeSuggestion\\|agent_route_suggestion\" apps/interaction-desktop/src crates/interaction-cli/src | grep -v test",
+    "expected": "HTTP 端有回應（gateway.rs:1144 → routes.rs:2064），但 grep 在桌面 src 與 CLI 皆 0 命中，唯一消費者是 crates/interaction-runtime/tests/human_layer.rs:186。"
+   },
+   {
+    "what": "確認 iPhone 端沒有任何工作／待回答／核可面（驗 G-09 的 absent）",
+    "command": "grep -rniE 'agent|approve|核可|待回答|工作' apps/interaction-ios/InteractionCompanion/Views/ | grep -viE 'urlsession|sessionclient|\\.task' | wc -l; wc -l apps/interaction-ios/InteractionCompanion/Views/*.swift",
+    "expected": "第一個數字為 0；四個 View 共 1069 行，佐證手機端只有角色／感測／配對，沒有工作面。"
+   },
+   {
+    "what": "確認 tray 只有工作階段計數、沒有待決定計數（驗 G-12）",
+    "command": "cargo test --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml tray -- --nocapture; grep -niE 'decision|inbox|待決定|待辦' apps/interaction-desktop/src-tauri/src/tray.rs | wc -l",
+    "expected": "tray 測試綠；grep 回 0，證明 tray 文字只含系統狀態／感測／主動互動／『AI 工作階段：N』（tray.rs:229），沒有待決定數，也沒有 claimed 與 verified 的區分。（需 Rust toolchain。）"
+   }
+  ]
+ }
+}

@@ -1,0 +1,18 @@
+{"t": "2026-09-07T09:15:57.259Z", "mono": 0.002, "k": "daemon-spawned", "pid": 76108}
+{"t": "2026-09-07T09:15:57.520Z", "mono": 0.263, "k": "daemon-ready"}
+ARGV {"pid": 76220, "ppid": 76108, "cmd": "(2.1.263)"}
+ARGV {"pid": 76319, "ppid": 76108, "cmd": "claude auth status"}
+ARGV {"pid": 76404, "ppid": 76108, "cmd": "claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {\"mcpServers\":{}} --permission-mode plan --tools Read,Glob,Grep --resume e63b51f8-0c9c-4431-accd-2d9dca4336ba"}
+ARGV {"pid": 76421, "ppid": 76108, "cmd": "ps -ax -ww -o pid=,pgid=,ppid=,stat=,command="}
+{"t": "2026-09-07T09:15:57.798Z", "mono": 0.542, "k": "create", "status": 200, "sessionId": "asession-369a8ecb-07d9-45f9-80c8-ac45486333ca", "body": null}
+{"t": "2026-09-07T09:15:57.801Z", "mono": 0.544, "k": "task-sent", "status": 200}
+{"t": "2026-09-07T09:15:57.802Z", "mono": 0.546, "k": "state", "state": "created"}
+ARGV {"pid": 76428, "ppid": 76404, "cmd": "<defunct>"}
+ARGV {"pid": 76429, "ppid": 76404, "cmd": "(security)"}
+ARGV {"pid": 76430, "ppid": 76404, "cmd": "(security)"}
+ARGV {"pid": 76435, "ppid": 76404, "cmd": "<defunct>"}
+ARGV {"pid": 76436, "ppid": 76404, "cmd": "(ioreg)"}
+{"t": "2026-09-07T09:16:01.858Z", "mono": 4.601, "k": "state", "state": "claimed-completed"}
+{"t": "2026-09-07T09:16:01.862Z", "mono": 4.606, "k": "close", "status": 200, "state": "closed"}
+{"t": "2026-09-07T09:16:02.868Z", "mono": 5.611, "k": "daemon-stopped", "returncode": -15}
+DONE

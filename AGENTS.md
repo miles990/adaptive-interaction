@@ -105,7 +105,8 @@ golden schema 由 `GOLDEN_UPDATE=1 cargo test -p interaction-e2e --test golden` 
 （章節號會隨文件長大而改，所以這裡逐份寫明；`scripts/tests/docs-claims.sh` 會核對這兩件事：
 檔案存在，且下面標的 Blockers 節號與檔案裡的真實節號一致）：
 
-- 最新工程收斂：`docs/releases/next-convergence-progress.md`——下一動作在 §5，Blockers 在 §6。
+- **階段 0（真實狀態恢復／雙平台真 Agent 驗收／基線／後續規劃，2026-09-07 起）**：`docs/releases/phase-0-progress.md`——下一動作在 §6，Blockers 在 §7。這是目前的入口；它把能力矩陣、架構、測試責任、已知問題、E2E 基線、roadmap 與原始證據索引全部連起來。
+- 上一輪工程收斂（v0.8.0，已發布）：`docs/releases/next-convergence-progress.md`——下一動作在 §5，Blockers 在 §6。
 - 已發布 v0.7.0：`docs/releases/v0.7.0-progress.md`——下一動作在 §5，Blockers 在 §6。
 - 上一輪（可維護性收斂，已收尾）：`docs/releases/v0.6.x-maintainability-progress.md`——下一動作在 §3，
   Blockers 在 §4。它只涵蓋第一輪；第二輪落地了什麼要看上面那一份與 `CHANGELOG.md` 的 `[Unreleased]`。

@@ -1,0 +1,13 @@
+{"deviceId":"iphone-0fc67bf6","deviceToken":"17b2f5b411a42f027e2a66f0883e90ece0b56dcac5497c894841c16677f06887"}
+{"event":"status","micLevel":false}
+{"event":"connected"}
+{"event":"status","micLevel":true}
+{"event":"disconnected","reason":"IO error: peer closed connection without sending TLS close_notify: https://docs.rs/rustls/latest/rustls/manual/_03_howto/index.html#unexpected-eof"}
+{"error":"連不上 wss://127.0.0.1:18790/：IO error: Connection refused (os error 61)","event":"reconnect-failed"}
+{"event":"status","micLevel":true}
+{"event":"connected"}
+{"event":"status","micLevel":true}
+{"event":"auth-fail","reason":"revoked"}
+{"event":"disconnected","reason":"closed by desktop"}
+{"event":"auth-fail","reason":"unknown device or bad token (possibly revoked)"}
+{"event":"quit"}

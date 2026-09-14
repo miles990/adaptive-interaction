@@ -1,0 +1,1865 @@
+{
+ "agent": "claude-code",
+ "port": 19080,
+ "secret": "X55XY4F8",
+ "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+ "workdirOther": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir-other",
+ "events": [
+  {
+   "t": "2026-09-07T09:10:53.619Z",
+   "mono": 0.002,
+   "k": "daemon-spawned",
+   "pid": 33157
+  },
+  {
+   "t": "2026-09-07T09:10:53.882Z",
+   "mono": 0.265,
+   "k": "daemon-ready"
+  },
+  {
+   "t": "2026-09-07T09:10:54.575Z",
+   "mono": 0.958,
+   "k": "S1/create",
+   "status": 200,
+   "sessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96",
+   "state": "created",
+   "body": null
+  },
+  {
+   "t": "2026-09-07T09:10:54.662Z",
+   "mono": 1.045,
+   "k": "S1T1/send",
+   "status": 200,
+   "sessionState": "created",
+   "resp": {
+    "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-1"
+   }
+  },
+  {
+   "t": "2026-09-07T09:11:00.789Z",
+   "mono": 7.171,
+   "k": "S1T1/state",
+   "state": "claimed-completed"
+  },
+  {
+   "t": "2026-09-07T09:11:54.917Z",
+   "mono": 61.299,
+   "k": "S1T1/done",
+   "state": "claimed-completed",
+   "elapsed": 60.2,
+   "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba"
+  },
+  {
+   "t": "2026-09-07T09:11:54.964Z",
+   "mono": 61.347,
+   "k": "S1T2/send",
+   "status": 200,
+   "sessionState": "claimed-completed",
+   "resp": {
+    "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-3"
+   }
+  },
+  {
+   "t": "2026-09-07T09:12:55.190Z",
+   "mono": 121.572,
+   "k": "S1T2/done",
+   "state": "claimed-completed",
+   "elapsed": 60.18,
+   "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba"
+  },
+  {
+   "t": "2026-09-07T09:12:55.193Z",
+   "mono": 121.575,
+   "k": "S1/close",
+   "status": 200,
+   "state": "closed"
+  },
+  {
+   "t": "2026-09-07T09:12:57.241Z",
+   "mono": 123.623,
+   "k": "S1/post-after-close",
+   "status": 409,
+   "resp": {
+    "error": {
+     "code": "conflict",
+     "message": "conflict: agent session asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96 is Closed; mailbox closed"
+    }
+   }
+  },
+  {
+   "t": "2026-09-07T09:12:57.505Z",
+   "mono": 123.887,
+   "k": "S2/create",
+   "status": 200,
+   "sessionId": "asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e",
+   "state": "created",
+   "body": null
+  },
+  {
+   "t": "2026-09-07T09:12:57.553Z",
+   "mono": 123.936,
+   "k": "S2T1/send",
+   "status": 200,
+   "sessionState": "created",
+   "resp": {
+    "messageId": "msg-asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e-1"
+   }
+  },
+  {
+   "t": "2026-09-07T09:13:01.133Z",
+   "mono": 127.515,
+   "k": "S2T1/state",
+   "state": "claimed-completed"
+  },
+  {
+   "t": "2026-09-07T09:13:57.837Z",
+   "mono": 184.219,
+   "k": "S2T1/done",
+   "state": "claimed-completed",
+   "elapsed": 60.23,
+   "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba"
+  },
+  {
+   "t": "2026-09-07T09:13:57.840Z",
+   "mono": 184.222,
+   "k": "S2/close",
+   "status": 200,
+   "state": "closed"
+  },
+  {
+   "t": "2026-09-07T09:13:57.842Z",
+   "mono": 184.224,
+   "k": "probe/allowWrite/create",
+   "status": 403,
+   "sessionId": null,
+   "state": null,
+   "body": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: 接續上次的工作不得放寬可用工具：workspace.write 不在上次的授權範圍裡"
+    }
+   }
+  },
+  {
+   "t": "2026-09-07T09:13:57.843Z",
+   "mono": 184.225,
+   "k": "probe/otherWorkdir/create",
+   "status": 403,
+   "sessionId": null,
+   "state": null,
+   "body": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: 接續上次的工作不得更換工作目錄（上次是 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir）；                     要換資料夾請重新建立一個明確授權的工作階段"
+    }
+   }
+  },
+  {
+   "t": "2026-09-07T09:13:57.844Z",
+   "mono": 184.226,
+   "k": "probe/omitWorkdir/create",
+   "status": 403,
+   "sessionId": null,
+   "state": null,
+   "body": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: 接續上次的工作必須帶上同一個工作目錄（上次是 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir）；             省略＝由系統另外挑一個資料夾，那不是接續"
+    }
+   }
+  },
+  {
+   "t": "2026-09-07T09:13:57.845Z",
+   "mono": 184.227,
+   "k": "probe/widerTtl/create",
+   "status": 403,
+   "sessionId": null,
+   "state": null,
+   "body": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: 接續上次的工作不得放寬時間上限（上次 20 分鐘，這次要求 120 分鐘）"
+    }
+   }
+  },
+  {
+   "t": "2026-09-07T09:13:57.846Z",
+   "mono": 184.228,
+   "k": "probe/widerMessages/create",
+   "status": 403,
+   "sessionId": null,
+   "state": null,
+   "body": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: 接續上次的工作不得放寬訊息上限（上次 40，這次 200）"
+    }
+   }
+  },
+  {
+   "t": "2026-09-07T09:13:57.847Z",
+   "mono": 184.228,
+   "k": "probe/omitBudget/create",
+   "status": 403,
+   "sessionId": null,
+   "state": null,
+   "body": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: 接續上次的工作不得放寬時間上限（上次 20 分鐘，這次要求 120 分鐘）"
+    }
+   }
+  },
+  {
+   "t": "2026-09-07T09:13:57.847Z",
+   "mono": 184.229,
+   "k": "probe/unknownId/create",
+   "status": 403,
+   "sessionId": null,
+   "state": null,
+   "body": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: 找不到上一次的授權紀錄，無法確認接續沒有放寬任何範圍；請重新建立一個明確授權的工作階段"
+    }
+   }
+  },
+  {
+   "t": "2026-09-07T09:13:57.940Z",
+   "mono": 184.322,
+   "k": "daemon-stopped",
+   "returncode": -15
+  }
+ ],
+ "cases": {
+  "S1T1": {
+   "tag": "S1T1",
+   "task": "請記住暗號 X55XY4F8，只回覆「已記住」。不要使用任何工具，不要讀寫任何檔案。",
+   "sendStatus": 200,
+   "sendResp": {
+    "body": {
+     "contextBundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:10:54.661175Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請記住暗號 X55XY4F8，只回覆「已記住」。不要使用任何工具，不要讀寫任何檔案。",
+      "truncated": false
+     },
+     "task": "請記住暗號 X55XY4F8，只回覆「已記住」。不要使用任何工具，不要讀寫任何檔案。"
+    },
+    "createdAt": "2026-09-07T09:10:54.661339Z",
+    "deliveredAt": "2026-09-07T09:10:54.662178Z",
+    "direction": "to-session",
+    "kind": "task",
+    "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-1",
+    "sessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96"
+   },
+   "stateBefore": "created",
+   "childrenBefore": [
+    {
+     "pid": 33355,
+     "ppid": 33157,
+     "pgid": 33355,
+     "etime": "00:00",
+     "cmd": "claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {\"mcpServers\":{}} --permission-mode plan --tools Read,Glob,Grep"
+    }
+   ],
+   "transitions": [
+    {
+     "mono": 6.08,
+     "state": "claimed-completed",
+     "children": [
+      {
+       "pid": 33355,
+       "ppid": 33157,
+       "pgid": 33355,
+       "etime": "00:06",
+       "cmd": "claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {\"mcpServers\":{}} --permission-mode plan --tools Read,Glob,Grep"
+      }
+     ]
+    }
+   ],
+   "startedAt": "2026-09-07T09:10:54.662Z",
+   "sawWorkingState": false,
+   "elapsed": 60.2,
+   "record": {
+    "agentId": "claude-code",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 0.0,
+     "maxDurationMs": 1200000,
+     "maxMessages": 40,
+     "spentCost": 0.129469,
+     "spentMessages": 2
+    },
+    "claimId": "claim-1f085202-e03b-4dd4-b66f-e9f1f03acf2c",
+    "consentScope": [],
+    "contextBundles": [
+     {
+      "bundle": {
+       "agentId": "claude-code",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T09:10:54.661175Z",
+       "includes": [],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "請記住暗號 X55XY4F8，只回覆「已記住」。不要使用任何工具，不要讀寫任何檔案。",
+       "truncated": false
+      },
+      "bundleId": "bundle-3292c235-0af8-4066-95ef-62dc4da5fef2",
+      "contentHash": "ff4133c982451df27871f53020e7d9f8c835456cc2cfbcd3b9884180c60317ae",
+      "generatedAt": "2026-09-07T09:10:54.661380Z",
+      "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-1"
+     }
+    ],
+    "createdAt": "2026-09-07T09:10:54.297091Z",
+    "dataScope": [],
+    "label": "K-04 S1 memorise",
+    "lease": {
+     "expiresAt": "2026-09-07T09:30:54.297091Z",
+     "issuedAt": "2026-09-07T09:10:54.297091Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.claude-code",
+    "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "sessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96",
+    "state": "claimed-completed",
+    "toolScope": []
+   },
+   "stateAfter": "claimed-completed",
+   "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+   "childrenAfter": [
+    {
+     "pid": 33355,
+     "ppid": 33157,
+     "pgid": 33355,
+     "etime": "01:00",
+     "cmd": "claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {\"mcpServers\":{}} --permission-mode plan --tools Read,Glob,Grep"
+    }
+   ],
+   "fromSession": [
+    {
+     "body": {
+      "costUsd": 0.129469,
+      "summary": "已記住"
+     },
+     "createdAt": "2026-09-07T09:11:00.704256Z",
+     "direction": "from-session",
+     "kind": "result",
+     "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-2",
+     "sessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96"
+    }
+   ],
+   "toSession": [
+    {
+     "body": {
+      "contextBundle": {
+       "agentId": "claude-code",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T09:10:54.661175Z",
+       "includes": [],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "請記住暗號 X55XY4F8，只回覆「已記住」。不要使用任何工具，不要讀寫任何檔案。",
+       "truncated": false
+      },
+      "task": "請記住暗號 X55XY4F8，只回覆「已記住」。不要使用任何工具，不要讀寫任何檔案。"
+     },
+     "createdAt": "2026-09-07T09:10:54.661339Z",
+     "deliveredAt": "2026-09-07T09:10:54.662178Z",
+     "direction": "to-session",
+     "kind": "task",
+     "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-1",
+     "sessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96"
+    }
+   ],
+   "finishedAt": "2026-09-07T09:11:54.917Z"
+  },
+  "S1T2": {
+   "tag": "S1T2",
+   "task": "我剛才要你記住的暗號是什麼？只回暗號，不要其他文字。",
+   "sendStatus": 200,
+   "sendResp": {
+    "body": {
+     "contextBundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:11:54.963191Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "我剛才要你記住的暗號是什麼？只回暗號，不要其他文字。",
+      "truncated": false
+     },
+     "task": "我剛才要你記住的暗號是什麼？只回暗號，不要其他文字。"
+    },
+    "createdAt": "2026-09-07T09:11:54.963383Z",
+    "deliveredAt": "2026-09-07T09:11:54.964438Z",
+    "direction": "to-session",
+    "kind": "task",
+    "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-3",
+    "sessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96"
+   },
+   "stateBefore": "claimed-completed",
+   "childrenBefore": [
+    {
+     "pid": 33355,
+     "ppid": 33157,
+     "pgid": 33355,
+     "etime": "01:00",
+     "cmd": "claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {\"mcpServers\":{}} --permission-mode plan --tools Read,Glob,Grep"
+    }
+   ],
+   "transitions": [],
+   "startedAt": "2026-09-07T09:11:54.964Z",
+   "sawWorkingState": false,
+   "elapsed": 60.18,
+   "record": {
+    "agentId": "claude-code",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 0.0,
+     "maxDurationMs": 1200000,
+     "maxMessages": 40,
+     "spentCost": 0.27653525,
+     "spentMessages": 4
+    },
+    "claimId": "claim-87a0a25a-4b76-49d1-819d-57f0b54f2c96",
+    "consentScope": [],
+    "contextBundles": [
+     {
+      "bundle": {
+       "agentId": "claude-code",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T09:10:54.661175Z",
+       "includes": [],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "請記住暗號 X55XY4F8，只回覆「已記住」。不要使用任何工具，不要讀寫任何檔案。",
+       "truncated": false
+      },
+      "bundleId": "bundle-3292c235-0af8-4066-95ef-62dc4da5fef2",
+      "contentHash": "ff4133c982451df27871f53020e7d9f8c835456cc2cfbcd3b9884180c60317ae",
+      "generatedAt": "2026-09-07T09:10:54.661380Z",
+      "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-1"
+     },
+     {
+      "bundle": {
+       "agentId": "claude-code",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T09:11:54.963191Z",
+       "includes": [],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "我剛才要你記住的暗號是什麼？只回暗號，不要其他文字。",
+       "truncated": false
+      },
+      "bundleId": "bundle-d50d8f47-6e79-4ce6-a7d9-19cc9129663d",
+      "contentHash": "bce052f2e02e3ffdf88a9eee408518404961b77611a208f41d8978eb0defb2d7",
+      "generatedAt": "2026-09-07T09:11:54.963424Z",
+      "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-3"
+     }
+    ],
+    "createdAt": "2026-09-07T09:10:54.297091Z",
+    "dataScope": [],
+    "label": "K-04 S1 memorise",
+    "lease": {
+     "expiresAt": "2026-09-07T09:30:54.297091Z",
+     "issuedAt": "2026-09-07T09:10:54.297091Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.claude-code",
+    "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "sessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96",
+    "state": "claimed-completed",
+    "toolScope": []
+   },
+   "stateAfter": "claimed-completed",
+   "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+   "childrenAfter": [
+    {
+     "pid": 33355,
+     "ppid": 33157,
+     "pgid": 33355,
+     "etime": "02:01",
+     "cmd": "claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {\"mcpServers\":{}} --permission-mode plan --tools Read,Glob,Grep"
+    }
+   ],
+   "fromSession": [
+    {
+     "body": {
+      "costUsd": 0.129469,
+      "summary": "已記住"
+     },
+     "createdAt": "2026-09-07T09:11:00.704256Z",
+     "direction": "from-session",
+     "kind": "result",
+     "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-2",
+     "sessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96"
+    },
+    {
+     "body": {
+      "costUsd": 0.14706625,
+      "summary": "X55XY4F8"
+     },
+     "createdAt": "2026-09-07T09:11:57.373647Z",
+     "direction": "from-session",
+     "kind": "result",
+     "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-4",
+     "sessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96"
+    }
+   ],
+   "toSession": [
+    {
+     "body": {
+      "contextBundle": {
+       "agentId": "claude-code",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T09:10:54.661175Z",
+       "includes": [],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "請記住暗號 X55XY4F8，只回覆「已記住」。不要使用任何工具，不要讀寫任何檔案。",
+       "truncated": false
+      },
+      "task": "請記住暗號 X55XY4F8，只回覆「已記住」。不要使用任何工具，不要讀寫任何檔案。"
+     },
+     "createdAt": "2026-09-07T09:10:54.661339Z",
+     "deliveredAt": "2026-09-07T09:10:54.662178Z",
+     "direction": "to-session",
+     "kind": "task",
+     "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-1",
+     "sessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96"
+    },
+    {
+     "body": {
+      "contextBundle": {
+       "agentId": "claude-code",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T09:11:54.963191Z",
+       "includes": [],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "我剛才要你記住的暗號是什麼？只回暗號，不要其他文字。",
+       "truncated": false
+      },
+      "task": "我剛才要你記住的暗號是什麼？只回暗號，不要其他文字。"
+     },
+     "createdAt": "2026-09-07T09:11:54.963383Z",
+     "deliveredAt": "2026-09-07T09:11:54.964438Z",
+     "direction": "to-session",
+     "kind": "task",
+     "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-3",
+     "sessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96"
+    }
+   ],
+   "finishedAt": "2026-09-07T09:12:55.190Z"
+  },
+  "S2T1": {
+   "tag": "S2T1",
+   "task": "我在上一個 session 要你記住的暗號是什麼？只回暗號，不要其他文字。",
+   "sendStatus": 200,
+   "sendResp": {
+    "body": {
+     "contextBundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:12:57.552470Z",
+      "includes": [
+       {
+        "confidence": 1.0,
+        "content": "{\"agentId\":\"claude-code\",\"closedAt\":\"2026-09-07T09:12:55.190789Z\",\"costUsd\":0.27653525,\"goal\":\"K-04 S1 memorise\",\"messages\":4,\"outcome\":\"ClaimedCompleted\",\"providerSessionId\":\"e63b51f8-0c9c-4431-accd-2d9dca4336ba\"}",
+        "kind": "fact",
+        "layer": "task-memory",
+        "memoryId": "mem-f98f5a20-c225-439e-a93c-7f5db1f23e8c",
+        "title": "任務：K-04 S1 memorise"
+       }
+      ],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "我在上一個 session 要你記住的暗號是什麼？只回暗號，不要其他文字。",
+      "truncated": false
+     },
+     "task": "我在上一個 session 要你記住的暗號是什麼？只回暗號，不要其他文字。"
+    },
+    "createdAt": "2026-09-07T09:12:57.552719Z",
+    "deliveredAt": "2026-09-07T09:12:57.553525Z",
+    "direction": "to-session",
+    "kind": "task",
+    "messageId": "msg-asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e-1",
+    "sessionId": "asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e"
+   },
+   "stateBefore": "created",
+   "childrenBefore": [
+    {
+     "pid": 50761,
+     "ppid": 33157,
+     "pgid": 50761,
+     "etime": "00:00",
+     "cmd": "claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {\"mcpServers\":{}} --permission-mode plan --tools Read,Glob,Grep --resume e63b51f"
+    }
+   ],
+   "transitions": [
+    {
+     "mono": 3.54,
+     "state": "claimed-completed",
+     "children": [
+      {
+       "pid": 50761,
+       "ppid": 33157,
+       "pgid": 50761,
+       "etime": "00:04",
+       "cmd": "claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {\"mcpServers\":{}} --permission-mode plan --tools Read,Glob,Grep --resume e63b51f"
+      }
+     ]
+    }
+   ],
+   "startedAt": "2026-09-07T09:12:57.554Z",
+   "sawWorkingState": false,
+   "elapsed": 60.23,
+   "record": {
+    "agentId": "claude-code",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 0.0,
+     "maxDurationMs": 1200000,
+     "maxMessages": 40,
+     "spentCost": 0.01802475,
+     "spentMessages": 2
+    },
+    "claimId": "claim-5b8b758d-f7db-43a9-9855-bbbde7b8559c",
+    "consentScope": [],
+    "contextBundles": [
+     {
+      "bundle": {
+       "agentId": "claude-code",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T09:12:57.552470Z",
+       "includes": [
+        {
+         "confidence": 1.0,
+         "content": "{\"agentId\":\"claude-code\",\"closedAt\":\"2026-09-07T09:12:55.190789Z\",\"costUsd\":0.27653525,\"goal\":\"K-04 S1 memorise\",\"messages\":4,\"outcome\":\"ClaimedCompleted\",\"providerSessionId\":\"e63b51f8-0c9c-4431-accd-2d9dca4336ba\"}",
+         "kind": "fact",
+         "layer": "task-memory",
+         "memoryId": "mem-f98f5a20-c225-439e-a93c-7f5db1f23e8c",
+         "title": "任務：K-04 S1 memorise"
+        }
+       ],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "我在上一個 session 要你記住的暗號是什麼？只回暗號，不要其他文字。",
+       "truncated": false
+      },
+      "bundleId": "bundle-ea840476-58e4-43e8-b046-bfcaddb4e35a",
+      "contentHash": "aeb27d4193e1d33f9bbfc24fb583cba89b08daef157158260edf275fb22ec7af",
+      "generatedAt": "2026-09-07T09:12:57.552770Z",
+      "messageId": "msg-asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e-1"
+     }
+    ],
+    "createdAt": "2026-09-07T09:12:57.243020Z",
+    "dataScope": [],
+    "label": "K-04 S2 resume",
+    "lease": {
+     "expiresAt": "2026-09-07T09:32:57.243020Z",
+     "issuedAt": "2026-09-07T09:12:57.243020Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.claude-code",
+    "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "sessionId": "asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e",
+    "state": "claimed-completed",
+    "toolScope": []
+   },
+   "stateAfter": "claimed-completed",
+   "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+   "childrenAfter": [
+    {
+     "pid": 50761,
+     "ppid": 33157,
+     "pgid": 50761,
+     "etime": "01:00",
+     "cmd": "claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {\"mcpServers\":{}} --permission-mode plan --tools Read,Glob,Grep --resume e63b51f"
+    }
+   ],
+   "fromSession": [
+    {
+     "body": {
+      "costUsd": 0.01802475,
+      "summary": "X55XY4F8"
+     },
+     "createdAt": "2026-09-07T09:13:00.939224Z",
+     "direction": "from-session",
+     "kind": "result",
+     "messageId": "msg-asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e-2",
+     "sessionId": "asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e"
+    }
+   ],
+   "toSession": [
+    {
+     "body": {
+      "contextBundle": {
+       "agentId": "claude-code",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T09:12:57.552470Z",
+       "includes": [
+        {
+         "confidence": 1.0,
+         "content": "{\"agentId\":\"claude-code\",\"closedAt\":\"2026-09-07T09:12:55.190789Z\",\"costUsd\":0.27653525,\"goal\":\"K-04 S1 memorise\",\"messages\":4,\"outcome\":\"ClaimedCompleted\",\"providerSessionId\":\"e63b51f8-0c9c-4431-accd-2d9dca4336ba\"}",
+         "kind": "fact",
+         "layer": "task-memory",
+         "memoryId": "mem-f98f5a20-c225-439e-a93c-7f5db1f23e8c",
+         "title": "任務：K-04 S1 memorise"
+        }
+       ],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "我在上一個 session 要你記住的暗號是什麼？只回暗號，不要其他文字。",
+       "truncated": false
+      },
+      "task": "我在上一個 session 要你記住的暗號是什麼？只回暗號，不要其他文字。"
+     },
+     "createdAt": "2026-09-07T09:12:57.552719Z",
+     "deliveredAt": "2026-09-07T09:12:57.553525Z",
+     "direction": "to-session",
+     "kind": "task",
+     "messageId": "msg-asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e-1",
+     "sessionId": "asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e"
+    }
+   ],
+   "finishedAt": "2026-09-07T09:13:57.837Z"
+  }
+ },
+ "daemonPid": 33157,
+ "discovery": {
+  "agents": [
+   {
+    "binaryPath": "claude",
+    "detail": "2.1.263 (Claude Code)（已登入）",
+    "found": true,
+    "kind": "claude-code",
+    "loggedIn": true,
+    "protocolSupported": true,
+    "version": "2.1.263 (Claude Code)"
+   },
+   {
+    "binaryPath": "codex",
+    "detail": "codex-cli 0.153.4（已登入，app-server 可用）",
+    "found": true,
+    "kind": "codex",
+    "loggedIn": true,
+    "protocolSupported": true,
+    "version": "codex-cli 0.153.4"
+   }
+  ]
+ },
+ "s1": {
+  "createStatus": 200,
+  "createRecord": {
+   "agentId": "claude-code",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.0,
+    "spentMessages": 0
+   },
+   "consentScope": [],
+   "contextBundles": [],
+   "createdAt": "2026-09-07T09:10:54.297091Z",
+   "dataScope": [],
+   "label": "K-04 S1 memorise",
+   "lease": {
+    "expiresAt": "2026-09-07T09:30:54.297091Z",
+    "issuedAt": "2026-09-07T09:10:54.297091Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+   "sessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96",
+   "state": "created",
+   "toolScope": []
+  },
+  "sessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96",
+  "providerSessionIdAfterT1": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+  "providerSessionIdAfterT2": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+  "close": {
+   "status": 200,
+   "record": {
+    "agentId": "claude-code",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 0.0,
+     "maxDurationMs": 1200000,
+     "maxMessages": 40,
+     "spentCost": 0.27653525,
+     "spentMessages": 4
+    },
+    "claimId": "claim-87a0a25a-4b76-49d1-819d-57f0b54f2c96",
+    "closedAt": "2026-09-07T09:12:55.190789Z",
+    "consentScope": [],
+    "contextBundles": [
+     {
+      "bundle": {
+       "agentId": "claude-code",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T09:10:54.661175Z",
+       "includes": [],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "請記住暗號 X55XY4F8，只回覆「已記住」。不要使用任何工具，不要讀寫任何檔案。",
+       "truncated": false
+      },
+      "bundleId": "bundle-3292c235-0af8-4066-95ef-62dc4da5fef2",
+      "contentHash": "ff4133c982451df27871f53020e7d9f8c835456cc2cfbcd3b9884180c60317ae",
+      "generatedAt": "2026-09-07T09:10:54.661380Z",
+      "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-1"
+     },
+     {
+      "bundle": {
+       "agentId": "claude-code",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T09:11:54.963191Z",
+       "includes": [],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "我剛才要你記住的暗號是什麼？只回暗號，不要其他文字。",
+       "truncated": false
+      },
+      "bundleId": "bundle-d50d8f47-6e79-4ce6-a7d9-19cc9129663d",
+      "contentHash": "bce052f2e02e3ffdf88a9eee408518404961b77611a208f41d8978eb0defb2d7",
+      "generatedAt": "2026-09-07T09:11:54.963424Z",
+      "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-3"
+     }
+    ],
+    "createdAt": "2026-09-07T09:10:54.297091Z",
+    "dataScope": [],
+    "detail": "K-04 close before resume (was ClaimedCompleted)",
+    "label": "K-04 S1 memorise",
+    "lease": {
+     "expiresAt": "2026-09-07T09:30:54.297091Z",
+     "issuedAt": "2026-09-07T09:10:54.297091Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.claude-code",
+    "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "sessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96",
+    "state": "closed",
+    "toolScope": []
+   }
+  },
+  "childrenAfterClose": [],
+  "postAfterClose": {
+   "status": 409,
+   "resp": {
+    "error": {
+     "code": "conflict",
+     "message": "conflict: agent session asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96 is Closed; mailbox closed"
+    }
+   }
+  },
+  "finalRecord": {
+   "agentId": "claude-code",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.27653525,
+    "spentMessages": 4
+   },
+   "claimId": "claim-87a0a25a-4b76-49d1-819d-57f0b54f2c96",
+   "closedAt": "2026-09-07T09:12:55.190789Z",
+   "consentScope": [],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:10:54.661175Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請記住暗號 X55XY4F8，只回覆「已記住」。不要使用任何工具，不要讀寫任何檔案。",
+      "truncated": false
+     },
+     "bundleId": "bundle-3292c235-0af8-4066-95ef-62dc4da5fef2",
+     "contentHash": "ff4133c982451df27871f53020e7d9f8c835456cc2cfbcd3b9884180c60317ae",
+     "generatedAt": "2026-09-07T09:10:54.661380Z",
+     "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-1"
+    },
+    {
+     "bundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:11:54.963191Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "我剛才要你記住的暗號是什麼？只回暗號，不要其他文字。",
+      "truncated": false
+     },
+     "bundleId": "bundle-d50d8f47-6e79-4ce6-a7d9-19cc9129663d",
+     "contentHash": "bce052f2e02e3ffdf88a9eee408518404961b77611a208f41d8978eb0defb2d7",
+     "generatedAt": "2026-09-07T09:11:54.963424Z",
+     "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-3"
+    }
+   ],
+   "createdAt": "2026-09-07T09:10:54.297091Z",
+   "dataScope": [],
+   "detail": "K-04 close before resume (was ClaimedCompleted)",
+   "label": "K-04 S1 memorise",
+   "lease": {
+    "expiresAt": "2026-09-07T09:30:54.297091Z",
+    "issuedAt": "2026-09-07T09:10:54.297091Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+   "sessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96",
+   "state": "closed",
+   "toolScope": []
+  },
+  "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba"
+ },
+ "childrenAfterCreate": [
+  {
+   "pid": 33355,
+   "ppid": 33157,
+   "pgid": 33355,
+   "etime": "00:00",
+   "cmd": "claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {\"mcpServers\":{}} --permission-mode plan --tools Read,Glob,Grep"
+  }
+ ],
+ "s2": {
+  "createStatus": 200,
+  "createRecord": {
+   "agentId": "claude-code",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.0,
+    "spentMessages": 0
+   },
+   "consentScope": [],
+   "contextBundles": [],
+   "createdAt": "2026-09-07T09:12:57.243020Z",
+   "dataScope": [],
+   "label": "K-04 S2 resume",
+   "lease": {
+    "expiresAt": "2026-09-07T09:32:57.243020Z",
+    "issuedAt": "2026-09-07T09:12:57.243020Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+   "sessionId": "asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e",
+   "state": "created",
+   "toolScope": []
+  },
+  "payload": {
+   "agentId": "claude-code",
+   "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+   "ttlMinutes": 20,
+   "maxMessages": 40,
+   "allowWrite": false,
+   "toolScope": [],
+   "consentScope": [],
+   "dataScope": [],
+   "label": "K-04 S2 resume",
+   "resumeProviderSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba"
+  },
+  "sessionId": "asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e",
+  "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+  "close": {
+   "status": 200,
+   "record": {
+    "agentId": "claude-code",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 0.0,
+     "maxDurationMs": 1200000,
+     "maxMessages": 40,
+     "spentCost": 0.01802475,
+     "spentMessages": 2
+    },
+    "claimId": "claim-5b8b758d-f7db-43a9-9855-bbbde7b8559c",
+    "closedAt": "2026-09-07T09:13:57.838508Z",
+    "consentScope": [],
+    "contextBundles": [
+     {
+      "bundle": {
+       "agentId": "claude-code",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T09:12:57.552470Z",
+       "includes": [
+        {
+         "confidence": 1.0,
+         "content": "{\"agentId\":\"claude-code\",\"closedAt\":\"2026-09-07T09:12:55.190789Z\",\"costUsd\":0.27653525,\"goal\":\"K-04 S1 memorise\",\"messages\":4,\"outcome\":\"ClaimedCompleted\",\"providerSessionId\":\"e63b51f8-0c9c-4431-accd-2d9dca4336ba\"}",
+         "kind": "fact",
+         "layer": "task-memory",
+         "memoryId": "mem-f98f5a20-c225-439e-a93c-7f5db1f23e8c",
+         "title": "任務：K-04 S1 memorise"
+        }
+       ],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "我在上一個 session 要你記住的暗號是什麼？只回暗號，不要其他文字。",
+       "truncated": false
+      },
+      "bundleId": "bundle-ea840476-58e4-43e8-b046-bfcaddb4e35a",
+      "contentHash": "aeb27d4193e1d33f9bbfc24fb583cba89b08daef157158260edf275fb22ec7af",
+      "generatedAt": "2026-09-07T09:12:57.552770Z",
+      "messageId": "msg-asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e-1"
+     }
+    ],
+    "createdAt": "2026-09-07T09:12:57.243020Z",
+    "dataScope": [],
+    "detail": "K-04 done (was ClaimedCompleted)",
+    "label": "K-04 S2 resume",
+    "lease": {
+     "expiresAt": "2026-09-07T09:32:57.243020Z",
+     "issuedAt": "2026-09-07T09:12:57.243020Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.claude-code",
+    "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "sessionId": "asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e",
+    "state": "closed",
+    "toolScope": []
+   }
+  }
+ },
+ "probes": [
+  {
+   "name": "allowWrite",
+   "payload": {
+    "agentId": "claude-code",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "ttlMinutes": 20,
+    "maxMessages": 40,
+    "allowWrite": true,
+    "toolScope": [
+     "workspace.write"
+    ],
+    "consentScope": [
+     "agent-session:workspace-write"
+    ],
+    "dataScope": [],
+    "label": "K-04 probe allowWrite",
+    "resumeProviderSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba"
+   },
+   "status": 403,
+   "resp": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: 接續上次的工作不得放寬可用工具：workspace.write 不在上次的授權範圍裡"
+    }
+   }
+  },
+  {
+   "name": "otherWorkdir",
+   "payload": {
+    "agentId": "claude-code",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir-other",
+    "ttlMinutes": 20,
+    "maxMessages": 40,
+    "allowWrite": false,
+    "toolScope": [],
+    "consentScope": [],
+    "dataScope": [],
+    "label": "K-04 probe other workdir",
+    "resumeProviderSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba"
+   },
+   "status": 403,
+   "resp": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: 接續上次的工作不得更換工作目錄（上次是 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir）；                     要換資料夾請重新建立一個明確授權的工作階段"
+    }
+   }
+  },
+  {
+   "name": "omitWorkdir",
+   "payload": {
+    "agentId": "claude-code",
+    "ttlMinutes": 20,
+    "maxMessages": 40,
+    "allowWrite": false,
+    "toolScope": [],
+    "consentScope": [],
+    "dataScope": [],
+    "label": "K-04 probe omit workdir",
+    "resumeProviderSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba"
+   },
+   "status": 403,
+   "resp": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: 接續上次的工作必須帶上同一個工作目錄（上次是 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir）；             省略＝由系統另外挑一個資料夾，那不是接續"
+    }
+   }
+  },
+  {
+   "name": "widerTtl",
+   "payload": {
+    "agentId": "claude-code",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "ttlMinutes": 120,
+    "maxMessages": 40,
+    "allowWrite": false,
+    "toolScope": [],
+    "consentScope": [],
+    "dataScope": [],
+    "label": "K-04 probe wider ttl",
+    "resumeProviderSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba"
+   },
+   "status": 403,
+   "resp": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: 接續上次的工作不得放寬時間上限（上次 20 分鐘，這次要求 120 分鐘）"
+    }
+   }
+  },
+  {
+   "name": "widerMessages",
+   "payload": {
+    "agentId": "claude-code",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "ttlMinutes": 20,
+    "maxMessages": 200,
+    "allowWrite": false,
+    "toolScope": [],
+    "consentScope": [],
+    "dataScope": [],
+    "label": "K-04 probe wider maxMessages",
+    "resumeProviderSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba"
+   },
+   "status": 403,
+   "resp": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: 接續上次的工作不得放寬訊息上限（上次 40，這次 200）"
+    }
+   }
+  },
+  {
+   "name": "omitBudget",
+   "payload": {
+    "agentId": "claude-code",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "allowWrite": false,
+    "toolScope": [],
+    "consentScope": [],
+    "dataScope": [],
+    "label": "K-04 probe omit budget",
+    "resumeProviderSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba"
+   },
+   "status": 403,
+   "resp": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: 接續上次的工作不得放寬時間上限（上次 20 分鐘，這次要求 120 分鐘）"
+    }
+   }
+  },
+  {
+   "name": "unknownId",
+   "payload": {
+    "agentId": "claude-code",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+    "ttlMinutes": 20,
+    "maxMessages": 40,
+    "allowWrite": false,
+    "toolScope": [],
+    "consentScope": [],
+    "dataScope": [],
+    "label": "K-04 probe unknown resume id",
+    "resumeProviderSessionId": "thread-does-not-exist-b7f2dcbc8fbb"
+   },
+   "status": 403,
+   "resp": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: 找不到上一次的授權紀錄，無法確認接續沒有放寬任何範圍；請重新建立一個明確授權的工作階段"
+    }
+   }
+  }
+ ],
+ "status": {
+  "activeSensors": [],
+  "agentSessions": 0,
+  "capabilityVersion": 56,
+  "characterProtocol": {
+   "activeCharacter": null,
+   "instances": 0,
+   "version": "1.0"
+  },
+  "configErrors": [],
+  "emergencyStop": false,
+  "eventSequence": 137,
+  "hasReceipts": false,
+  "name": "adaptive-interaction",
+  "onboardingCompleted": false,
+  "pendingAiAssists": 0,
+  "presentation": {
+   "behaviorExplanation": null,
+   "behaviorState": null,
+   "character": null,
+   "connected": false,
+   "lastSeenSecondsAgo": null,
+   "packId": null,
+   "pendingCommands": 0,
+   "visible": false
+  },
+  "proactivePause": {
+   "paused": false
+  },
+  "quietHours": false,
+  "recipes": {
+   "errors": 0,
+   "loaded": 1
+  },
+  "schemaVersion": "1.0",
+  "session": null,
+  "startedAt": "2026-09-07T09:10:53.707345Z",
+  "unresolvedStopHealth": {
+   "overflowCount": 0,
+   "parked": false,
+   "recoveryUnknown": false,
+   "storage": "durable"
+  },
+  "uptimeSeconds": 184,
+  "version": "0.8.0"
+ },
+ "auditTail": [
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:13:57.840Z",
+   "detail": {
+    "revision": 11,
+    "truth": "none"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "user",
+   "at": "2026-09-07T09:13:57.839Z",
+   "detail": {
+    "agentSessionId": "asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e",
+    "reason": "K-04 done"
+   },
+   "kind": "agent-session.closed"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:13:00.940Z",
+   "detail": {
+    "revision": 10,
+    "truth": "claimed"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:13:00.939Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "claim-completed",
+    "messageId": "rt-7c8cbbf35a0b4399aef1d6ac6def1a4e",
+    "truthState": "claimed"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:13:00.922Z",
+   "detail": {
+    "revision": 9,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:12:57.553Z",
+   "detail": {
+    "revision": 9,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:12:57.245Z",
+   "detail": {
+    "revision": 8,
+    "truth": "queued"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:12:57.243Z",
+   "detail": {
+    "agentSessionId": "asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e",
+    "expiresAt": "2026-09-07T09:32:57.243020Z"
+   },
+   "kind": "agent-session.capability-issued"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:12:57.243Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "wait",
+    "messageId": "rt-263ce3b094e24d659f56ed0fedc4d299",
+    "truthState": "queued"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:12:55.193Z",
+   "detail": {
+    "revision": 7,
+    "truth": "none"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "user",
+   "at": "2026-09-07T09:12:55.192Z",
+   "detail": {
+    "agentSessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96",
+    "reason": "K-04 close before resume"
+   },
+   "kind": "agent-session.closed"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:57.374Z",
+   "detail": {
+    "revision": 6,
+    "truth": "claimed"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:57.374Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "claim-completed",
+    "messageId": "rt-bed5cb13f3df42f7b47bc3d8bce220e7",
+    "truthState": "claimed"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:57.363Z",
+   "detail": {
+    "revision": 5,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:54.964Z",
+   "detail": {
+    "revision": 5,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:00.705Z",
+   "detail": {
+    "revision": 4,
+    "truth": "claimed"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:00.704Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "claim-completed",
+    "messageId": "rt-9c315f9df51941a19b842a64a38b32dc",
+    "truthState": "claimed"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:00.699Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:00.606Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:10:54.662Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:10:54.302Z",
+   "detail": {
+    "revision": 2,
+    "truth": "queued"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:10:54.299Z",
+   "detail": {
+    "agentSessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96",
+    "expiresAt": "2026-09-07T09:30:54.297091Z"
+   },
+   "kind": "agent-session.capability-issued"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:10:54.298Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "wait",
+    "messageId": "rt-36bb5b2be0334ea1b4978f9f0a1f6946",
+    "truthState": "queued"
+   },
+   "kind": "character.system-text"
+  }
+ ],
+ "sessionsList": [
+  {
+   "agentId": "claude-code",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.01802475,
+    "spentMessages": 2
+   },
+   "claimId": "claim-5b8b758d-f7db-43a9-9855-bbbde7b8559c",
+   "closedAt": "2026-09-07T09:13:57.838508Z",
+   "consentScope": [],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:12:57.552470Z",
+      "includes": [
+       {
+        "confidence": 1.0,
+        "content": "{\"agentId\":\"claude-code\",\"closedAt\":\"2026-09-07T09:12:55.190789Z\",\"costUsd\":0.27653525,\"goal\":\"K-04 S1 memorise\",\"messages\":4,\"outcome\":\"ClaimedCompleted\",\"providerSessionId\":\"e63b51f8-0c9c-4431-accd-2d9dca4336ba\"}",
+        "kind": "fact",
+        "layer": "task-memory",
+        "memoryId": "mem-f98f5a20-c225-439e-a93c-7f5db1f23e8c",
+        "title": "任務：K-04 S1 memorise"
+       }
+      ],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "我在上一個 session 要你記住的暗號是什麼？只回暗號，不要其他文字。",
+      "truncated": false
+     },
+     "bundleId": "bundle-ea840476-58e4-43e8-b046-bfcaddb4e35a",
+     "contentHash": "aeb27d4193e1d33f9bbfc24fb583cba89b08daef157158260edf275fb22ec7af",
+     "generatedAt": "2026-09-07T09:12:57.552770Z",
+     "messageId": "msg-asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e-1"
+    }
+   ],
+   "createdAt": "2026-09-07T09:12:57.243020Z",
+   "dataScope": [],
+   "detail": "K-04 done (was ClaimedCompleted)",
+   "label": "K-04 S2 resume",
+   "lease": {
+    "expiresAt": "2026-09-07T09:32:57.243020Z",
+    "issuedAt": "2026-09-07T09:12:57.243020Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+   "sessionId": "asession-c9d37a4e-86b9-49c0-ab39-9d64ee66443e",
+   "state": "closed",
+   "toolScope": []
+  },
+  {
+   "agentId": "claude-code",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.27653525,
+    "spentMessages": 4
+   },
+   "claimId": "claim-87a0a25a-4b76-49d1-819d-57f0b54f2c96",
+   "closedAt": "2026-09-07T09:12:55.190789Z",
+   "consentScope": [],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:10:54.661175Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請記住暗號 X55XY4F8，只回覆「已記住」。不要使用任何工具，不要讀寫任何檔案。",
+      "truncated": false
+     },
+     "bundleId": "bundle-3292c235-0af8-4066-95ef-62dc4da5fef2",
+     "contentHash": "ff4133c982451df27871f53020e7d9f8c835456cc2cfbcd3b9884180c60317ae",
+     "generatedAt": "2026-09-07T09:10:54.661380Z",
+     "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-1"
+    },
+    {
+     "bundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:11:54.963191Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "我剛才要你記住的暗號是什麼？只回暗號，不要其他文字。",
+      "truncated": false
+     },
+     "bundleId": "bundle-d50d8f47-6e79-4ce6-a7d9-19cc9129663d",
+     "contentHash": "bce052f2e02e3ffdf88a9eee408518404961b77611a208f41d8978eb0defb2d7",
+     "generatedAt": "2026-09-07T09:11:54.963424Z",
+     "messageId": "msg-asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96-3"
+    }
+   ],
+   "createdAt": "2026-09-07T09:10:54.297091Z",
+   "dataScope": [],
+   "detail": "K-04 close before resume (was ClaimedCompleted)",
+   "label": "K-04 S1 memorise",
+   "lease": {
+    "expiresAt": "2026-09-07T09:30:54.297091Z",
+    "issuedAt": "2026-09-07T09:10:54.297091Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "providerSessionId": "e63b51f8-0c9c-4431-accd-2d9dca4336ba",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/claude/workdir",
+   "sessionId": "asession-de74fc7c-c24a-4e57-b05f-a5d036a33d96",
+   "state": "closed",
+   "toolScope": []
+  }
+ ],
+ "childrenAtEnd": [
+  {
+   "pid": 50761,
+   "ppid": 33157,
+   "pgid": 50761,
+   "etime": "01:00",
+   "cmd": "claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {\"mcpServers\":{}} --permission-mode plan --tools Read,Glob,Grep --resume e63b51f"
+  }
+ ],
+ "descendantsAtEnd": [
+  {
+   "pid": 50761,
+   "ppid": 33157,
+   "pgid": 50761,
+   "etime": "01:00",
+   "cmd": "claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {\"mcpServers\":{}} --permission-mode plan --tools Read,Glob,Grep --resume e63b51f"
+  }
+ ],
+ "strayAfterDaemonStop": [],
+ "wallSeconds": 185.39,
+ "finishedAt": "2026-09-07T09:13:59.004Z"
+}

@@ -1,0 +1,996 @@
+{
+ "case": "A-07",
+ "agent": "claude-code",
+ "port": 19016,
+ "events": [
+  {
+   "t": "2026-09-07T09:11:50.696Z",
+   "mono": 0.003,
+   "k": "daemon-spawned",
+   "tag": "d1",
+   "pid": 41215
+  },
+  {
+   "t": "2026-09-07T09:11:50.958Z",
+   "mono": 0.266,
+   "k": "daemon-ready",
+   "tag": "d1"
+  },
+  {
+   "t": "2026-09-07T09:11:51.371Z",
+   "mono": 0.678,
+   "k": "status-before",
+   "status": 200,
+   "emergencyStop": false
+  },
+  {
+   "t": "2026-09-07T09:11:51.635Z",
+   "mono": 0.942,
+   "k": "create",
+   "status": 200,
+   "state": "created",
+   "id": "asession-0be8d3e6-580c-415c-829f-94de61acea85"
+  },
+  {
+   "t": "2026-09-07T09:11:51.637Z",
+   "mono": 0.944,
+   "k": "task-sent",
+   "status": 200
+  },
+  {
+   "t": "2026-09-07T09:11:51.638Z",
+   "mono": 0.946,
+   "k": "state",
+   "state": "created"
+  },
+  {
+   "t": "2026-09-07T09:12:53.913Z",
+   "mono": 63.22,
+   "k": "state",
+   "state": "active"
+  },
+  {
+   "t": "2026-09-07T09:12:53.962Z",
+   "mono": 63.269,
+   "k": "pre-estop",
+   "state": "active",
+   "children": [
+    "41483 41215       01:02 S    claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {"
+   ]
+  },
+  {
+   "t": "2026-09-07T09:12:56.971Z",
+   "mono": 66.278,
+   "k": "emergency-stop",
+   "status": 200,
+   "resp": {
+    "actor": "api",
+    "characterEmergency": [],
+    "reason": null,
+    "sensors": {
+     "devices": [],
+     "local": {
+      "microphone": "idle"
+     },
+     "stopped": true,
+     "uncertain": false
+    },
+    "stoppedActions": 0,
+    "stoppedActuators": 14,
+    "totalActuators": 14,
+    "unconfirmedActuators": []
+   }
+  },
+  {
+   "t": "2026-09-07T09:12:57.978Z",
+   "mono": 67.285,
+   "k": "session-after-estop",
+   "status": 200,
+   "state": "cancelled",
+   "detail": "cancelled (was Active)"
+  },
+  {
+   "t": "2026-09-07T09:12:57.979Z",
+   "mono": 67.286,
+   "k": "status-after-estop",
+   "emergencyStop": true
+  },
+  {
+   "t": "2026-09-07T09:12:58.024Z",
+   "mono": 67.331,
+   "k": "children-after-estop",
+   "children": []
+  },
+  {
+   "t": "2026-09-07T09:13:00.075Z",
+   "mono": 69.382,
+   "k": "children-after-estop-3s",
+   "children": []
+  },
+  {
+   "t": "2026-09-07T09:13:00.076Z",
+   "mono": 69.383,
+   "k": "from-session-after-estop",
+   "count": 1
+  },
+  {
+   "t": "2026-09-07T09:13:00.077Z",
+   "mono": 69.384,
+   "k": "create-while-estopped",
+   "status": 403,
+   "resp": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: emergency stop engaged; no new agent sessions"
+    }
+   }
+  },
+  {
+   "t": "2026-09-07T09:13:00.078Z",
+   "mono": 69.385,
+   "k": "agent-clear-attempt",
+   "status": 403,
+   "resp": {
+    "error": {
+     "code": "token_scope_forbidden",
+     "message": "agent token cannot perform this human/control-center operation"
+    }
+   }
+  },
+  {
+   "t": "2026-09-07T09:13:00.079Z",
+   "mono": 69.386,
+   "k": "status-via-agent-token",
+   "status": 200,
+   "emergencyStop": true
+  },
+  {
+   "t": "2026-09-07T09:13:00.079Z",
+   "mono": 69.386,
+   "k": "sigterm-daemon",
+   "pid": 41215
+  },
+  {
+   "t": "2026-09-07T09:13:00.083Z",
+   "mono": 69.39,
+   "k": "daemon-exited",
+   "code": -15
+  },
+  {
+   "t": "2026-09-07T09:13:01.588Z",
+   "mono": 70.896,
+   "k": "ready-after-stop",
+   "ready": false
+  },
+  {
+   "t": "2026-09-07T09:13:01.590Z",
+   "mono": 70.897,
+   "k": "daemon-spawned",
+   "tag": "d2",
+   "pid": 51232
+  },
+  {
+   "t": "2026-09-07T09:13:01.847Z",
+   "mono": 71.154,
+   "k": "daemon-ready",
+   "tag": "d2"
+  },
+  {
+   "t": "2026-09-07T09:13:02.254Z",
+   "mono": 71.561,
+   "k": "status-after-restart",
+   "status": 200,
+   "emergencyStop": true
+  },
+  {
+   "t": "2026-09-07T09:13:02.255Z",
+   "mono": 71.562,
+   "k": "session-after-restart",
+   "status": 200,
+   "state": "cancelled",
+   "detail": "cancelled (was Active)"
+  },
+  {
+   "t": "2026-09-07T09:13:02.256Z",
+   "mono": 71.563,
+   "k": "create-after-restart",
+   "status": 403,
+   "resp": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: emergency stop engaged; no new agent sessions"
+    }
+   }
+  },
+  {
+   "t": "2026-09-07T09:13:02.258Z",
+   "mono": 71.565,
+   "k": "human-clear",
+   "status": 200,
+   "resp": {
+    "cleared": true
+   }
+  },
+  {
+   "t": "2026-09-07T09:13:02.259Z",
+   "mono": 71.566,
+   "k": "status-after-clear",
+   "emergencyStop": false
+  },
+  {
+   "t": "2026-09-07T09:13:02.513Z",
+   "mono": 71.82,
+   "k": "create-after-clear",
+   "status": 200,
+   "state": "created",
+   "id": "asession-a4f7245f-c6f4-4a61-b4c9-be9e2f2c9fb0"
+  },
+  {
+   "t": "2026-09-07T09:13:02.516Z",
+   "mono": 71.823,
+   "k": "close-probe-session",
+   "status": 200,
+   "state": "closed"
+  },
+  {
+   "t": "2026-09-07T09:13:02.564Z",
+   "mono": 71.871,
+   "k": "children-final",
+   "children": []
+  },
+  {
+   "t": "2026-09-07T09:13:02.568Z",
+   "mono": 71.875,
+   "k": "daemon-stopped",
+   "tag": "d2"
+  }
+ ],
+ "daemonPids": [
+  {
+   "tag": "d1",
+   "pid": 41215
+  },
+  {
+   "tag": "d2",
+   "pid": 51232
+  }
+ ],
+ "statusBefore": {
+  "activeSensors": [],
+  "agentSessions": 0,
+  "capabilityVersion": 56,
+  "characterProtocol": {
+   "activeCharacter": null,
+   "instances": 0,
+   "version": "1.0"
+  },
+  "configErrors": [],
+  "emergencyStop": false,
+  "eventSequence": 93,
+  "hasReceipts": false,
+  "name": "adaptive-interaction",
+  "onboardingCompleted": false,
+  "pendingAiAssists": 0,
+  "presentation": {
+   "behaviorExplanation": null,
+   "behaviorState": null,
+   "character": null,
+   "connected": false,
+   "lastSeenSecondsAgo": null,
+   "packId": null,
+   "pendingCommands": 0,
+   "visible": false
+  },
+  "proactivePause": {
+   "paused": false
+  },
+  "quietHours": false,
+  "recipes": {
+   "errors": 0,
+   "loaded": 1
+  },
+  "schemaVersion": "1.0",
+  "session": null,
+  "startedAt": "2026-09-07T09:11:50.786352Z",
+  "unresolvedStopHealth": {
+   "overflowCount": 0,
+   "parked": false,
+   "recoveryUnknown": false,
+   "storage": "durable"
+  },
+  "uptimeSeconds": 0,
+  "version": "0.8.0"
+ },
+ "sessionId": "asession-0be8d3e6-580c-415c-829f-94de61acea85",
+ "createRecord": {
+  "agentId": "claude-code",
+  "allowWrite": false,
+  "budget": {
+   "maxCost": 0.0,
+   "maxDurationMs": 1500000,
+   "maxMessages": 40,
+   "spentCost": 0.0,
+   "spentMessages": 0
+  },
+  "consentScope": [],
+  "contextBundles": [],
+  "createdAt": "2026-09-07T09:11:51.372976Z",
+  "dataScope": [],
+  "label": "A-07-estop",
+  "lease": {
+   "expiresAt": "2026-09-07T09:36:51.372976Z",
+   "issuedAt": "2026-09-07T09:11:51.372976Z",
+   "renewable": true,
+   "revokeOnSessionEnd": true
+  },
+  "providerId": "provider.ai-agent.claude-code",
+  "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/workdir",
+  "sessionId": "asession-0be8d3e6-580c-415c-829f-94de61acea85",
+  "state": "created",
+  "toolScope": []
+ },
+ "preEstop": {
+  "agentId": "claude-code",
+  "allowWrite": false,
+  "budget": {
+   "maxCost": 0.0,
+   "maxDurationMs": 1500000,
+   "maxMessages": 40,
+   "spentCost": 0.0,
+   "spentMessages": 1
+  },
+  "consentScope": [],
+  "contextBundles": [
+   {
+    "bundle": {
+     "agentId": "claude-code",
+     "domains": [],
+     "excluded": {
+      "needsReview": [],
+      "notVisibleToAgent": 0,
+      "outsideGrantedDomains": 0,
+      "overCapacity": 0,
+      "sensitive": 0,
+      "unreviewedCandidates": 0
+     },
+     "generatedAt": "2026-09-07T09:11:51.636409Z",
+     "includes": [],
+     "limits": {
+      "maxBytes": 49152,
+      "maxItems": 24,
+      "scanLimit": 1000,
+      "scanLimitReached": false
+     },
+     "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+     "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案，直接在回覆中輸出全文。",
+     "truncated": false
+    },
+    "bundleId": "bundle-23e1bc36-a99b-4e92-a8fe-dc2955c40ffa",
+    "contentHash": "3d29a044ab1ef4b3088504fa72838ce6aaf745c659d26883da167cf0ea930a15",
+    "generatedAt": "2026-09-07T09:11:51.636587Z",
+    "messageId": "msg-asession-0be8d3e6-580c-415c-829f-94de61acea85-1"
+   }
+  ],
+  "createdAt": "2026-09-07T09:11:51.372976Z",
+  "dataScope": [],
+  "label": "A-07-estop",
+  "lease": {
+   "expiresAt": "2026-09-07T09:36:51.372976Z",
+   "issuedAt": "2026-09-07T09:11:51.372976Z",
+   "renewable": true,
+   "revokeOnSessionEnd": true
+  },
+  "providerId": "provider.ai-agent.claude-code",
+  "providerSessionId": "b917c6c3-d1ad-4bcb-8303-763bded1ddd6",
+  "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/workdir",
+  "sessionId": "asession-0be8d3e6-580c-415c-829f-94de61acea85",
+  "state": "active",
+  "toolScope": []
+ },
+ "estopResp": {
+  "actor": "api",
+  "characterEmergency": [],
+  "reason": null,
+  "sensors": {
+   "devices": [],
+   "local": {
+    "microphone": "idle"
+   },
+   "stopped": true,
+   "uncertain": false
+  },
+  "stoppedActions": 0,
+  "stoppedActuators": 14,
+  "totalActuators": 14,
+  "unconfirmedActuators": []
+ },
+ "afterEstop": {
+  "agentId": "claude-code",
+  "allowWrite": false,
+  "budget": {
+   "maxCost": 0.0,
+   "maxDurationMs": 1500000,
+   "maxMessages": 40,
+   "spentCost": 0.0,
+   "spentMessages": 1
+  },
+  "closedAt": "2026-09-07T09:12:56.969573Z",
+  "consentScope": [],
+  "contextBundles": [
+   {
+    "bundle": {
+     "agentId": "claude-code",
+     "domains": [],
+     "excluded": {
+      "needsReview": [],
+      "notVisibleToAgent": 0,
+      "outsideGrantedDomains": 0,
+      "overCapacity": 0,
+      "sensitive": 0,
+      "unreviewedCandidates": 0
+     },
+     "generatedAt": "2026-09-07T09:11:51.636409Z",
+     "includes": [],
+     "limits": {
+      "maxBytes": 49152,
+      "maxItems": 24,
+      "scanLimit": 1000,
+      "scanLimitReached": false
+     },
+     "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+     "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案，直接在回覆中輸出全文。",
+     "truncated": false
+    },
+    "bundleId": "bundle-23e1bc36-a99b-4e92-a8fe-dc2955c40ffa",
+    "contentHash": "3d29a044ab1ef4b3088504fa72838ce6aaf745c659d26883da167cf0ea930a15",
+    "generatedAt": "2026-09-07T09:11:51.636587Z",
+    "messageId": "msg-asession-0be8d3e6-580c-415c-829f-94de61acea85-1"
+   }
+  ],
+  "createdAt": "2026-09-07T09:11:51.372976Z",
+  "dataScope": [],
+  "detail": "cancelled (was Active)",
+  "label": "A-07-estop",
+  "lease": {
+   "expiresAt": "2026-09-07T09:36:51.372976Z",
+   "issuedAt": "2026-09-07T09:11:51.372976Z",
+   "renewable": true,
+   "revokeOnSessionEnd": true
+  },
+  "providerId": "provider.ai-agent.claude-code",
+  "providerSessionId": "b917c6c3-d1ad-4bcb-8303-763bded1ddd6",
+  "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/workdir",
+  "sessionId": "asession-0be8d3e6-580c-415c-829f-94de61acea85",
+  "state": "cancelled",
+  "toolScope": []
+ },
+ "statusAfterEstop": {
+  "activeSensors": [],
+  "agentSessions": 0,
+  "capabilityVersion": 56,
+  "characterProtocol": {
+   "activeCharacter": null,
+   "instances": 0,
+   "version": "1.0"
+  },
+  "configErrors": [],
+  "emergencyStop": true,
+  "eventSequence": 117,
+  "hasReceipts": false,
+  "name": "adaptive-interaction",
+  "onboardingCompleted": false,
+  "pendingAiAssists": 0,
+  "presentation": {
+   "behaviorExplanation": null,
+   "behaviorState": null,
+   "character": null,
+   "connected": false,
+   "lastSeenSecondsAgo": null,
+   "packId": null,
+   "pendingCommands": 0,
+   "visible": false
+  },
+  "proactivePause": {
+   "paused": false
+  },
+  "quietHours": false,
+  "recipes": {
+   "errors": 0,
+   "loaded": 1
+  },
+  "schemaVersion": "1.0",
+  "session": null,
+  "startedAt": "2026-09-07T09:11:50.786352Z",
+  "unresolvedStopHealth": {
+   "overflowCount": 0,
+   "parked": false,
+   "recoveryUnknown": false,
+   "storage": "durable"
+  },
+  "uptimeSeconds": 67,
+  "version": "0.8.0"
+ },
+ "fromSessionAfterEstop": [
+  {
+   "body": {
+    "by": "runtime",
+    "deliveredToAgent": false,
+    "reason": "緊急停止：這個工作已被取消，並已對它的子程序樹送出終止（先禮貌終止，寬限後強制）；不會自動恢復。"
+   },
+   "createdAt": "2026-09-07T09:12:56.970787Z",
+   "direction": "from-session",
+   "kind": "emergency-stop",
+   "messageId": "msg-asession-0be8d3e6-580c-415c-829f-94de61acea85-2",
+   "sessionId": "asession-0be8d3e6-580c-415c-829f-94de61acea85"
+  }
+ ],
+ "createWhileEstopped": {
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "policy_blocked",
+    "message": "policy blocked: emergency stop engaged; no new agent sessions"
+   }
+  }
+ },
+ "agentClear": {
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "token_scope_forbidden",
+    "message": "agent token cannot perform this human/control-center operation"
+   }
+  }
+ },
+ "statusAfterRestart": {
+  "activeSensors": [],
+  "agentSessions": 0,
+  "capabilityVersion": 56,
+  "characterProtocol": {
+   "activeCharacter": null,
+   "instances": 0,
+   "version": "1.0"
+  },
+  "configErrors": [],
+  "emergencyStop": true,
+  "eventSequence": 94,
+  "hasReceipts": false,
+  "name": "adaptive-interaction",
+  "onboardingCompleted": false,
+  "pendingAiAssists": 0,
+  "presentation": {
+   "behaviorExplanation": null,
+   "behaviorState": null,
+   "character": null,
+   "connected": false,
+   "lastSeenSecondsAgo": null,
+   "packId": null,
+   "pendingCommands": 0,
+   "visible": false
+  },
+  "proactivePause": {
+   "paused": false
+  },
+  "quietHours": false,
+  "recipes": {
+   "errors": 0,
+   "loaded": 1
+  },
+  "schemaVersion": "1.0",
+  "session": null,
+  "startedAt": "2026-09-07T09:13:01.673983Z",
+  "unresolvedStopHealth": {
+   "overflowCount": 0,
+   "parked": false,
+   "recoveryUnknown": true,
+   "storage": "durable"
+  },
+  "uptimeSeconds": 0,
+  "version": "0.8.0"
+ },
+ "sessionAfterRestart": {
+  "agentId": "claude-code",
+  "allowWrite": false,
+  "budget": {
+   "maxCost": 0.0,
+   "maxDurationMs": 1500000,
+   "maxMessages": 40,
+   "spentCost": 0.0,
+   "spentMessages": 1
+  },
+  "closedAt": "2026-09-07T09:12:56.969573Z",
+  "consentScope": [],
+  "contextBundles": [
+   {
+    "bundle": {
+     "agentId": "claude-code",
+     "domains": [],
+     "excluded": {
+      "needsReview": [],
+      "notVisibleToAgent": 0,
+      "outsideGrantedDomains": 0,
+      "overCapacity": 0,
+      "sensitive": 0,
+      "unreviewedCandidates": 0
+     },
+     "generatedAt": "2026-09-07T09:11:51.636409Z",
+     "includes": [],
+     "limits": {
+      "maxBytes": 49152,
+      "maxItems": 24,
+      "scanLimit": 1000,
+      "scanLimitReached": false
+     },
+     "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+     "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案，直接在回覆中輸出全文。",
+     "truncated": false
+    },
+    "bundleId": "bundle-23e1bc36-a99b-4e92-a8fe-dc2955c40ffa",
+    "contentHash": "3d29a044ab1ef4b3088504fa72838ce6aaf745c659d26883da167cf0ea930a15",
+    "generatedAt": "2026-09-07T09:11:51.636587Z",
+    "messageId": "msg-asession-0be8d3e6-580c-415c-829f-94de61acea85-1"
+   }
+  ],
+  "createdAt": "2026-09-07T09:11:51.372976Z",
+  "dataScope": [],
+  "detail": "cancelled (was Active)",
+  "label": "A-07-estop",
+  "lease": {
+   "expiresAt": "2026-09-07T09:36:51.372976Z",
+   "issuedAt": "2026-09-07T09:11:51.372976Z",
+   "renewable": true,
+   "revokeOnSessionEnd": true
+  },
+  "providerId": "provider.ai-agent.claude-code",
+  "providerSessionId": "b917c6c3-d1ad-4bcb-8303-763bded1ddd6",
+  "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/workdir",
+  "sessionId": "asession-0be8d3e6-580c-415c-829f-94de61acea85",
+  "state": "cancelled",
+  "toolScope": []
+ },
+ "createAfterRestart": {
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "policy_blocked",
+    "message": "policy blocked: emergency stop engaged; no new agent sessions"
+   }
+  }
+ },
+ "humanClear": {
+  "status": 200,
+  "resp": {
+   "cleared": true
+  }
+ },
+ "statusAfterClear": {
+  "activeSensors": [],
+  "agentSessions": 0,
+  "capabilityVersion": 56,
+  "characterProtocol": {
+   "activeCharacter": null,
+   "instances": 0,
+   "version": "1.0"
+  },
+  "configErrors": [],
+  "emergencyStop": false,
+  "eventSequence": 96,
+  "hasReceipts": false,
+  "name": "adaptive-interaction",
+  "onboardingCompleted": false,
+  "pendingAiAssists": 0,
+  "presentation": {
+   "behaviorExplanation": null,
+   "behaviorState": null,
+   "character": null,
+   "connected": false,
+   "lastSeenSecondsAgo": null,
+   "packId": null,
+   "pendingCommands": 0,
+   "visible": false
+  },
+  "proactivePause": {
+   "paused": false
+  },
+  "quietHours": false,
+  "recipes": {
+   "errors": 0,
+   "loaded": 1
+  },
+  "schemaVersion": "1.0",
+  "session": null,
+  "startedAt": "2026-09-07T09:13:01.673983Z",
+  "unresolvedStopHealth": {
+   "overflowCount": 0,
+   "parked": false,
+   "recoveryUnknown": true,
+   "storage": "durable"
+  },
+  "uptimeSeconds": 0,
+  "version": "0.8.0"
+ },
+ "createAfterClear": {
+  "status": 200,
+  "resp": {
+   "agentId": "claude-code",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1500000,
+    "maxMessages": 40,
+    "spentCost": 0.0,
+    "spentMessages": 0
+   },
+   "consentScope": [],
+   "contextBundles": [],
+   "createdAt": "2026-09-07T09:13:02.260095Z",
+   "dataScope": [],
+   "label": "A-07-after-clear",
+   "lease": {
+    "expiresAt": "2026-09-07T09:38:02.260095Z",
+    "issuedAt": "2026-09-07T09:13:02.260095Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/workdir",
+   "sessionId": "asession-a4f7245f-c6f4-4a61-b4c9-be9e2f2c9fb0",
+   "state": "created",
+   "toolScope": []
+  }
+ },
+ "auditTail": [
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:13:02.516Z",
+   "detail": {
+    "revision": 39,
+    "truth": "none"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "user",
+   "at": "2026-09-07T09:13:02.515Z",
+   "detail": {
+    "agentSessionId": "asession-a4f7245f-c6f4-4a61-b4c9-be9e2f2c9fb0",
+    "reason": "A-07 cleanup"
+   },
+   "kind": "agent-session.closed"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:13:02.262Z",
+   "detail": {
+    "revision": 38,
+    "truth": "queued"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:13:02.260Z",
+   "detail": {
+    "agentSessionId": "asession-a4f7245f-c6f4-4a61-b4c9-be9e2f2c9fb0",
+    "expiresAt": "2026-09-07T09:38:02.260095Z"
+   },
+   "kind": "agent-session.capability-issued"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:13:02.260Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "wait",
+    "messageId": "rt-2b1407728ac14d7a9eb47c9af6acd463",
+    "truthState": "queued"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:13:02.258Z",
+   "detail": {
+    "revision": 37,
+    "truth": "none"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:13:02.258Z",
+   "detail": {
+    "cancelledIntents": 0,
+    "engaged": false
+   },
+   "kind": "character.session.emergency"
+  },
+  {
+   "actor": "api",
+   "at": "2026-09-07T09:13:02.258Z",
+   "detail": {},
+   "kind": "emergency.clear"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:13:01.674Z",
+   "detail": {
+    "revision": 36,
+    "truth": "emergency"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:13:01.674Z",
+   "detail": {
+    "cancelledIntents": 0,
+    "engaged": true
+   },
+   "kind": "character.session.emergency"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:12:56.971Z",
+   "detail": {
+    "revision": 5,
+    "truth": "emergency"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:12:56.971Z",
+   "detail": {
+    "cancelledIntents": 0,
+    "engaged": true
+   },
+   "kind": "character.session.emergency"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:12:56.971Z",
+   "detail": {
+    "revision": 4,
+    "truth": "cancelled"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "api",
+   "at": "2026-09-07T09:12:56.971Z",
+   "detail": {
+    "actor": "api",
+    "characterEmergency": [],
+    "reason": null,
+    "sensors": {
+     "devices": [],
+     "local": {
+      "microphone": "idle"
+     },
+     "stopped": true,
+     "uncertain": false
+    },
+    "stoppedActions": 0,
+    "stoppedActuators": 14,
+    "totalActuators": 14,
+    "unconfirmedActuators": []
+   },
+   "kind": "emergency.stop"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:12:56.971Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "emergency",
+    "messageId": "rt-8aa5f91da3e14acf83c251f98f9e6291",
+    "truthState": "emergency"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:12:56.970Z",
+   "detail": {
+    "agentSessionId": "asession-0be8d3e6-580c-415c-829f-94de61acea85",
+    "deliveredToAgent": false
+   },
+   "kind": "agent-session.emergency-stop"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:12:56.970Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "cancelled",
+    "messageId": "rt-7d3e1639d74044fc888792e40d5ba276",
+    "truthState": "cancelled"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "user",
+   "at": "2026-09-07T09:12:56.970Z",
+   "detail": {
+    "agentSessionId": "asession-0be8d3e6-580c-415c-829f-94de61acea85",
+    "reason": "cancelled"
+   },
+   "kind": "agent-session.closed"
+  },
+  {
+   "actor": "api",
+   "at": "2026-09-07T09:12:56.969Z",
+   "detail": {
+    "devices": [],
+    "local": {
+     "microphone": "idle"
+    },
+    "stopped": true,
+    "uncertain": false
+   },
+   "kind": "sensor.stopped-all"
+  },
+  {
+   "actor": "api",
+   "at": "2026-09-07T09:12:56.968Z",
+   "detail": {
+    "deadlineMs": 2000,
+    "reason": "emergency-stop",
+    "sources": [
+     "local.capture",
+     "provider.mobile"
+    ]
+   },
+   "kind": "sensor.stop-requested"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:12:53.842Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:51.637Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:51.375Z",
+   "detail": {
+    "revision": 2,
+    "truth": "queued"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:51.374Z",
+   "detail": {
+    "agentSessionId": "asession-0be8d3e6-580c-415c-829f-94de61acea85",
+    "expiresAt": "2026-09-07T09:36:51.372976Z"
+   },
+   "kind": "agent-session.capability-issued"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:11:51.373Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "wait",
+    "messageId": "rt-c87dc2c137fb409787b8a42853d2f441",
+    "truthState": "queued"
+   },
+   "kind": "character.system-text"
+  }
+ ],
+ "wallSeconds": 71.88
+}

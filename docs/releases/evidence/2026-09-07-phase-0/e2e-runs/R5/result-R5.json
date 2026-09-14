@@ -1,0 +1,450 @@
+{
+  "group": "R5: Phase 0 baseline — E0-11 (backup/preview/restore/restart/audit) + E0-01 API-verifiable part (first-run onboarding / preference persistence / restart)",
+  "cases": [
+    {
+      "id": "E0-01-api-onboarding-prefs-restart",
+      "scenario": "首次設定 API 流程：初始 onboarding 狀態 → preview（dry-run）→ commit → 完成狀態反映在 /v1/onboarding 與 /v1/status → PATCH UI 偏好並回讀 → daemon 重啟（SIGTERM）後 onboarding 與偏好全部保留",
+      "agentOrSurface": "HTTP API (curl) — real daemon binary, no browser UI driven",
+      "evidenceLevel": "integration",
+      "precondition": "全新 home A（INTERACT_AI_HOME=<out>/homeA, apiPort=19050），daemon 剛啟動；onboarding 未做過（completed=false）；UI 偏好為 UiPreferences::default()",
+      "steps": [
+        "GET /v1/onboarding → 確認 completed=false, completedAt=null",
+        "GET /v1/status → 確認 onboardingCompleted=false",
+        "POST /v1/onboarding/preview body={enableReceptors:[],disableReceptors:[],enableActuators:[],disableActuators:[],preferences:{locale:\"en-US\"}} → 確認回應 changed=true（dry-run）",
+        "POST /v1/onboarding/commit 同 body → 確認 HTTP 200 且回應 completed=true",
+        "GET /v1/onboarding 與 GET /v1/status → 確認 completed 已翻轉為 true 且 completedAt 有時間戳",
+        "GET /v1/ui/preferences（PATCH 前基準值，此時已因 onboarding commit 的 preferences merge 帶有 locale=en-US）",
+        "PATCH /v1/ui/preferences body={locale:\"ja-JP\",mode:\"advanced\"}",
+        "GET /v1/ui/preferences 再次讀回，確認與 PATCH 回應一致",
+        "kill -TERM 對 daemon A 自己的 PID（91850），確認程序消失",
+        "以相同 INTERACT_AI_HOME/port 重新啟動 daemon A（新 PID 97247）",
+        "重跑 GET /v1/onboarding、GET /v1/status、GET /v1/ui/preferences，逐欄位比對重啟前後"
+      ],
+      "expected": {
+        "ui": "首次設定精靈完成後 App 進入非精靈畫面；偏好設定頁應顯示 locale=ja-JP、mode=advanced（本案未直接驅動瀏覽器，此欄位依 apps/interaction-desktop 原始碼讀出的行為推論，見 limitations）",
+        "coreState": "onboarding meta: completed=true 且 completedAt 有值；ui_prefs meta: locale=ja-JP, mode=advanced；重啟後兩者皆維持不變",
+        "effect": "GET /v1/status.onboardingCompleted=true，後續流程可依此略過首次設定"
+      },
+      "result": "completed",
+      "actual": "全部如預期。初始 completed=false → commit 回應 200 且 completed=true，completedAt=2026-09-07T09:04:09.711925Z；PATCH 後 locale=ja-JP/mode=advanced 立即回讀一致；SIGTERM 後重啟（daemon-run2.log 第 1 行印出 WARN reclaiming stale instance lock pid=91850，代表 SIGTERM 未觸發 graceful shutdown，見 observations/productDefects），重啟後 onboarding.completed/completedAt 與 ui/preferences 的 locale/mode 逐欄位比對後與重啟前完全相同，未見資料遺失。",
+      "evidence": [
+        "runs/R5/E0-01-step1.log — 初始 GET /v1/onboarding、GET /v1/status",
+        "runs/R5/E0-01-step2.log — POST /v1/onboarding/preview、POST /v1/onboarding/commit（HTTP_STATUS:200）",
+        "runs/R5/E0-01-step3.log — commit 後 GET /v1/onboarding（completed:true, completedAt:2026-09-07T09:04:09.711925Z）、GET /v1/status（onboardingCompleted:true）、PATCH 前後 GET /v1/ui/preferences",
+        "runs/R5/homeA/daemon-run2.log 第 1 行 — 'WARN ... reclaiming stale instance lock pid=91850'",
+        "runs/R5/E0-11-restart-check.log — 重啟後重讀 onboarding/status/ui-preferences 的原始輸出"
+      ],
+      "observations": [
+        "PATCH 前的 GET /v1/ui/preferences 已顯示 locale=en-US（非 UiPreferences::default() 的 zh-TW），因為 onboarding commit 內的 preferences merge patch 已先套用一次；代表 onboarding commit 與 PATCH /v1/ui/preferences 走同一份 PREFS_META_KEY，兩個入口互不衝突、互相看得到對方寫入",
+        "daemon 以 SIGTERM 結束時不會走 graceful shutdown（interaction-cli/src/commands.rs:1608 只 await tokio::signal::ctrl_c()，即 SIGINT），Rust 對 SIGTERM 的預設處置直接終止程序、不執行 InstanceLock 的 Drop（crates/interaction-runtime/src/lock.rs 內 impl Drop for InstanceLock），因此下次以同一 home 啟動會看到 'reclaiming stale instance lock' WARN；本次測試未觀察到任何資料遺失或損毀，純粹是啟動時多一行 WARN 與一次 stale lock 檔案回收（見下方 productDefects，severity=low）"
+      ],
+      "productDefects": [
+        {
+          "title": "daemon 只處理 SIGINT 的優雅關閉，SIGTERM（一般 `kill`／process manager stop 的預設訊號）會跳過 InstanceLock 清理",
+          "severity": "low",
+          "location": "crates/interaction-cli/src/commands.rs:1608（僅 tokio::signal::ctrl_c()）；crates/interaction-runtime/src/lock.rs 的 impl Drop for InstanceLock（SIGTERM 預設行為不會執行 Drop，Rust 對未捕捉信號不會 unwind）",
+          "repro": "啟動 `interact-ai serve`（任一 INTERACT_AI_HOME）取得其 PID，執行 `kill -TERM <pid>`；程序立即消失、stderr 不會印出 'shutting down…'；以相同 home 再次啟動會印出 'WARN ... reclaiming stale instance lock pid=<old>'",
+          "evidence": [
+            "runs/R5/homeA/daemon-run2.log 第 1 行",
+            "runs/R5/homeB/daemon-run2.log 第 1 行"
+          ],
+          "phase0MinimalFixCandidate": false
+        }
+      ],
+      "limitations": "只驗證 API 層（curl），未驅動實際 Tauri／瀏覽器 UI（本輪任務範圍是『不需要真 agent』的 API 可驗部分，未含 Playwright/claude-in-chrome）；expected.ui 是依 apps/interaction-desktop 原始碼讀出的行為推論，非畫面截圖佐證。preview 端點的『零副作用』只依程式碼保證（preview_onboarding 為純讀路徑），未在 preview 呼叫後、commit 呼叫前額外插入一次 GET /v1/onboarding 來實測 preview 沒有寫入。",
+      "cleanup": "daemon A 於 case 尾聲仍在跑（後續案例延用同一實例），最終於全部案例結束後以 SIGTERM 停止（見全域 cleanup）",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032 (HEAD, branch phase-0/state-recovery-baseline = origin/main)",
+        "binaryIdentity": "interact-ai 0.8.0, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7 (verified via shasum -a 256 during this session; matches supplied identity)",
+        "agent": "none — HTTP API only (no agent session created)",
+        "connectorVersion": "n/a (no agent connector used)",
+        "requestedModel": "n/a (no agent session)",
+        "actualModel": "n/a (no agent session)",
+        "actualModelSource": "n/a (no agent session)",
+        "reasoning": "n/a",
+        "newOrResumed": "n/a (not an agent session)",
+        "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R5/homeA (INTERACT_AI_HOME)",
+        "authorization": "human token, Bearer <homeA>/state/api-token",
+        "durationSeconds": 75,
+        "costOrTokens": "n/a (no LLM usage; pure HTTP API calls)"
+      }
+    },
+    {
+      "id": "E0-11-export",
+      "scenario": "備份匯出：建立涵蓋不同 layer/kind/actor 的 4 筆記憶，驗證 GET /v1/memory/export 的範圍聲明（included/notIncluded/limit/limitReached）與 CLI `memory export` 的一致性；並驗證 human-only 端點對 agent token 的拒絕",
+      "agentOrSurface": "HTTP API (curl) + CLI (interact-ai)",
+      "evidenceLevel": "integration",
+      "precondition": "home A 已完成 onboarding 且 UI 偏好已 PATCH（延續上一案例）；memory store 為空",
+      "steps": [
+        "POST /v1/memory（human token）建立 layer=user-memory, kind=preference",
+        "POST /v1/memory（human token）建立 layer=world-knowledge, kind=fact",
+        "POST /v1/memory（human token）建立 layer=persona-core, kind=fact",
+        "先嘗試用 restricted agent token（state/api-agent-token）直接 POST /v1/memory body含 asAgent，確認被拒",
+        "改用 human token、body.asAgent=\"claude-code\" 建立第 4 筆（layer=user-memory, kind=fact 送入）",
+        "GET /v1/memory/export（human token）存檔",
+        "CLI `interact-ai --config <homeA> --api http://127.0.0.1:19050 memory export` 存檔",
+        "逐欄位比對 API 與 CLI 輸出（除 exportedAt 應完全一致）"
+      ],
+      "expected": {
+        "ui": "BackupSection『匯出記憶』按鈕點擊後畫面顯示『已匯出 4 條記憶（內容已在下方顯示...）』與 included/notIncluded 摘要（包含：記憶項目；不包含：知識節點、素材與衍生物、知識的來源紀錄、角色互動記憶）",
+        "coreState": "memory store 內 4 筆 MemoryItem，其中 1 筆 createdBy.kind=agent",
+        "effect": "export JSON: count=4, total=4, limitReached=false, included=[\"memory-items\"], notIncluded=[\"knowledge-nodes\",\"assets-and-derivatives\",\"knowledge-receipts\",\"character-interaction-memory\"]"
+      },
+      "result": "completed",
+      "actual": "與預期完全一致，另外驗證出一項邊界行為：agent token 直接呼叫 POST /v1/memory 被拒（HTTP 403, code=token_scope_forbidden, 'agent token cannot perform this human/control-center operation'），符合『此為 human-only 端點，agent 要匯入須由人類明確以 asAgent 宣告』的設計意圖。改用 human token + body.asAgent=\"claude-code\" 後成功建立，kind 從送入的 fact 自動降為 inference（interaction-core/src/memory.rs apply_actor_rules），但**未**降為 Candidate——因為 UserMemory 的預設 retention.review_after 剛好等於 30 天降權門檻，apply_actor_rules 計算 review_cap 的時間點比 memory_from_input 套用 default_retention 的時間點晚了數十微秒，導致 earliest_checkpoint(30d 整) 略早於 review_cap(30d+ε)，wants_long_term 判為 false。此為程式碼既有邏輯的正常邊界行為，非缺陷，但值得記錄：若呼叫端明確傳入 retention.reviewAfter 為『30 天後或更晚』的絕對值，就會落在門檻另一側變成 Candidate。API 與 CLI 匯出內容除 exportedAt 外逐欄位相同。",
+      "evidence": [
+        "runs/R5/E0-11-create.log — 4 筆建立的完整 request/response，含第 4 筆用 agent token 被拒的 403 回應與改用 human token+asAgent 成功的 200 回應",
+        "runs/R5/E0-11-export-api.json — GET /v1/memory/export 完整回應（count=4, total=4, included/notIncluded/limit/limitReached/note 逐項）",
+        "runs/R5/E0-11-export-cli.json — `interact-ai memory export` 完整輸出",
+        "runs/R5/E0-11-export-api-vs-cli-diff.log — 逐 key 比對結果：除 exportedAt 外完全相同（diff keys = []）"
+      ],
+      "observations": [
+        "第 4 筆記憶（'Agent 觀察到的習慣'）最終 kind=inference 而非 candidate，是因為 UserMemory 預設 review_after 天數（30 天）與 apply_actor_rules 的降級門檻（now+30天）數值上相等、只差微秒級運算順序，屬於一個對呼叫端幾乎不可預期的邊界；若要穩定觸發 Candidate 降級，需明確傳入超過 30 天的 retention",
+        "memory_export 的 note 欄位在 limitReached=false 時文字為『本檔只含記憶，不含知識節點、素材與衍生物、知識收據與角色互動記憶。』，與 BackupSection.tsx 前端硬編的說明文字語意一致（前端未逐字引用後端 note，是各自維護但語意相符）"
+      ],
+      "productDefects": [],
+      "limitations": "未驗證『達到 1000 筆上限』時 limitReached=true 與 note 文案的路徑（需要 1000+ 筆資料，在磁碟緊張與時限內不划算做，純讀原始碼確認 EXPORT_MAX_ITEMS 邏輯：crates/interaction-runtime/src/memory.rs 的 memory_export，count_memory(None) 與 EXPORT_MAX_ITEMS 比較）",
+      "cleanup": "無額外清理；4 筆記憶保留在 home A 供後續案例（restart-preserve）使用",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032 (HEAD, branch phase-0/state-recovery-baseline = origin/main)",
+        "binaryIdentity": "interact-ai 0.8.0, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7",
+        "agent": "none — HTTP API + CLI only (no agent session created)",
+        "connectorVersion": "n/a (no agent connector used)",
+        "requestedModel": "n/a (no agent session)",
+        "actualModel": "n/a (no agent session)",
+        "actualModelSource": "n/a (no agent session)",
+        "reasoning": "n/a",
+        "newOrResumed": "n/a",
+        "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R5/homeA (INTERACT_AI_HOME)",
+        "authorization": "human token (Bearer <homeA>/state/api-token) for creates 1-3 and the asAgent create; restricted agent token (Bearer <homeA>/state/api-agent-token) for the rejected 403 attempt",
+        "durationSeconds": 32,
+        "costOrTokens": "n/a (no LLM usage)"
+      }
+    },
+    {
+      "id": "E0-11-restart-preserve",
+      "scenario": "daemon 重啟後，onboarding、UI 偏好、記憶（含跨 layer/kind/actor）全部保留，內容逐欄位比對",
+      "agentOrSurface": "HTTP API (curl)",
+      "evidenceLevel": "integration",
+      "precondition": "home A 已完成 onboarding、偏好已 PATCH、4 筆記憶已建立（延續前兩案例的即時狀態）",
+      "steps": [
+        "kill -TERM 對 daemon A PID(91850)",
+        "確認程序消失（ps -p 查無）",
+        "以相同 INTERACT_AI_HOME=<homeA>、相同 port 19050 重新啟動 daemon（新 PID 97247）",
+        "GET /v1/onboarding、GET /v1/status.onboardingCompleted、GET /v1/ui/preferences",
+        "GET /v1/memory/export，逐欄位（排除 status 衍生欄位與 exportedAt）與重啟前的匯出比對"
+      ],
+      "expected": {
+        "ui": "重啟後應用畫面不會回到首次設定精靈；偏好設定頁仍顯示 locale=ja-JP/mode=advanced",
+        "coreState": "onboarding meta、ui_prefs meta、4 筆 MemoryItem 完全保留（storage 是持久化寫入，非記憶體快取）",
+        "effect": "重啟前後 export 的 items（除 status 衍生欄位）逐欄位相同"
+      },
+      "result": "completed",
+      "actual": "完全保留。onboarding.completed=true/completedAt 不變；status.onboardingCompleted=true；ui/preferences locale=ja-JP/mode=advanced 不變；4 筆記憶 export 逐欄位比對（layer/kind/title/content/tags/confidence/provenance/retention/createdAt/updatedAt/createdBy/schemaVersion/memoryId）完全相同，僅 exportedAt（每次查詢重算）與 status（衍生自查詢當下時間，本例仍為 active）在比對時被排除在外。重啟時 daemon-run2.log 印出 WARN reclaiming stale instance lock pid=91850（見 E0-01 案例的 productDefects，同一根因，這裡只是第二次觀察到）。",
+      "evidence": [
+        "runs/R5/E0-11-restart-check.log — 重啟後 GET onboarding/status/ui-preferences 原始輸出，以及 export 逐欄位 diff 的 python 腳本輸出（'all fields identical (excl status/exportedAt): True'）",
+        "runs/R5/E0-11-export-after-restart.json — 重啟後的完整 export 快照",
+        "runs/R5/E0-11-export-api.json — 重啟前的 export 快照（作為比對基準）",
+        "runs/R5/homeA/daemon-run2.log — 重啟時的 stale lock WARN"
+      ],
+      "observations": [
+        "storage 的持久化是逐筆寫入（每次 POST /v1/memory、每次 onboarding/commit、每次 PATCH preferences 都直接落地），而非批次/延遲寫入——這與『長時工作要有界、不濫用記憶體快取』的專案不變量一致，本次重啟驗證支持這個假設"
+      ],
+      "productDefects": [],
+      "limitations": "只驗證單次 SIGTERM+重啟；未測試異常關機（SIGKILL，該案例屬於另一個既有 harness restart_test.py 的範圍，本輪未重跑）對這 3 類資料的影響。",
+      "cleanup": "daemon A（PID 97247）延續給下一案例使用其匯出結果，最終於全域 cleanup 停止",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032 (HEAD, branch phase-0/state-recovery-baseline = origin/main)",
+        "binaryIdentity": "interact-ai 0.8.0, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7",
+        "agent": "none — HTTP API only",
+        "connectorVersion": "n/a",
+        "requestedModel": "n/a (no agent session)",
+        "actualModel": "n/a (no agent session)",
+        "actualModelSource": "n/a (no agent session)",
+        "reasoning": "n/a",
+        "newOrResumed": "n/a",
+        "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R5/homeA (INTERACT_AI_HOME)",
+        "authorization": "human token (Bearer <homeA>/state/api-token)",
+        "durationSeconds": 30,
+        "costOrTokens": "n/a (no LLM usage)"
+      }
+    },
+    {
+      "id": "E0-11-restore-fresh-home",
+      "scenario": "在全新 home（無 onboarding、無記憶）用 A 的匯出檔逐條 POST /v1/memory 還原，模擬 BackupSection.tsx 的 restoreBackup() 邏輯；確認寫入成功、身分與時間被重新賦予（不信任備份檔的身分/時間/狀態），並在還原完成後重啟 home B 驗證持久化",
+      "agentOrSurface": "HTTP API (curl + Python script mirroring BackupSection.tsx's request shape)",
+      "evidenceLevel": "integration",
+      "precondition": "全新 home B（INTERACT_AI_HOME=<out>/homeB, apiPort=19051），daemon 剛啟動；onboarding 未做過；memory store 為空",
+      "steps": [
+        "啟動 home B daemon（apiPort=19051）",
+        "用 Python 腳本（逐條 POST /v1/memory，欄位集合與 BackupSection.tsx restoreBackup() 完全相同：layer/kind/title/content/provenance/confidence/tags/agentVisibility/agentDenylist/retention，不含 asAgent、不含身分/id/時間欄位）把 A 的 4 筆 export 還原進 B",
+        "確認 4 筆都以 200 建立成功，取得新 memoryId",
+        "GET /v1/memory/export（B），與 A 的原始 export 逐欄位比對，記錄哪些欄位被保留、哪些被改寫",
+        "kill -TERM home B daemon、以相同 home/port 重啟",
+        "重啟後再次 GET /v1/memory/export（B），與重啟前的 B export 比對，確認持久化"
+      ],
+      "expected": {
+        "ui": "BackupSection『還原備份』選檔後顯示『已還原 4 條；每一條都重新通過驗證並取得新編號。』",
+        "coreState": "home B 的 memory store 新增 4 筆 MemoryItem，layer/kind/title/content/tags/confidence/agentVisibility/agentDenylist/retention 與來源相同；memoryId 為新值；createdAt/updatedAt 重新蓋章為還原時間；createdBy 一律為 human（因為 restoreBackup() 不讀取／不送出來源的 createdBy 或 asAgent）",
+        "effect": "還原後 GET /v1/memory（B）回傳 4 筆，內容可用來重建 A 的記憶語意（除身分/時間/ID 外）"
+      },
+      "result": "completed",
+      "actual": "4 筆全部還原成功（HTTP 200 x4），逐欄位比對結果：layer/kind/title/content/tags/confidence/agentVisibility/agentDenylist 完全保留；retention 也逐值相同（因為 BackupSection 把來源的 retention 物件原樣送出，後端在 actor=Human 時直接採用送入值，不再套用 default_retention 或 apply_actor_rules 的 30 天降級——包含原本是 agent 建立那筆的 reviewAfter 絕對時間戳也被保留）；memoryId/createdAt/updatedAt 皆被重新賦予（不信任備份檔的身分與時間，符合原始碼註解宣告的設計）；**createdBy 從 A 的 {kind:agent,id:claude-code} 變成 B 的 {kind:human}**——因為 restoreBackup() 完全不傳 asAgent，所以那筆原本『agent 觀察到的習慣、kind=inference』的記憶，還原後 kind 欄位還是 inference（值本身被保留），但 createdBy 卻變成人類——這代表『這筆記憶是 agent 推論而非人類確認』的 kind 標記被保留了，但『是誰建立的』這個出處資訊在還原後遺失並被冒充成人類建立。此行為與原始碼註解『不信任備份中的身分』一致，是刻意設計，非缺陷，但列入 observations 供產品決策參考。重啟 home B 後，export 逐欄位（含新 memoryId、新 createdAt）與重啟前完全相同，持久化正常。",
+      "evidence": [
+        "runs/R5/restore.py — 還原腳本，欄位集合對照 apps/interaction-desktop/src/pages/BackupSection.tsx:72-83 的 api.memoryCreate() 呼叫",
+        "runs/R5/E0-11-restore-fresh.log — 4 筆還原的逐筆結果（source memoryId → new memoryId）",
+        "runs/R5/E0-11-restore-fresh-result.json — 還原腳本完整輸出",
+        "runs/R5/E0-11-export-B-before-restart.json — 還原完成後 B 的 export 快照",
+        "runs/R5/E0-11-restore-fresh-field-diff.log — A 原始 export 與 B 還原後逐欄位比對：Preserved-field mismatches=[]；NOT PRESERVED fields = createdAt/updatedAt/memoryId/createdBy",
+        "runs/R5/E0-11-export-B-after-restart.json — B 重啟後的 export 快照",
+        "runs/R5/homeB/daemon-run2.log — B 重啟時的 stale lock WARN（同一根因，見 E0-01 productDefects）"
+      ],
+      "observations": [
+        "還原後 kind 欄位是逐值照搬（inference 保持 inference），但這個決定是後端 memory_from_input 對 kind 欄位『直接信任輸入』的通用行為——並非 restoreBackup() 特意為 agent 血統記憶做特殊處理；如果來源 export 的 kind 是 fact 而其 createdBy 是 agent（例如尚未觸發過 apply_actor_rules 降級的舊資料格式），還原後會變成『human 建立的 fact』，語意上比『agent 建立的 inference』更強——這是 BackupSection 現有還原邏輯下，唯一會讓資料『可信度語意在還原後被抬高』的組合，值得留意但本次測試用的資料未落在這個組合（我方建立的第 4 筆在 A 端已經是 kind=inference，不是 fact）",
+        "retention 的絕對時間戳被原樣保留（不像新建立時會相對於『現在』重新計算），代表還原操作雖然重蓋 createdAt/updatedAt，卻不會連動重算 retention——如果來源記憶的 reviewAfter 已經在過去（例如備份檔很舊才拿來還原），還原後會立刻是『需要複查』或甚至『已過期』狀態，這點原始碼註解與行為一致（『匯出結果一定呈現在畫面上』『過期項仍可匯出、附衍生 status』），非缺陷"
+      ],
+      "productDefects": [],
+      "limitations": "未驗證 export 檔案超過 MAX_BACKUP_BYTES(5MiB)/MAX_BACKUP_ITEMS(1000) 時前端的拒絕路徑（純屬前端 File.size 檢查與 items.length 檢查，未呼叫後端，本次未用真瀏覽器驅動 BackupSection 元件本身，只驗證了它呼叫的 API 契約）。",
+      "cleanup": "home B daemon（第二個實例，PID 1077）延續給下一案例（restore-bad-item）使用，最終於全域 cleanup 停止",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032 (HEAD, branch phase-0/state-recovery-baseline = origin/main)",
+        "binaryIdentity": "interact-ai 0.8.0, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7",
+        "agent": "none — HTTP API only (restore script is a plain Python urllib client, not an agent)",
+        "connectorVersion": "n/a",
+        "requestedModel": "n/a (no agent session)",
+        "actualModel": "n/a (no agent session)",
+        "actualModelSource": "n/a (no agent session)",
+        "reasoning": "n/a",
+        "newOrResumed": "n/a",
+        "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R5/homeB (INTERACT_AI_HOME)",
+        "authorization": "human token (Bearer <homeB>/state/api-token)",
+        "durationSeconds": 50,
+        "costOrTokens": "n/a (no LLM usage)"
+      }
+    },
+    {
+      "id": "E0-11-restore-bad-item",
+      "scenario": "邊界：還原一份混有壞資料（缺 title）的備份，驗證後端對該筆回 400，且 BackupSection.tsx 的 for-loop 語意（遇到第一個錯誤就 throw、中止整個還原、但迴圈裡『已成功寫入的』那幾筆保留在 store 裡）",
+      "agentOrSurface": "HTTP API (curl + Python script mirroring BackupSection.tsx's sequential for-await-of restore loop)",
+      "evidenceLevel": "integration",
+      "precondition": "home B 已有 4 筆記憶（延續上一案例的還原結果）",
+      "steps": [
+        "組一份含 4 筆的假備份：item[0]=好資料（稱呼偏好）、item[1]=好資料（時區設定）、item[2]=壞資料（複製自 A 的 agent 記憶但刪掉 title 欄位）、item[3]=好資料（喜歡的通知時段）",
+        "確認還原前 B 的記憶筆數為 4",
+        "跑還原腳本（逐條 POST /v1/memory，在第一個錯誤處 break，模擬 BackupSection.tsx 的 for-await-of + throw）",
+        "確認 item[0]、item[1] 回 200 成功；item[2] 回 400；item[3] 因迴圈已中止而完全未被呼叫",
+        "GET /v1/memory（B）確認筆數變成 4+2=6，且沒有第 4 筆（喜歡的通知時段）的第二個副本"
+      ],
+      "expected": {
+        "ui": "BackupSection 顯示『還原失敗：Error: 第 3 條...；已成功寫入的 2 條會保留，請依訊息檢查備份。』",
+        "coreState": "store 裡新增 2 筆（item[0]、item[1]的還原結果），item[2]不存在，item[3]完全未被送出（restoreBackup 的 for 迴圈在 throw 後不會繼續跑後面的項目）",
+        "effect": "GET /v1/memory 筆數 = 還原前 4 + 新增 2 = 6"
+      },
+      "result": "correctly-blocked",
+      "actual": "與預期完全一致。item[0]/item[1] 200 成功；item[2]（無 title）回 HTTP 400 {\"error\":{\"code\":\"validation_failed\",\"message\":\"validation failed: title 必須為 1..120 字\"}}；item[3] 因為 Python 腳本模擬的迴圈在第一個錯誤處 break（對應 BackupSection.tsx 的 for-await-of 在 throw 後跳出整個 async 函式），完全未被送出。還原後 GET /v1/memory 確認筆數為 6（原 4 筆 + 新增的 item[0]/item[1] 各一筆新 id），未見 item[3]（喜歡的通知時段）的第二份拷貝，也未見任何名為空字串或帶壞資料的記憶。",
+      "evidence": [
+        "runs/R5/E0-11-bad-backup.json — 組出的混合備份（4 筆，第 3 筆缺 title）",
+        "runs/R5/E0-11-restore-bad-item.log — 逐筆結果：item 0/1 OK、item 2 ERROR 400 validation_failed，並顯示 restored_count=2",
+        "runs/R5/E0-11-restore-bad-item-result.json — 還原腳本完整輸出（errors 陣列含完整 400 body）",
+        "終端輸出：還原後 GET /v1/memory?limit=200 列出 6 筆（含 memoryId 與 title），可見兩份『時區設定』『稱呼偏好』（分屬前一案例與本案例各還原一次）與一份原始『喜歡的通知時段』，無壞資料混入"
+      ],
+      "observations": [
+        "後端的驗證訊息（'title 必須為 1..120 字'）是 human-readable 中文，與 BackupSection.tsx 的 catch 區塊 `還原失敗：${e}` 直接串接會呈現一段中英夾雜但可讀的錯誤（因為 error 訊息本身已含來源錯誤），沒有二次翻譯或吞掉細節",
+        "這個測試同時佐證了 memory_from_input 對缺 title 的處理：input.get(\"title\")...unwrap_or(\"\") 讓標題留空不會在解析階段就出錯，而是延後到 memory_create() 內的 validate_memory_item() 檢查——也就是說『空字串』與『欄位完全缺失』在這條路徑上是同一種結果（都變成空字串再被 validate 擋下），行為一致、沒有繞過空隙"
+      ],
+      "productDefects": [],
+      "limitations": "沒有測試『備份檔案本身損毀成不是合法 JSON』或『items 不是陣列』等更早期的前端側防呆（file.text() 解析失敗、items 型別檢查），這些是純前端邏輯，不經過後端 API，本次只驗證後端 400 的邊界；也沒有測試同一份備份中『第一筆就壞』（restored=0）的極端情形，只測了『中間壞』。",
+      "cleanup": "home B daemon（PID 1077）於全域 cleanup 停止",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032 (HEAD, branch phase-0/state-recovery-baseline = origin/main)",
+        "binaryIdentity": "interact-ai 0.8.0, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7",
+        "agent": "none — HTTP API only",
+        "connectorVersion": "n/a",
+        "requestedModel": "n/a (no agent session)",
+        "actualModel": "n/a (no agent session)",
+        "actualModelSource": "n/a (no agent session)",
+        "reasoning": "n/a",
+        "newOrResumed": "n/a",
+        "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R5/homeB (INTERACT_AI_HOME)",
+        "authorization": "human token (Bearer <homeB>/state/api-token)",
+        "durationSeconds": 20,
+        "costOrTokens": "n/a (no LLM usage)"
+      }
+    },
+    {
+      "id": "E0-11-scope-not-included",
+      "scenario": "記錄『備份不包含』的項目範圍——這是產品刻意的功能邊界（誠實聲明），不是失敗，來源同時取自後端 export 回應的 included/notIncluded 欄位與前端/後端原始碼的說明文字",
+      "agentOrSurface": "static inspection (source read) cross-checked against a real GET /v1/memory/export response",
+      "evidenceLevel": "integration",
+      "precondition": "home A 的 GET /v1/memory/export 真實回應（來自 E0-11-export 案例）",
+      "steps": [
+        "讀 apps/interaction-desktop/src/pages/BackupSection.tsx:24-31（SCOPE_LABEL 對照表）與 :96-103（畫面上的說明文字）",
+        "讀 crates/interaction-runtime/src/memory.rs 的 memory_export()：included/notIncluded/limit/note 的建構邏輯與硬編字串",
+        "與真實 export API 回應（runs/R5/E0-11-export-api.json）逐項核對 included/notIncluded 陣列內容"
+      ],
+      "expected": {
+        "ui": "BackupSection 的匯出結果卡片會列『包含：記憶項目』與『不包含：知識節點、素材與衍生物、知識的來源紀錄、角色互動記憶』",
+        "coreState": "後端 memory_export() 回應固定帶 included=[\"memory-items\"], notIncluded=[\"knowledge-nodes\",\"assets-and-derivatives\",\"knowledge-receipts\",\"character-interaction-memory\"]",
+        "effect": "使用者讀到匯出範圍聲明後，能正確理解『備份』只涵蓋記憶分層資料，不含知識圖譜、素材檔案本體、角色互動記憶"
+      },
+      "result": "completed",
+      "actual": "後端原始碼與真實 API 回應完全一致：included=[\"memory-items\"]；notIncluded=[\"knowledge-nodes\",\"assets-and-derivatives\",\"knowledge-receipts\",\"character-interaction-memory\"]。前端 SCOPE_LABEL 對照表把這 5 個鍵分別轉成人話（記憶項目／知識節點／素材與衍生物／知識的來源紀錄／角色互動記憶），且『認不得的鍵照原樣顯示，不吞掉』（scopeLabels() 的 fallback ?? key）。這是產品明確聲明的功能範圍缺口（不是本次測試發現的缺陷）：完整的知識圖譜（含素材原始檔、知識收據／來源鏈）與角色跟人類相處累積的『角色互動記憶』都不在這份『備份與還原』功能的範圍內，且沒有其他匯出管道可以拿到它們——換言之，使用者目前沒有辦法用這個功能做到『換機或重灌後完整復原』，只能復原記憶分層資料。",
+      "evidence": [
+        "apps/interaction-desktop/src/pages/BackupSection.tsx:24-31 (SCOPE_LABEL), :96-103 (畫面說明文字), :167-180 (ExportScope 元件如何呈現 included/notIncluded)",
+        "crates/interaction-runtime/src/memory.rs 的 memory_export() 函式（含中文函式註解，明確寫『誠實範圍：這裡只有記憶...不含知識節點、素材與衍生物、知識收據、角色互動記憶』）",
+        "runs/R5/E0-11-export-api.json 的 included/notIncluded/scope/note 欄位——與原始碼聲明逐字對應"
+      ],
+      "observations": [
+        "這是專案 CLAUDE.md 誠實階梯不變量在程式碼層級的具體實踐案例：後端與前端都刻意把『匯出範圍不完整』說清楚，而不是用『已完整備份』這種會誤導使用者的措辭——本次驗證只是確認『說了』與『做了』一致，沒有發現說一套做一套的落差",
+        "如果之後要補上『完整備份』（含知識圖譜、素材、角色互動記憶）的功能，目前程式碼結構已經預留了 notIncluded 陣列與 SCOPE_LABEL 對照表的擴充空間（後端新增一個 scope key、前端 SCOPE_LABEL 加一筆對照即可呈現，未知的 key 也不會被吞掉）——這是觀察不是要求"
+      ],
+      "productDefects": [],
+      "limitations": "『沒有其他匯出管道』這個結論是根據 CLAUDE.md 的路由表與本次讀到的原始碼範圍推論，未窮舉搜尋整個 routes.rs 是否存在其他匯出端點（例如 /v1/knowledge 或 /v1/assets 底下是否有類似 export 的路由）；本案純粹是範圍聲明的核對，不是完整的 API 清單稽核。",
+      "cleanup": "無（純讀取，無副作用）",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032 (HEAD, branch phase-0/state-recovery-baseline = origin/main)",
+        "binaryIdentity": "interact-ai 0.8.0, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7",
+        "agent": "none — source read + reuse of E0-11-export's real API response",
+        "connectorVersion": "n/a",
+        "requestedModel": "n/a (no agent session)",
+        "actualModel": "n/a (no agent session)",
+        "actualModelSource": "n/a (no agent session)",
+        "reasoning": "n/a",
+        "newOrResumed": "n/a",
+        "workdir": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+        "authorization": "n/a (local file read only)",
+        "durationSeconds": 10,
+        "costOrTokens": "n/a"
+      }
+    }
+  ],
+  "commands": [
+    {
+      "name": "start-daemon-A",
+      "cmd": "INTERACT_AI_HOME=<out>/homeA INTERACT_AI_MOBILE_ADVERTISE=0 /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai serve",
+      "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R5",
+      "start": "2026-09-07T09:03:58Z",
+      "end": "2026-09-07T09:04:00Z",
+      "seconds": 2,
+      "exit": 0,
+      "stdout": "interact-ai daemon listening on http://127.0.0.1:19050 (see homeA/daemon.log)",
+      "stderr": ""
+    },
+    {
+      "name": "onboarding-preview-commit",
+      "cmd": "curl -X POST .../v1/onboarding/preview ; curl -X POST .../v1/onboarding/commit",
+      "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R5",
+      "start": "2026-09-07T09:04:09Z",
+      "end": "2026-09-07T09:04:09Z",
+      "seconds": 0,
+      "exit": 0,
+      "stdout": "commit response: {\"applied\":[...],\"completed\":true}; HTTP_STATUS:200",
+      "stderr": ""
+    },
+    {
+      "name": "ui-preferences-patch",
+      "cmd": "curl -X PATCH .../v1/ui/preferences -d '{\"locale\":\"ja-JP\",\"mode\":\"advanced\"}'",
+      "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R5",
+      "start": "2026-09-07T09:04:1x",
+      "end": "2026-09-07T09:04:1x",
+      "seconds": 0,
+      "exit": 0,
+      "stdout": "HTTP_STATUS:200; locale/mode updated",
+      "stderr": ""
+    },
+    {
+      "name": "create-4-memories",
+      "cmd": "curl -X POST .../v1/memory (x4, last one with human token + asAgent field after a rejected agent-token attempt)",
+      "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R5",
+      "start": "2026-09-07T09:04:27Z",
+      "end": "2026-09-07T09:04:35Z",
+      "seconds": 8,
+      "exit": 0,
+      "stdout": "3x HTTP:200, 1x HTTP:403 (agent token rejected), 1x HTTP:200 (human token + asAgent)",
+      "stderr": ""
+    },
+    {
+      "name": "export-api-and-cli",
+      "cmd": "curl .../v1/memory/export ; /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai --config <homeA> --api http://127.0.0.1:19050 memory export",
+      "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R5",
+      "start": "2026-09-07T09:04:54Z",
+      "end": "2026-09-07T09:04:59Z",
+      "seconds": 5,
+      "exit": 0,
+      "stdout": "both count=4; diff (excl exportedAt) empty",
+      "stderr": ""
+    },
+    {
+      "name": "restart-daemon-A-sigterm",
+      "cmd": "kill -TERM $(cat homeA.pid) ; sleep 1 ; INTERACT_AI_HOME=<out>/homeA INTERACT_AI_MOBILE_ADVERTISE=0 /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai serve",
+      "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R5",
+      "start": "2026-09-07T09:05:04Z",
+      "end": "2026-09-07T09:05:11Z",
+      "seconds": 7,
+      "exit": 0,
+      "stdout": "old pid gone; new pid 97247 listening; WARN reclaiming stale instance lock pid=91850",
+      "stderr": ""
+    },
+    {
+      "name": "start-daemon-B",
+      "cmd": "INTERACT_AI_HOME=<out>/homeB INTERACT_AI_MOBILE_ADVERTISE=0 /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai serve",
+      "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R5",
+      "start": "2026-09-07T09:05:3xZ",
+      "end": "2026-09-07T09:05:3xZ",
+      "seconds": 2,
+      "exit": 0,
+      "stdout": "interact-ai daemon listening on http://127.0.0.1:19051",
+      "stderr": ""
+    },
+    {
+      "name": "restore-fresh-home-B",
+      "cmd": "python3 restore.py E0-11-export-api.json http://127.0.0.1:19051 <homeB-token> E0-11-restore-fresh.log",
+      "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R5",
+      "start": "2026-09-07T09:05:41Z",
+      "end": "2026-09-07T09:05:41Z",
+      "seconds": 1,
+      "exit": 0,
+      "stdout": "restored_count=4; errors=[]",
+      "stderr": ""
+    },
+    {
+      "name": "restart-daemon-B-sigterm",
+      "cmd": "kill -TERM $(cat homeB.pid) ; sleep 1 ; INTERACT_AI_HOME=<out>/homeB INTERACT_AI_MOBILE_ADVERTISE=0 /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai serve",
+      "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R5",
+      "start": "2026-09-07T09:06:10Z",
+      "end": "2026-09-07T09:06:14Z",
+      "seconds": 4,
+      "exit": 0,
+      "stdout": "old pid gone; new pid 1077 listening; WARN reclaiming stale instance lock pid=98398",
+      "stderr": ""
+    },
+    {
+      "name": "restore-bad-item-B",
+      "cmd": "python3 restore.py E0-11-bad-backup.json http://127.0.0.1:19051 <homeB-token> E0-11-restore-bad-item.log",
+      "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R5",
+      "start": "2026-09-07T09:06:2xZ",
+      "end": "2026-09-07T09:06:2xZ",
+      "seconds": 1,
+      "exit": 0,
+      "stdout": "restored_count=2; item 2 error 400 validation_failed",
+      "stderr": ""
+    },
+    {
+      "name": "cleanup-both-daemons",
+      "cmd": "kill -TERM $(cat homeA.pid) ; kill -TERM $(cat homeB.pid)",
+      "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R5",
+      "start": "2026-09-07T09:07:04Z",
+      "end": "2026-09-07T09:07:05Z",
+      "seconds": 1,
+      "exit": 0,
+      "stdout": "both PIDs (97247, 1077) confirmed gone via ps -p; ports 19050/19051 confirmed free via lsof",
+      "stderr": ""
+    }
+  ],
+  "openQuestions": [
+    "SIGTERM 不走 graceful shutdown（跳過 InstanceLock 的 Drop）是否為刻意設計（例如預期只靠 systemd/launchd 用 SIGKILL 或使用者用 Ctrl-C）？若否，建議在 tokio::select! 裡同時等待 SIGINT 與 SIGTERM（unix signal handler）。本輪只記錄現象與 file:line，未讀 issue tracker 或 CHANGELOG 確認是否已知。",
+    "『Agent 觀察到的習慣』那筆記憶在還原到全新 home 後，createdBy 從 agent 變成 human、但 kind 欄位保留 inference——這個『部分保留語意、部分抹除出處』的組合是否是產品要的行為？還是應該在還原時也把『這筆原本是 agent 建立』的事實一併保留（例如新增一個不影響信任降權的『originalActor』欄位）？未在 code/CHANGELOG 找到明確決策記錄，列為待決策問題而非缺陷。",
+    "E0-11 的『達到 1000 筆匯出上限』路徑（limitReached=true）本輪未實測（見 E0-11-export 案例 limitations），若之後要驗，需要準備 1000+ 筆記憶且要留意本機磁碟只剩 12GB 的限制。"
+  ],
+  "notes": "本輪任務範圍明確排除真 agent（不需要 claude-code/codex session），全部 6 個 case 都用真實 daemon binary（sha256 已核對）+ 真實 HTTP API + 真實 CLI 完成，沒有 mock、沒有改動任何 repo 檔案、沒有 cargo/pnpm build。E0-01 只做了『API 可驗部分』（onboarding preview/commit、狀態翻轉、UI 偏好 PATCH/GET、重啟保留），未涵蓋 E0-01 完整規格裡需要真瀏覽器驅動首次設定精靈 UI 的部分（不在本輪指派範圍內）。過程中發現一個可重現、有 file:line 佐證的低嚴重度產品限制（daemon 對 SIGTERM 的優雅關閉缺口），已完整記錄在 E0-01 案例的 productDefects；其餘觀察到的『欄位在還原時不保留』行為，經核對原始碼註解確認為刻意設計（不信任備份中的身分/時間/狀態），未列為缺陷。全部證據檔案位於 runs/R5/ 下（本檔同目錄）；兩個 daemon 已在收尾前確認以 SIGTERM 停止、PID 消失、對應埠已釋放，未使用 pkill -f，也未觸碰其他 agent 正在使用的 daemon（已用 lsof 交叉核對埠 19043/19060/18790/19020 屬於其他程序）。"
+}

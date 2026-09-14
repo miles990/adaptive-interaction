@@ -1,0 +1,10 @@
+{"op":"status","micLevel":true,"permissions":{"microphone":"granted","location":"denied","bluetooth":"notDetermined"}}
+{"op":"ack-stop-all"}
+{"op":"aip-capability"}
+{"op":"aip-touch","kind":"tap","messageId":"e2e-touch-1"}
+{"op":"disconnect"}
+{"op":"reconnect"}
+{"op":"aip-capability"}
+{"op":"aip-resume","lastRevision":4,"lastSequence":0,"epoch":1}
+{"op":"reconnect"}
+{"op":"quit"}

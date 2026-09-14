@@ -1,0 +1,4 @@
+interact-ai daemon listening on http://127.0.0.1:19031
+human token file: ./codex-followup/home/state/api-token
+restricted agent token file: ./codex-followup/home/state/api-agent-token
+press Ctrl-C to stop

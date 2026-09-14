@@ -1,0 +1,16 @@
+note: bundled ctags is x86_64-only and Rosetta is absent — using tools/ctags-shim (Universal Ctags)
+/Users/user/Documents/Arduino/libraries/ESP32Servo/src/ESP32Servo.cpp:58:20: warning: 'TAG' defined but not used [-Wunused-variable]
+   58 | static const char* TAG = "ESP32Servo";
+      |                    ^~~
+/Users/user/Documents/Arduino/libraries/ESP32Servo/src/ESP32PWM.cpp: In member function 'double ESP32PWM::setup(double, uint8_t)':
+/Users/user/Documents/Arduino/libraries/ESP32Servo/src/ESP32PWM.cpp:283:32: warning: unused variable 'val' [-Wunused-variable]
+  283 |                         double val = ledcAttachChannel(getPin(), freq, resolution_bits, getChannel());
+      |                                ^~~
+/Users/user/Documents/Arduino/libraries/ESP32Servo/src/ESP32PWM.cpp: In member function 'void ESP32PWM::attachPin(uint8_t, double, uint8_t)':
+/Users/user/Documents/Arduino/libraries/ESP32Servo/src/ESP32PWM.cpp:529:21: warning: unused variable 'ret' [-Wunused-variable]
+  529 |                 int ret=setup(freq, resolution_bits);
+      |                     ^~~
+/Users/user/Documents/Arduino/libraries/ESP32Servo/src/ESP32PWM.cpp: At global scope:
+/Users/user/Documents/Arduino/libraries/ESP32Servo/src/ESP32PWM.cpp:22:20: warning: 'TAG' defined but not used [-Wunused-variable]
+   22 | static const char* TAG = "ESP32PWM";
+      |                    ^~~

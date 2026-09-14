@@ -1,5 +1,7 @@
 # v0.5 Capability Gap Matrix（產品重定位基線）
 
+> 現況以 [階段 0 能力恢復矩陣](releases/phase-0-capability-recovery-matrix.md) 為準；本檔保留為 v0.5 當時的歷史紀錄。
+
 > 本輪目標:把產品主體拉回三核心 —— **角色生命感與遊戲互動 > 真實硬體閉環 > AI Agent 工作與對話閉環**。
 > 本文件是 Phase 0 的誠實基線:不沿用 v0.4「25/25 complete」的完成度敘述;
 > 那份矩陣衡量的是治理平台的完成度,不是角色遊戲性與真實硬體的完成度。

@@ -1,0 +1,152 @@
+
+> interaction-desktop@0.8.0 test /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop
+> vitest run
+
+
+ RUN  v2.1.9 /Users/user/Workspace/claude-lab/adaptive-interaction/apps/interaction-desktop
+
+ ✓ src/test/statusProjection-session.test.ts (48 tests) 33ms
+ ✓ src/test/character-gateway.test.ts (45 tests) 73ms
+ ✓ src/test/character-protocol.test.ts (43 tests) 28ms
+ ✓ src/test/companion-imported-characters.test.ts (25 tests) 30ms
+ ✓ src/test/regressions-run2-companion.test.ts (65 tests) 461ms
+ ✓ src/test/regressions-phase7.test.ts (54 tests) 200ms
+ ✓ src/test/character-sync-card.test.tsx (34 tests) 1033ms
+ ✓ src/test/companion-gateway-wiring.test.ts (37 tests) 33ms
+ ✓ src/test/character-shu-adapter.test.ts (55 tests) 80ms
+ ✓ src/test/regressions-v05.test.tsx (38 tests) 1953ms
+   ✓ 一般模式不外洩治理術語 > Agent 訊息以人話標題與摘要呈現，原始 JSON 只在進階模式的技術詳情 349ms
+ ✓ src/test/onboarding.test.tsx (27 tests) 4638ms
+   ✓ Onboarding (3 步) > 打開「進一步自訂」勾安靜時段後，commit 只寫 quietHours（沒有頻率上限與核准門檻） 407ms
+   ✓ Onboarding (3 步) > commit 失敗誠實顯示錯誤，不宣稱完成 349ms
+ ✓ src/test/regressions-v05-round3.test.tsx (30 tests) 2039ms
+   ✓ 通知中心：pendingCount 與本頁不一致時照實說「還有 N 項不在這一頁」 > pendingCount:3、本頁 20 筆都不需決定 → 不得說「目前沒有待決定事項」 347ms
+ ✓ src/test/rig.test.ts (38 tests) 272ms
+ ✓ src/test/connectPage.test.tsx (52 tests) 5351ms
+   ✓ 連接與權限：第一層五區（裝置優先） > 五區依規格順序出現，標題就是規格的字 640ms
+   ✓ 連接與權限：第一層五區（裝置優先） > 移除此手機：要二次確認，確認後真的撤銷並重新讀取清單；失敗說配對狀態未變 492ms
+   ✓ 連接與權限：第一層五區（裝置優先） > 深連結帶著 deviceId：配對區把那一台的卡片標出來（其他卡片不標） 316ms
+   ✓ 連接與權限：第一層五區（裝置優先） > 第二層「全部能力與裝置」仍可達：既有分類分頁都在，管理按鈕會切到對應分類 320ms
+ ✓ src/test/workPage.test.tsx (22 tests) 3745ms
+   ✓ 交代一件工作（task-first 第一屏） > 以角色名稱提問、可加入資料夾、有「開始」；空白時不能開始 673ms
+   ✓ 交代一件工作（task-first 第一屏） > 開始前預覽只回答三件事；其餘（Agent／工具／沙箱／上限／取消／原始授權範圍）收進「查看技術細節」 309ms
+   ✓ 交代一件工作（task-first 第一屏） > 「開始」走既有 agentSessionCreate 路徑，再把內容送給 Agent，只宣稱已送達 458ms
+   ✓ 交代一件工作（task-first 第一屏） > 寫入要有資料夾＋第二次確認（確認文字印出完整路徑）；換路徑就作廢，payload 才帶精確的 scope 546ms
+   ✓ 交代一件工作（task-first 第一屏） > 送出結果依後端證據分四種：已送達／尚未送達／Agent 不可用／傳送失敗 587ms
+ ✓ src/test/homePage.test.tsx (33 tests) 2314ms
+   ✓ 「現在」第一屏只回答三件事 > 角色怎麼樣／正在做什麼／有什麼需要處理，狀態標籤走投影 363ms
+   ✓ 快速操作 > 交代一件事：描述先放進 sessionStorage（work.prefill），再前往工作頁 334ms
+ ✓ src/test/character-adapters.test.ts (18 tests) 36ms
+ ✓ src/test/regressions-review2-companion.test.ts (51 tests) 3316ms
+   ✓ rig-renderer-056：表情的 enter 中途換姿勢時，crossfade 不放手 > 全表情對掃描：任何一對之間都 < 6px（舊實作最差 14.14px） 2717ms
+ ✓ src/test/regressions-v04.test.tsx (33 tests) 2240ms
+   ✓ 備份與還原（BackupSection） > 匯出結果真的呈現在畫面上（不是只寫 console） 309ms
+   ✓ AiPage 限權寫入工作階段 > 必須有明確目錄與第二次確認，並傳送精確 scope 388ms
+ ✓ src/test/characterPage.test.tsx (25 tests) 6892ms
+   ✓ 角色頁：更換或加入角色 > N4 review：備份已寫入但套用回應失敗時，不宣稱設定未變更 675ms
+   ✓ 角色頁：更換或加入角色 > N5 模擬 host：移除使用中的新文字包後保存 fallback，重掛頁面保留其他角色偏好 890ms
+   ✓ 角色頁：更換或加入角色 > 進階模式：外部／可執行程式／需要網路旗標與執行位置欄位才出現（一句人話提示改由旗標取代） 366ms
+   ✓ 角色頁：更換或加入角色 > 停用 → 純文字角色；選用 → prefs.companionPack ＋ companionApplyPrefs 405ms
+   ✓ 角色頁：更換或加入角色 > 停用／選用失敗：只顯示誠實錯誤，不得出現「已停用目前角色」「已改用」成功文案 389ms
+   ✓ 角色頁：更換或加入角色 > 先成功再失敗：失敗時清掉上一次的成功文案，只留錯誤 443ms
+   ✓ 角色頁：更換或加入角色 > 移除只給匯入角色；確認後呼叫 characterRemove 418ms
+   ✓ 角色頁：更換或加入角色 > 匯入（進階模式）：本機驗證錯誤與 host 錯誤都顯示，且不回顯路徑 352ms
+   ✓ 角色頁：互動記憶可以忘記（memory-ui-002） > 「小樞記得」列出摘要；按「忘記這些」以空記憶寫回偏好，摘要清空 316ms
+   ✓ 角色頁：目前角色與陪伴設定 > 小樞：能力摘要來自 manifest、36 表情預覽只給 shu-rig、一般模式沒有技術字眼 321ms
+   ✓ 角色頁：目前角色與陪伴設定 > 非小樞角色：由 preferencesSchema 產生 bounded 表單、文字範例，且沒有 rig 字眼 653ms
+ ✓ src/test/regressions-review3-rig.test.ts (25 tests) 219ms
+ ✓ src/test/characterPage-first-screen.test.tsx (23 tests) 4842ms
+   ✓ 角色頁：首屏只回答三件事 > 首屏依序是目前角色／陪伴方式／同步，其餘一律預設收合 453ms
+   ✓ 角色頁：首屏只回答三件事 > 首屏的可互動控制項收斂到個位數（收合前 40 個） 329ms
+   ✓ 角色頁：陪伴方式摘要與預設 > 兩段寫入都在忙碌鎖內：後端那一段還沒回來時，檔位按鈕不得再按 311ms
+   ✓ 角色頁：陪伴方式摘要與預設 > 較舊的讀取回應不得覆蓋剛套用的檔位（世代計數器） 311ms
+   ✓ 角色頁：安靜與勿擾列出實際受影響的項目 > 桌寵設的本機安靜期唯讀顯示，並可以在這裡取消（只清 prefs 欄位） 419ms
+   ✓ 角色頁：安靜與勿擾列出實際受影響的項目 > 安靜時段編輯保留在安靜區，且仍送出明確的靜音清單（不含桌面角色） 383ms
+   ✓ 角色頁：角色庫預設只顯示使用中＋最近／常用 > 預設 4 張卡；按「顯示全部角色」才列出其餘 454ms
+ ✓ src/test/statusProjection.test.tsx (31 tests) 1153ms
+   ✓ AiPage 工作階段卡片用投影 > claimed-completed 顯示 spec 文案並保留人工驗證按鈕 408ms
+ ✓ src/test/character-manifests.test.ts (12 tests) 32ms
+ ✓ src/test/regressions-v05-round2.test.tsx (17 tests) 1304ms
+   ✓ Approval 裁決在 AiPage 上看得見 > 尚未裁決：核可／拒絕按鈕在 514ms
+   ✓ Global Search 一般模式說人話 > 記憶分層／知識狀態／收據狀態全部走人話對照，不外洩原始 id 374ms
+ ✓ src/test/deep-links.test.tsx (40 tests) 315ms
+ ✓ src/test/regressions-review2-ia.test.tsx (15 tests) 1419ms
+   ✓ ia-settings-012 緊急停止「前往解除」在安全頁上仍然有作用 > 已在安全頁、又把頁內分頁切到「裝置與能力」時，再按一次仍會回到解除流程 689ms
+ ✓ src/test/hitRegions.test.ts (35 tests) 31ms
+ ✓ src/test/adapter-contract.test.ts (33 tests) 131ms
+ ✓ src/test/playfield.test.ts (19 tests) 16ms
+ ✓ src/test/regressions-review2-memory.test.tsx (19 tests) 934ms
+   ✓ memory-ui-002：Context Bundle 被份量上限截斷時不得說「擋下來的：沒有」 > 一般模式預覽：後端回 overCapacity 時畫面明說這份不完整 323ms
+ ✓ src/test/characterName.test.tsx (23 tests) 156ms
+ ✓ src/test/regressions-v06-round2-desktop.test.ts (13 tests) 49ms
+ ✓ src/test/unresolvedStops.test.tsx (17 tests) 527ms
+ ✓ src/test/architecture-no-entrypoint-switch.test.ts (17 tests) 53ms
+ ✓ src/test/regressions-review3-companion.test.tsx (16 tests) 50ms
+ ✓ src/test/companion.test.ts (22 tests) 8ms
+ ✓ src/test/stage.test.ts (14 tests) 131ms
+ ✓ src/test/general-mode-metrics.test.tsx (15 tests) 3ms
+ ✓ src/test/general-mode-no-technical-terms.test.tsx (9 tests) 324ms
+ ✓ src/test/companion-preset-recovery.test.tsx (16 tests) 3368ms
+   ✓ Tauri use case 的狀態投影 > 只送預設ID、唯一operation ID及已讀取的偏好版本；React不再寫兩份store 755ms
+   ✓ Tauri use case 的狀態投影 > 第二段失敗顯示半套用與有效值，不高亮；補送交同一host use case 373ms
+ ✓ src/test/overlay.test.tsx (15 tests) 217ms
+ ✓ src/test/regressions-review3-memory.test.tsx (10 tests) 831ms
+   ✓ memory-ui-001：一般模式記憶清單被截斷時，不得對空分類說謊 > 截斷且該分類在這一頁沒有記憶：不能顯示裸的「這個分類目前沒有記憶。」，要有截斷提示與總數 332ms
+ ✓ src/test/regressions-review3-ia.test.tsx (8 tests) 431ms
+ ✓ src/test/delivery.test.ts (16 tests) 5ms
+ ✓ src/test/character-ref-shape.test.ts (9 tests) 104ms
+ ✓ src/test/regressions-v06-general-mode.test.tsx (10 tests) 100ms
+ ✓ src/test/personality.test.ts (11 tests) 17ms
+ ✓ src/test/pendingCountExact.test.tsx (19 tests) 119ms
+ ✓ src/test/gameFeel.test.ts (17 tests) 6ms
+ ✓ src/test/firstSuccess.test.tsx (10 tests) 596ms
+   ✓ 首次成功體驗 > 標題用角色名，五個選項齊全，而且不是精靈的一步（沒有設定進度列） 322ms
+ ✓ src/test/deviceCard.test.ts (16 tests) 5ms
+ ✓ src/test/apply-preset-plan.test.ts (13 tests) 4ms
+ ✓ src/test/sensorStop.test.ts (22 tests) 8ms
+ ✓ src/test/companion-preset-a11y.test.tsx (9 tests) 297ms
+ ✓ src/test/aiPageResume.test.tsx (11 tests) 1136ms
+   ✓ agent-honesty-022：接續上次（唯讀）不得放寬範圍 > 送出的內容帶著上次的資料夾、時間與費用上限，且修改權限為關 376ms
+ ✓ src/test/providerLadder.test.ts (16 tests) 18ms
+ ✓ src/test/packs.test.ts (9 tests) 3ms
+ ✓ src/test/behavior.test.ts (11 tests) 27ms
+ ✓ src/test/regressions-review3-mobile.test.tsx (7 tests) 421ms
+ ✓ src/test/companion-presets.test.ts (9 tests) 6ms
+ ✓ src/test/compat-routes.test.tsx (5 tests) 259ms
+ ✓ src/test/workPicker.test.tsx (5 tests) 559ms
+ ✓ src/test/agent-intent.test.ts (10 tests) 7ms
+ ✓ src/test/backupSection.test.tsx (7 tests) 345ms
+ ✓ src/test/interactionMemory.test.ts (8 tests) 4ms
+ ✓ src/test/phoneDeviceCard.test.tsx (7 tests) 195ms
+ ✓ src/test/global-search-a11y.test.tsx (4 tests) 296ms
+ ✓ src/test/cards.test.tsx (5 tests) 190ms
+ ✓ src/test/regressions-v06-round2-general-mode.test.tsx (12 tests) 4074ms
+   ✓ general-mode-ux-024：live 模式讀不到權威狀態時要自己退避重試 > 連續讀不到會自己重試到契約 §7.5 的「無法恢復，請重新連接」，不必使用者按三次 4065ms
+ ✓ src/test/state-applied-projection.test.ts (4 tests) 2ms
+ ✓ src/test/semantic-transport.test.ts (5 tests) 18ms
+ ✓ src/test/dialog.test.tsx (8 tests) 377ms
+ ✓ src/test/presentation.test.ts (8 tests) 4ms
+ ✓ src/test/narrowNav.test.tsx (9 tests) 688ms
+ ✓ src/test/stateView.test.tsx (4 tests) 212ms
+ ✓ src/test/honesty.test.ts (8 tests) 5ms
+ ✓ src/test/character-extension-drill.test.ts (1 test) 7ms
+ ✓ src/test/transport.test.ts (2 tests) 5ms
+ ✓ src/test/knowledgeReceipts.test.ts (3 tests) 2ms
+ ✓ src/test/quietHours.test.ts (3 tests) 7ms
+ ✓ src/test/aip-envelope.test.ts (25 tests) 10ms
+ ✓ src/test/aip-conformance.test.ts (84 tests) 25ms
+ ✓ src/test/receive-decision-fixtures.test.ts (47 tests) 50ms
+ ✓ src/test/session-client.test.ts (64 tests) 84ms
+ ✓ src/test/sensor-stop-history.test.tsx (2 tests) 437ms
+   ✓ N3-UI-STOP-HISTORY: App sensor stop wiring > uses fresh historical capture and preserves its reminder 338ms
+ ✓ src/test/settings-import-review.test.ts (4 tests) 2ms
+ ✓ src/test/preset-concurrency.test.ts (1 test) 3ms
+ ✓ src/test/settings-transfer-validation.test.ts (12 tests) 9ms
+ ✓ src/test/semantic-state-contract.test.ts (54 tests) 23ms
+ ✓ src/test/canonical-vectors.test.ts (29 tests) 5ms
+ ✓ src/test/canonical-hash.test.ts (24 tests) 42ms
+
+ Test Files  92 passed (92)
+      Tests  1916 passed (1916)
+   Start at  11:28:58
+   Duration  22.51s (transform 10.73s, setup 22.86s, collect 39.94s, tests 62.12s, environment 95.67s, prepare 6.66s)

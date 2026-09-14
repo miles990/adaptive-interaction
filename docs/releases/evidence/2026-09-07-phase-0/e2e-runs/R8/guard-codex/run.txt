@@ -1,0 +1,11 @@
+{"name": "allowWrite-no-scopes", "status": 403, "msg": "consent required: write-enabled session 缺少 toolScope workspace.write"}
+{"name": "allowWrite-with-consent-only", "status": 403, "msg": "consent required: write-enabled session 缺少 toolScope workspace.write"}
+{"name": "allowWrite-full", "status": 403, "msg": "policy blocked: 接續上次的工作不得放寬可用工具：workspace.write 不在上次的授權範圍裡"}
+{"name": "dataScope-wider", "status": 403, "msg": "policy blocked: 接續上次的工作不得放寬資料範圍：domain:private 不在上次的授權範圍裡"}
+{"name": "maxCost-added", "status": 400, "msg": "validation failed: codex 不回報 USD 成本，maxCost 無法強制執行；請改用 maxMessages 或 ttlMinutes 限制"}
+{"name": "workdir-dotdot", "status": 403, "msg": "policy blocked: 接續上次的工作不得更換工作目錄（上次是 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R8/codex/workdir）；          "}
+{"name": "workdir-trailing-slash", "status": 200, "msg": "ACCEPTED"}
+{"name": "ttl-narrower", "status": 200, "msg": "ACCEPTED"}
+{"name": "empty-resume-id", "status": 403, "msg": "policy blocked: 找不到上一次的授權紀錄，無法確認接續沒有放寬任何範圍；請重新建立一個明確授權的工作階段"}
+{"name": "resume-id-whitespace", "status": 403, "msg": "policy blocked: 找不到上一次的授權紀錄，無法確認接續沒有放寬任何範圍；請重新建立一個明確授權的工作階段"}
+DONE

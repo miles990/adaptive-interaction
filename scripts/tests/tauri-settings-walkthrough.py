@@ -60,12 +60,24 @@ def api(path, body=None):
 def prefs(): return json.loads((home/'state/desktop.json').read_text())
 
 def ax(*args):
+    # The picker helper now polls and asserts (sheet, path readback, folder,
+    # panel closed) instead of returning after two fixed delays, so a single
+    # call can legitimately take a minute; 20 s used to cut it off mid-check.
     tick = time.monotonic()
     result = subprocess.run(['osascript',str(ROOT/'scripts/lib/tauri-ax.applescript'),
-        f'pid:{app.pid}',*args],capture_output=True,text=True,timeout=20)
+        f'pid:{app.pid}',*args],capture_output=True,text=True,timeout=180)
     commands.append({'command':args,'seconds':round(time.monotonic()-tick,3),'exit':result.returncode})
     if result.returncode: raise AssertionError(result.stderr.strip())
     return result.stdout.strip()
+
+def click_ready(role, label):
+    # Readiness is retried; the click itself runs once (a second click would be a
+    # different action). The AX helper no longer materialises properties for the
+    # whole tree before searching it, so a search that used to take ~12 s now
+    # returns in ~1 s -- fast enough to land before a freshly expanded section has
+    # rendered. Waiting for the control is what the disclosure step already did.
+    wait(lambda: ax('exists', role, label) == 'yes')
+    return ax('click', role, label)
 
 def launch():
     global app
@@ -77,11 +89,19 @@ def launch():
     ax('click','AXDisclosureTriangle','更換或加入角色')
 
 def restore(value, name):
-    path = (a.out/(name+'.json')).resolve()
+    # One import file per directory. The helper asserts the panel really moved
+    # into this folder, and the folder holds exactly one file, so the panel
+    # cannot hand the app some other remembered file and still look like a pass.
+    folder = (a.out/'imports'/name)
+    folder.mkdir(parents=True)
+    path = (folder/(name+'.json')).resolve()
     path.write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n')
-    ax('click','AXButton','選擇角色設定檔')
+    click_ready('AXButton','選擇角色設定檔')
     wait(lambda: 'Open' in ax('windows'))
-    ax('choosefile',str(path))
+    chosen = ax('choosefile',str(path))
+    assert chosen == f'chose {path.name} in {folder.name}', chosen
+    assert [item.name for item in folder.iterdir()] == [path.name], sorted(folder.iterdir())
+    return path
 
 def note(name, status='completed', **extra):
     (a.out/(name+'-ax.txt')).write_text(ax('dump'))
@@ -107,7 +127,7 @@ try:
     launch()
     directory = pathlib.Path.home()/'Downloads'
     prior = set(directory.glob('companion-settings*.json'))
-    ax('click','AXButton','匯出角色設定')
+    click_ready('AXButton','匯出角色設定')
     def exported():
         for path in set(directory.glob('companion-settings*.json'))-prior:
             try:

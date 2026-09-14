@@ -1,0 +1,647 @@
+{
+ "agent": "claude-code",
+ "port": 19043,
+ "task": "請在目前工作目錄建立檔案 hello.txt，內容為 hi。",
+ "allowWrite": true,
+ "events": [
+  {
+   "t": "2026-09-07T09:06:06.482Z",
+   "mono": 0.002,
+   "k": "daemon-spawned",
+   "pid": 152
+  },
+  {
+   "t": "2026-09-07T09:06:06.744Z",
+   "mono": 0.264,
+   "k": "daemon-ready"
+  },
+  {
+   "t": "2026-09-07T09:06:07.544Z",
+   "mono": 1.064,
+   "k": "create",
+   "status": 200,
+   "state": "created",
+   "id": "asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca",
+   "error": null
+  },
+  {
+   "t": "2026-09-07T09:06:07.546Z",
+   "mono": 1.066,
+   "k": "task-sent",
+   "status": 200,
+   "resp": {
+    "id": null,
+    "kind": "task",
+    "direction": "to-session",
+    "contextBundle": null
+   }
+  },
+  {
+   "t": "2026-09-07T09:06:07.547Z",
+   "mono": 1.067,
+   "k": "state",
+   "state": "created",
+   "delegation": null
+  },
+  {
+   "t": "2026-09-07T09:06:12.094Z",
+   "mono": 5.614,
+   "k": "state",
+   "state": "active",
+   "delegation": null
+  },
+  {
+   "t": "2026-09-07T09:06:15.138Z",
+   "mono": 8.658,
+   "k": "state",
+   "state": "claimed-completed",
+   "delegation": null
+  },
+  {
+   "t": "2026-09-07T09:06:16.645Z",
+   "mono": 10.165,
+   "k": "final",
+   "state": "claimed-completed"
+  }
+ ],
+ "snapshots": [
+  {
+   "agentId": "claude-code",
+   "allowWrite": true,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.0,
+    "spentMessages": 1
+   },
+   "consentScope": [
+    "agent-session:workspace-write"
+   ],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:06:07.545465Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請在目前工作目錄建立檔案 hello.txt，內容為 hi。",
+      "truncated": false
+     },
+     "bundleId": "bundle-b890ea1d-22df-40f5-b616-25606f6a563f",
+     "contentHash": "9d6af703c1f4ea2f14a298ca6660e023f7c1c8b3060504f2e0e53720fca0f444",
+     "generatedAt": "2026-09-07T09:06:07.545659Z",
+     "messageId": "msg-asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca-1"
+    }
+   ],
+   "createdAt": "2026-09-07T09:06:07.259080Z",
+   "dataScope": [],
+   "label": "E0-10-allowwrite-claude",
+   "lease": {
+    "expiresAt": "2026-09-07T09:26:07.259080Z",
+    "issuedAt": "2026-09-07T09:06:07.259080Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/c-claude-write/workdir",
+   "sessionId": "asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca",
+   "state": "created",
+   "toolScope": [
+    "workspace.write"
+   ]
+  },
+  {
+   "agentId": "claude-code",
+   "allowWrite": true,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.0,
+    "spentMessages": 1
+   },
+   "consentScope": [
+    "agent-session:workspace-write"
+   ],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:06:07.545465Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請在目前工作目錄建立檔案 hello.txt，內容為 hi。",
+      "truncated": false
+     },
+     "bundleId": "bundle-b890ea1d-22df-40f5-b616-25606f6a563f",
+     "contentHash": "9d6af703c1f4ea2f14a298ca6660e023f7c1c8b3060504f2e0e53720fca0f444",
+     "generatedAt": "2026-09-07T09:06:07.545659Z",
+     "messageId": "msg-asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca-1"
+    }
+   ],
+   "createdAt": "2026-09-07T09:06:07.259080Z",
+   "dataScope": [],
+   "label": "E0-10-allowwrite-claude",
+   "lease": {
+    "expiresAt": "2026-09-07T09:26:07.259080Z",
+    "issuedAt": "2026-09-07T09:06:07.259080Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "providerSessionId": "e7b6974f-b93a-4774-80df-d37b6cb59dfd",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/c-claude-write/workdir",
+   "sessionId": "asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca",
+   "state": "active",
+   "toolScope": [
+    "workspace.write"
+   ]
+  },
+  {
+   "agentId": "claude-code",
+   "allowWrite": true,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.1683105,
+    "spentMessages": 2
+   },
+   "claimId": "claim-4413bca8-e3ca-48c4-b439-19f58300bbc2",
+   "consentScope": [
+    "agent-session:workspace-write"
+   ],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:06:07.545465Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請在目前工作目錄建立檔案 hello.txt，內容為 hi。",
+      "truncated": false
+     },
+     "bundleId": "bundle-b890ea1d-22df-40f5-b616-25606f6a563f",
+     "contentHash": "9d6af703c1f4ea2f14a298ca6660e023f7c1c8b3060504f2e0e53720fca0f444",
+     "generatedAt": "2026-09-07T09:06:07.545659Z",
+     "messageId": "msg-asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca-1"
+    }
+   ],
+   "createdAt": "2026-09-07T09:06:07.259080Z",
+   "dataScope": [],
+   "label": "E0-10-allowwrite-claude",
+   "lease": {
+    "expiresAt": "2026-09-07T09:26:07.259080Z",
+    "issuedAt": "2026-09-07T09:06:07.259080Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "providerSessionId": "e7b6974f-b93a-4774-80df-d37b6cb59dfd",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/c-claude-write/workdir",
+   "sessionId": "asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca",
+   "state": "claimed-completed",
+   "toolScope": [
+    "workspace.write"
+   ]
+  }
+ ],
+ "discovery": {
+  "agents": [
+   {
+    "binaryPath": "claude",
+    "detail": "2.1.263 (Claude Code)（已登入）",
+    "found": true,
+    "kind": "claude-code",
+    "loggedIn": true,
+    "protocolSupported": true,
+    "version": "2.1.263 (Claude Code)"
+   },
+   {
+    "binaryPath": "codex",
+    "detail": "codex-cli 0.153.4（已登入，app-server 可用）",
+    "found": true,
+    "kind": "codex",
+    "loggedIn": true,
+    "protocolSupported": true,
+    "version": "codex-cli 0.153.4"
+   }
+  ]
+ },
+ "sessionId": "asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca",
+ "createRecord": {
+  "agentId": "claude-code",
+  "allowWrite": true,
+  "budget": {
+   "maxCost": 0.0,
+   "maxDurationMs": 1200000,
+   "maxMessages": 40,
+   "spentCost": 0.0,
+   "spentMessages": 0
+  },
+  "consentScope": [
+   "agent-session:workspace-write"
+  ],
+  "contextBundles": [],
+  "createdAt": "2026-09-07T09:06:07.259080Z",
+  "dataScope": [],
+  "label": "E0-10-allowwrite-claude",
+  "lease": {
+   "expiresAt": "2026-09-07T09:26:07.259080Z",
+   "issuedAt": "2026-09-07T09:06:07.259080Z",
+   "renewable": true,
+   "revokeOnSessionEnd": true
+  },
+  "providerId": "provider.ai-agent.claude-code",
+  "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/c-claude-write/workdir",
+  "sessionId": "asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca",
+  "state": "created",
+  "toolScope": [
+   "workspace.write"
+  ]
+ },
+ "taskSend": {
+  "body": {
+   "contextBundle": {
+    "agentId": "claude-code",
+    "domains": [],
+    "excluded": {
+     "needsReview": [],
+     "notVisibleToAgent": 0,
+     "outsideGrantedDomains": 0,
+     "overCapacity": 0,
+     "sensitive": 0,
+     "unreviewedCandidates": 0
+    },
+    "generatedAt": "2026-09-07T09:06:07.545465Z",
+    "includes": [],
+    "limits": {
+     "maxBytes": 49152,
+     "maxItems": 24,
+     "scanLimit": 1000,
+     "scanLimitReached": false
+    },
+    "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+    "task": "請在目前工作目錄建立檔案 hello.txt，內容為 hi。",
+    "truncated": false
+   },
+   "task": "請在目前工作目錄建立檔案 hello.txt，內容為 hi。"
+  },
+  "createdAt": "2026-09-07T09:06:07.545622Z",
+  "deliveredAt": "2026-09-07T09:06:07.546250Z",
+  "direction": "to-session",
+  "kind": "task",
+  "messageId": "msg-asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca-1",
+  "sessionId": "asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca"
+ },
+ "t_active": 5.614,
+ "final": {
+  "agentId": "claude-code",
+  "allowWrite": true,
+  "budget": {
+   "maxCost": 0.0,
+   "maxDurationMs": 1200000,
+   "maxMessages": 40,
+   "spentCost": 0.1683105,
+   "spentMessages": 2
+  },
+  "claimId": "claim-4413bca8-e3ca-48c4-b439-19f58300bbc2",
+  "consentScope": [
+   "agent-session:workspace-write"
+  ],
+  "contextBundles": [
+   {
+    "bundle": {
+     "agentId": "claude-code",
+     "domains": [],
+     "excluded": {
+      "needsReview": [],
+      "notVisibleToAgent": 0,
+      "outsideGrantedDomains": 0,
+      "overCapacity": 0,
+      "sensitive": 0,
+      "unreviewedCandidates": 0
+     },
+     "generatedAt": "2026-09-07T09:06:07.545465Z",
+     "includes": [],
+     "limits": {
+      "maxBytes": 49152,
+      "maxItems": 24,
+      "scanLimit": 1000,
+      "scanLimitReached": false
+     },
+     "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+     "task": "請在目前工作目錄建立檔案 hello.txt，內容為 hi。",
+     "truncated": false
+    },
+    "bundleId": "bundle-b890ea1d-22df-40f5-b616-25606f6a563f",
+    "contentHash": "9d6af703c1f4ea2f14a298ca6660e023f7c1c8b3060504f2e0e53720fca0f444",
+    "generatedAt": "2026-09-07T09:06:07.545659Z",
+    "messageId": "msg-asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca-1"
+   }
+  ],
+  "createdAt": "2026-09-07T09:06:07.259080Z",
+  "dataScope": [],
+  "label": "E0-10-allowwrite-claude",
+  "lease": {
+   "expiresAt": "2026-09-07T09:26:07.259080Z",
+   "issuedAt": "2026-09-07T09:06:07.259080Z",
+   "renewable": true,
+   "revokeOnSessionEnd": true
+  },
+  "providerId": "provider.ai-agent.claude-code",
+  "providerSessionId": "e7b6974f-b93a-4774-80df-d37b6cb59dfd",
+  "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/c-claude-write/workdir",
+  "sessionId": "asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca",
+  "state": "claimed-completed",
+  "toolScope": [
+   "workspace.write"
+  ]
+ },
+ "messages-to-session": [
+  {
+   "body": {
+    "contextBundle": {
+     "agentId": "claude-code",
+     "domains": [],
+     "excluded": {
+      "needsReview": [],
+      "notVisibleToAgent": 0,
+      "outsideGrantedDomains": 0,
+      "overCapacity": 0,
+      "sensitive": 0,
+      "unreviewedCandidates": 0
+     },
+     "generatedAt": "2026-09-07T09:06:07.545465Z",
+     "includes": [],
+     "limits": {
+      "maxBytes": 49152,
+      "maxItems": 24,
+      "scanLimit": 1000,
+      "scanLimitReached": false
+     },
+     "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+     "task": "請在目前工作目錄建立檔案 hello.txt，內容為 hi。",
+     "truncated": false
+    },
+    "task": "請在目前工作目錄建立檔案 hello.txt，內容為 hi。"
+   },
+   "createdAt": "2026-09-07T09:06:07.545622Z",
+   "deliveredAt": "2026-09-07T09:06:07.546250Z",
+   "direction": "to-session",
+   "kind": "task",
+   "messageId": "msg-asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca-1",
+   "sessionId": "asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca"
+  }
+ ],
+ "messages-from-session": [
+  {
+   "body": {
+    "costUsd": 0.1683105,
+    "summary": "已完成。檔案 hello.txt 已建立於目前工作目錄，內容為 hi，結尾附一個換行符號。"
+   },
+   "createdAt": "2026-09-07T09:06:15.071311Z",
+   "direction": "from-session",
+   "kind": "result",
+   "messageId": "msg-asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca-2",
+   "sessionId": "asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca"
+  }
+ ],
+ "status": {
+  "activeSensors": [],
+  "agentSessions": 1,
+  "capabilityVersion": 56,
+  "characterProtocol": {
+   "activeCharacter": null,
+   "instances": 0,
+   "version": "1.0"
+  },
+  "configErrors": [],
+  "emergencyStop": false,
+  "eventSequence": 110,
+  "hasReceipts": false,
+  "name": "adaptive-interaction",
+  "onboardingCompleted": false,
+  "pendingAiAssists": 0,
+  "presentation": {
+   "behaviorExplanation": null,
+   "behaviorState": null,
+   "character": null,
+   "connected": false,
+   "lastSeenSecondsAgo": null,
+   "packId": null,
+   "pendingCommands": 0,
+   "visible": false
+  },
+  "proactivePause": {
+   "paused": false
+  },
+  "quietHours": false,
+  "recipes": {
+   "errors": 0,
+   "loaded": 1
+  },
+  "schemaVersion": "1.0",
+  "session": null,
+  "startedAt": "2026-09-07T09:06:06.603646Z",
+  "unresolvedStopHealth": {
+   "overflowCount": 0,
+   "parked": false,
+   "recoveryUnknown": false,
+   "storage": "durable"
+  },
+  "uptimeSeconds": 10,
+  "version": "0.8.0"
+ },
+ "auditTail": [
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:06:15.072Z",
+   "detail": {
+    "revision": 4,
+    "truth": "claimed"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:06:15.071Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "claim-completed",
+    "messageId": "rt-700e7bd46b864901b86c943c4e6bac19",
+    "truthState": "claimed"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:06:15.065Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:06:12.562Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:06:11.598Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:06:07.546Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:06:07.264Z",
+   "detail": {
+    "revision": 2,
+    "truth": "queued"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:06:07.261Z",
+   "detail": {
+    "agentSessionId": "asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca",
+    "expiresAt": "2026-09-07T09:26:07.259080Z"
+   },
+   "kind": "agent-session.capability-issued"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:06:07.260Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "wait",
+    "messageId": "rt-05f17a55d5194a199354da2c9ec0aa41",
+    "truthState": "queued"
+   },
+   "kind": "character.system-text"
+  }
+ ],
+ "psAgents": [
+  "  143   143 50953       00:10 /bin/zsh -c source /Users/user/.claude/shell-snapshots/snapshot-zsh-1788770781814-petfrt.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null |",
+  "  147   143   143       00:10 /bin/zsh -c source /Users/user/.claude/shell-snapshots/snapshot-zsh-1788770781814-petfrt.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null |",
+  "  148   143   143       00:10 /bin/zsh -c source /Users/user/.claude/shell-snapshots/snapshot-zsh-1788770781814-petfrt.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null |",
+  "  149   143   147       00:10 /opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/Resources/Python.app/Contents/MacOS/Python /private/tmp/claude-501/-Users-user-Workspac",
+  "  150   143   148       00:10 /opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/Resources/Python.app/Contents/MacOS/Python /private/tmp/claude-501/-Users-user-Workspac",
+  "  151   151   150       00:10 /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai serve",
+  "  152   152   149       00:10 /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai serve",
+  "  572   572   151       00:09 codex app-server",
+  "  634   634   152       00:09 claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {\"mcpServers\":{}} --permission-mode acceptEdits --",
+  "  679   679   572       00:09 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/user/.codex/plugins/cache/openai-bundled/unified-computer-use/26.901.51231/scripts/launch.mjs",
+  " 1077  1071     1       00:04 /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai serve",
+  " 1449  1449   572       00:01 /opt/homebrew/Caskroom/codex/0.153.4/bin/codex-code-mode-host",
+  " 2805   741  1537 02-14:51:49 node /Users/user/Workspace/claude-code-mcp/claude-code-server/build/index.js",
+  "20924 70561 70561    04:48:22 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "21408 70561 70561    04:47:01 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "22402 70561 70561    04:42:19 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "22912 22896 22896    04:33:44 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=utility --utility-sub-type=network.mojom.NetworkService --lang=zh-TW --",
+  "22943 22896 22896    04:33:44 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Renderer) --type=renderer --user-data-dir=/Users/user/Library/Appl",
+  "23035 22896 22896    04:33:44 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Renderer) --type=renderer --user-data-dir=/Users/user/Library/Appl",
+  "23126 22896 22896    04:33:43 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=utility --utility-sub-type=node.mojom.NodeService --lang=zh-TW --servic",
+  "23154 22896 22896    04:33:42 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=utility --utility-sub-type=node.mojom.NodeService --lang=zh-TW --servic",
+  "23156 22896 22896    04:33:42 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Plugin).app/Contents/MacOS/Claude Helper (Plugin) --type=utility --utility-sub-type=node.mojom.NodeService --l",
+  "23270 22896 22896    04:33:41 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=utility --utility-sub-type=node.mojom.NodeService --lang=zh-TW --servic",
+  "23271 22896 22896    04:33:41 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Plugin).app/Contents/MacOS/Claude Helper (Plugin) --type=utility --utility-sub-type=node.mojom.NodeService --l",
+  "23276 22896 22896    04:33:41 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=utility --utility-sub-type=audio.mojom.AudioService --lang=zh-TW --serv",
+  "23277 22896 22896    04:33:41 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=utility --utility-sub-type=video_capture.mojom.VideoCaptureService --la",
+  "24074 24074 70818    04:30:16 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/user/.codex/plugins/cache/openai-bundled/unified-computer-use/26.901.51231/scripts/launch.mjs",
+  "28987 70561 70561    04:04:38 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "30392 70561 70561    03:48:45 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "39583 70561 70561    02:05:27 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "45051 45019 45019    23:50:49 /Users/user/.codex/plugins/cache/openai-bundled/chrome/latest/extension-host/macos/arm64/ChatGPT for Chrome chrome-extension://hehggadaopoacecdllhhajmbjkdcmajg/",
+  "45566 70561 70561    01:14:46 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "48762 70561 70561       47:04 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "48763 70561 70561       47:04 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "51071 51071 51067       20:35 /opt/homebrew/lib/node_modules/@colbymchenry/codegraph/node_modules/@colbymchenry/codegraph-darwin-arm64/node --liftoff-only --disable-warning=ExperimentalWarning /opt/ho",
+  "51074 51071 51071       20:35 /opt/homebrew/lib/node_modules/@colbymchenry/codegraph/node_modules/@colbymchenry/codegraph-darwin-arm64/node -e \\012const fs = require('fs');\\012const parentPid = Number",
+  "70588 70561 70561    16:15:30 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service) --type=utility -",
+  "70590 70561 70561    16:15:30 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service) --type=utility -",
+  "70818 70561 70561    16:15:29 /Applications/ChatGPT.app/Contents/Resources/codex -c features.code_mode_host=true app-server --analytics-default-enabled -c mcp_servers.codex_app={\"command\"=\"/Applicatio",
+  "70826 70561 70561    16:15:29 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "70895 70561 70561    16:15:25 /Users/user/.codex/computer-use/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
+  "71291 70561 70561    16:15:19 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "71333 71333 70818    16:15:14 /Applications/ChatGPT.app/Contents/Resources/codex-code-mode-host",
+  "71650 70561 70561    16:12:30 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service) --type=utility -",
+  "89643 89641     1       02:33 /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai serve",
+  "93787 93785     1       02:06 /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai serve",
+  "96341 96341 93787       01:31 claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {\"mcpServers\":{}} --permission-mode plan --tools R",
+  "97247 97243     1       01:07 /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai serve",
+  "98704 98700     1       00:47 /bin/zsh -c source /Users/user/.claude/shell-snapshots/snapshot-zsh-1788770781814-petfrt.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null |",
+  "99528 99528 93787       00:29 claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {\"mcpServers\":{}} --permission-mode plan --tools R",
+  "50953 50953   790       20:39 claude --dangerously-skip-permissions --chrome",
+  " 1486  1486   944    05:12:50 /opt/homebrew/bin/codex --yolo",
+  " 1853  1853  1486    05:12:46 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/user/.codex/plugins/cache/openai-bundled/unified-computer-use/26.901.51231/scripts/launch.mjs",
+  " 7540  7540  1486    05:10:36 /opt/homebrew/Caskroom/codex/0.153.4/bin/codex-code-mode-host"
+ ],
+ "finishedAt": "2026-09-07T09:06:16.721Z",
+ "wallSeconds": 10.24
+}

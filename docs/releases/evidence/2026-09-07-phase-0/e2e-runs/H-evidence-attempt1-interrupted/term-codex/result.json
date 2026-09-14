@@ -1,0 +1,236 @@
+{
+ "agent": "codex",
+ "signal": "TERM",
+ "events": [
+  {
+   "t": "2026-09-07T10:24:45.735Z",
+   "mono": 0.268,
+   "k": "daemon-ready",
+   "pid": 87539
+  },
+  {
+   "t": "2026-09-07T10:24:46.100Z",
+   "mono": 0.634,
+   "k": "create",
+   "status": 200,
+   "sid": "asession-0ad09953-9e8b-47a6-ac96-e2da1321a144"
+  },
+  {
+   "t": "2026-09-07T10:24:46.103Z",
+   "mono": 0.637,
+   "k": "task-sent",
+   "status": 200
+  },
+  {
+   "t": "2026-09-07T10:24:46.414Z",
+   "mono": 0.947,
+   "k": "state-before-kill",
+   "state": "active",
+   "children": [
+    "87670 87670 87539       00:01 S    codex app-server"
+   ]
+  },
+  {
+   "t": "2026-09-07T10:24:46.418Z",
+   "mono": 0.951,
+   "k": "daemon-killed",
+   "exitcode": -15
+  },
+  {
+   "t": "2026-09-07T10:24:48.465Z",
+   "mono": 2.998,
+   "k": "children-after-daemon-death",
+   "children": []
+  },
+  {
+   "t": "2026-09-07T10:24:51.519Z",
+   "mono": 6.052,
+   "k": "children-after-daemon-death+5s",
+   "children": []
+  },
+  {
+   "t": "2026-09-07T10:24:51.777Z",
+   "mono": 6.311,
+   "k": "daemon-restarted",
+   "pid": 88496
+  },
+  {
+   "t": "2026-09-07T10:24:51.779Z",
+   "mono": 6.312,
+   "k": "session-after-restart",
+   "status": 200,
+   "state": "expired",
+   "detail": "runtime restarted",
+   "lease": {
+    "expiresAt": "2026-09-07T10:44:45.738281Z",
+    "issuedAt": "2026-09-07T10:24:45.738281Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   }
+  },
+  {
+   "t": "2026-09-07T10:24:51.780Z",
+   "mono": 6.314,
+   "k": "list-after-restart",
+   "n": 1,
+   "states": [
+    "expired"
+   ]
+  },
+  {
+   "t": "2026-09-07T10:24:51.781Z",
+   "mono": 6.314,
+   "k": "from-session-after-restart",
+   "kinds": []
+  },
+  {
+   "t": "2026-09-07T10:24:51.782Z",
+   "mono": 6.315,
+   "k": "send-after-restart",
+   "status": 409,
+   "resp": {
+    "error": {
+     "code": "conflict",
+     "message": "conflict: agent session asession-0ad09953-9e8b-47a6-ac96-e2da1321a144 is Expired; mailbox closed"
+    }
+   }
+  },
+  {
+   "t": "2026-09-07T10:24:51.783Z",
+   "mono": 6.316,
+   "k": "interrupt-after-restart",
+   "status": 404,
+   "resp": {
+    "error": {
+     "code": "not_found",
+     "message": "not found: gateway session asession-0ad09953-9e8b-47a6-ac96-e2da1321a144"
+    }
+   }
+  },
+  {
+   "t": "2026-09-07T10:24:51.783Z",
+   "mono": 6.317,
+   "k": "renew-after-restart",
+   "status": 409,
+   "resp": {
+    "error": {
+     "code": "conflict",
+     "message": "conflict: agent session asession-0ad09953-9e8b-47a6-ac96-e2da1321a144 is Expired; expired/closed sessions cannot be renewed"
+    }
+   }
+  },
+  {
+   "t": "2026-09-07T10:24:51.833Z",
+   "mono": 6.367,
+   "k": "children-final",
+   "children": []
+  }
+ ],
+ "statusAfter": {
+  "activeSensors": [],
+  "agentSessions": 0,
+  "capabilityVersion": 56,
+  "characterProtocol": {
+   "activeCharacter": null,
+   "instances": 0,
+   "version": "1.0"
+  },
+  "configErrors": [],
+  "emergencyStop": false,
+  "eventSequence": 94,
+  "hasReceipts": false,
+  "name": "adaptive-interaction",
+  "onboardingCompleted": false,
+  "pendingAiAssists": 0,
+  "presentation": {
+   "behaviorExplanation": null,
+   "behaviorState": null,
+   "character": null,
+   "connected": false,
+   "lastSeenSecondsAgo": null,
+   "packId": null,
+   "pendingCommands": 0,
+   "visible": false
+  },
+  "proactivePause": {
+   "paused": false
+  },
+  "quietHours": false,
+  "recipes": {
+   "errors": 0,
+   "loaded": 1
+  },
+  "schemaVersion": "1.0",
+  "session": null,
+  "startedAt": "2026-09-07T10:24:51.599019Z",
+  "unresolvedStopHealth": {
+   "overflowCount": 0,
+   "parked": false,
+   "recoveryUnknown": true,
+   "storage": "durable"
+  },
+  "uptimeSeconds": 0,
+  "version": "0.8.0"
+ },
+ "after": {
+  "agentId": "codex",
+  "allowWrite": false,
+  "budget": {
+   "maxCost": 0.0,
+   "maxDurationMs": 1200000,
+   "maxMessages": 40,
+   "spentCost": 0.0,
+   "spentMessages": 1
+  },
+  "closedAt": "2026-09-07T10:24:51.639628Z",
+  "consentScope": [],
+  "contextBundles": [
+   {
+    "bundle": {
+     "agentId": "codex",
+     "domains": [],
+     "excluded": {
+      "needsReview": [],
+      "notVisibleToAgent": 0,
+      "outsideGrantedDomains": 0,
+      "overCapacity": 0,
+      "sensitive": 0,
+      "unreviewedCandidates": 0
+     },
+     "generatedAt": "2026-09-07T10:24:46.102099Z",
+     "includes": [],
+     "limits": {
+      "maxBytes": 49152,
+      "maxItems": 24,
+      "scanLimit": 1000,
+      "scanLimitReached": false
+     },
+     "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+     "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「核心重啟」。不要讀取、建立或修改任何檔案。",
+     "truncated": false
+    },
+    "bundleId": "bundle-014f2bb9-e06a-4f1d-b17e-0ea0aa5d2e57",
+    "contentHash": "7060db6058670cc5802145f56d67bfa9a65cfcc2c8bd11d74eca52751e900cdf",
+    "generatedAt": "2026-09-07T10:24:46.102299Z",
+    "messageId": "msg-asession-0ad09953-9e8b-47a6-ac96-e2da1321a144-1"
+   }
+  ],
+  "createdAt": "2026-09-07T10:24:45.738281Z",
+  "dataScope": [],
+  "detail": "runtime restarted",
+  "label": "phase0-restart",
+  "lease": {
+   "expiresAt": "2026-09-07T10:44:45.738281Z",
+   "issuedAt": "2026-09-07T10:24:45.738281Z",
+   "renewable": true,
+   "revokeOnSessionEnd": true
+  },
+  "providerId": "provider.ai-agent.codex",
+  "providerSessionId": "01a07b66-2143-7d62-9525-87e87e35ebe0",
+  "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/H-evidence/term-codex/workdir",
+  "sessionId": "asession-0ad09953-9e8b-47a6-ac96-e2da1321a144",
+  "state": "expired",
+  "toolScope": []
+ },
+ "wallSeconds": 6.37
+}

@@ -1,0 +1,610 @@
+{
+ "group": "R1 — E0-03 cancellation and A-07 emergency stop, real Claude Code and real Codex",
+ "cases": [
+  {
+   "id": "E0-03-claude-interrupt",
+   "scenario": "Cancel a live real Claude Code session with POST /v1/agent-sessions/{id}/interrupt 3 s after it is observed `active`, then close it 5 s later.",
+   "agentOrSurface": "real Claude Code CLI 2.1.263 driven through the interact-ai HTTP API (127.0.0.1:19010), isolated INTERACT_AI_HOME",
+   "evidenceLevel": "real-agent",
+   "precondition": "Fresh daemon (pid 91045) on port 19010 with INTERACT_AI_HOME=<out>/claude-interrupt/home and INTERACT_AI_MOBILE_ADVERTISE=0; INTERACT_AI_CLAUDE_BIN/INTERACT_AI_CODEX_BIN unset so the real CLI on PATH is used; workdir <out>/claude-interrupt/workdir containing only NOTES.md; no prior agent child processes (ps-baseline.txt empty).",
+   "steps": [
+    "POST /v1/agent-sessions {agentId:claude-code, workdir, ttlMinutes:20, maxMessages:40, allowWrite:false} -> 200, state created",
+    "POST /v1/agent-sessions/{id}/messages {kind:task, body:{task:'1500-word Traditional-Chinese essay, no file access'}} -> 200",
+    "Poll GET /v1/agent-sessions/{id} until state==active (observed at mono 61.3 s)",
+    "Wait 3 s, POST /v1/agent-sessions/{id}/interrupt -> 200",
+    "Poll to terminal state; snapshot descendants of pid 91045; read from-session mailbox",
+    "Wait 5 s, POST /v1/agent-sessions/{id}/close {reason} -> 200; snapshot processes again",
+    "Read ~/.claude/projects/<workdir-slug>/5fd573dd-....jsonl read-only for the provider-side view"
+   ],
+   "expected": {
+    "ui": "SSE agent.session.state and the API record both move to a cancellation state and stay consistent with each other",
+    "coreState": "session record state = cancelled (a human-requested stop is not a failure), with a reason the operator can read",
+    "effect": "the `claude -p` subprocess tree is gone, no late from-session result arrives after the cancel"
+   },
+   "result": "product-failed",
+   "actual": "The cancel MECHANISM works: the child was killed and nothing arrived late. The CLASSIFICATION does not. POST /interrupt returned 200 at 09:05:00.474; 0.5 s later the record read `failed` (not cancelled), with no `detail` and an empty from-session mailbox. Claude's own log shows it had streamed 287 chars of the essay before the SIGINT and then recorded '[Request interrupted by user]'; that partial output never reached the mailbox. After the later close the record still read `failed` while the SSE event emitted at the same instant said `closed`.",
+   "evidence": [
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/claude-interrupt/result.json events[k=cancel-issued] status=200 mode=interrupt @09:05:00.474",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/claude-interrupt/result.json events[k=state] state=\"failed\" @09:05:01.002; final.state=\"failed\"",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/claude-interrupt/result.json events[k=after-cancel].children — only pid 96341 (ppid 93787 = another agent's daemon); no child of my daemon 91045 remains",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/codex-interrupt/result.json events[k=after-close].children shows pid 91453 ppid 91045 alive at 09:04:09 — proof my Claude child existed and was later killed",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/claude-interrupt/result.json messages-from-session = [] (no late result)",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/claude-interrupt/sse.jsonl:109 state=failed, :116 state=closed",
+    "/Users/user/.claude/projects/-private-tmp-claude-501--Users-user-Workspace-claude-lab-adaptive-interaction-95db6375-b13e-4494-9180-4b15da263657-scratchpad-e2e2-runs-R1-claude-interrupt-workdir/5fd573dd-fb6c-4e30-99e7-bab5e7ff70f7.jsonl lines 9-11: assistant text (287 chars) @09:05:00.477 then user '[Request interrupted by user]' @09:05:00.567"
+   ],
+   "observations": [
+    "Time from task-sent to `active` was 61.3 s for Claude (vs 1.7 s for Codex on the same box at the same moment); during that whole minute GET returned \"created\" while SSE had already said \"fetched\".",
+    "The interrupt landed within ~90 ms of Claude emitting its first text chunk, so this run is also evidence that partial output produced before an interrupt is discarded by the mailbox.",
+    "Two independent runs (claude-interrupt, b07-claude) and one diagnostic re-run (diag-failreason) all produced `failed`."
+   ],
+   "productDefects": [
+    {
+     "title": "A human interrupt of a Claude session is reported as `failed`, not `cancelled` (Codex reports `cancelled` for the same action)",
+     "severity": "high",
+     "location": "crates/interaction-agent-gateway/src/claude.rs:442-451 (any `result` message whose subtype starts with \"error\" -> GatewayEvent::TaskFailed); claude.rs:354-357 (`interrupt()` sends SIGINT and latches nothing); crates/interaction-runtime/src/gateway.rs:579-583 (TaskFailed -> report_agent_session(\"failed\"))",
+     "repro": "python3 <harness>/agent_smoke.py --agent claude-code --port 19010 --out <out> --task '<long essay task>' --cancel-after 3 --cancel-when-active --cancel-mode interrupt --timeout 120  ->  final state \"failed\". Same flags with --agent codex -> \"cancelled\".",
+     "evidence": [
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/claude-interrupt/result.json (events[k=cancel-issued] mode=interrupt status=200; next state event = \"failed\"; final.state=\"failed\")",
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/claude-interrupt/sse.jsonl:109 agent.session.state state=\"failed\"",
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/codex-interrupt/sse.jsonl:103 agent.session.state state=\"cancelled\" (same action, same 3 s delay)",
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-claude/result.json events[k=p1-terminal].state=\"failed\" (independent second run)",
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/diag-failreason/result.json observations[0].inferences.report.error = \"error_during_execution\" (the only reason recorded anywhere)"
+     ],
+     "phase0MinimalFixCandidate": true
+    },
+    {
+     "title": "`agent.session.state` SSE event says \"closed\" for a session whose stored record stays \"failed\" — the projection loses the failure the record deliberately preserved",
+     "severity": "high",
+     "location": "crates/interaction-runtime/src/agents.rs:1371-1379 (close_agent_session emits `if record.state == Cancelled {\"cancelled\"} else {\"closed\"}` — Failed/TimedOut/Unknown all collapse to \"closed\"), contradicting agents.rs:1296-1310 which intentionally keeps the prior terminal state in the record",
+     "repro": "Interrupt a Claude session (state -> failed), then POST /v1/agent-sessions/{id}/close {\"reason\":\"...\"}. The close response body and a subsequent GET both return state \"failed\"; the SSE event emitted at the same instant carries state \"closed\".",
+     "evidence": [
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/claude-interrupt/sse.jsonl:116 agent.session.state state=\"closed\" @2026-09-07T09:05:07.606889Z",
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/claude-interrupt/result.json final.state=\"failed\", final.detail=\"phase0 close after cancel (was Failed)\", final.closedAt=2026-09-07T09:05:07.598639Z (same instant)",
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/codex-interrupt/sse.jsonl:109 state=\"cancelled\" (Cancelled is the one terminal state the projection preserves)"
+     ],
+     "phase0MinimalFixCandidate": true
+    },
+    {
+     "title": "A `failed` agent session exposes no reason on the session record or in its mailbox; the cause exists only as an observation",
+     "severity": "medium",
+     "location": "crates/interaction-runtime/src/agents.rs:1209-1218 (report_agent_session assigns `entry.record.state = next_state` and never touches `entry.record.detail`; the error payload goes only to `ingest(\"agent.session\", ...)` at agents.rs:1254-1257)",
+     "repro": "Interrupt a live Claude session, then GET /v1/agent-sessions/{id} -> {\"state\":\"failed\", detail absent}; GET /v1/agent-sessions/{id}/messages?direction=from-session -> []. POST /v1/observations/query {\"receptorId\":\"agent.session\",\"limit\":50} is the only place the reason appears, and it is the raw provider token \"error_during_execution\".",
+     "evidence": [
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-claude/result.json p1Terminal = full record with state=\"failed\" and no `detail` key",
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/diag-failreason/result.json events[k=record] detail=null; events[k=mailbox dir=from-session] count=0; observations count=3, newest inferences.report.error=\"error_during_execution\"",
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/diag-failreason/result.json events[k=audit-exit-mentions] count=0 (nothing in /v1/audit either)"
+     ],
+     "phase0MinimalFixCandidate": true
+    }
+   ],
+   "limitations": "Single provider account and single machine; the `error_during_execution` subtype is Claude Code 2.1.263 behaviour and could differ in other CLI versions. The claim 'the child was killed' rests on ps snapshots 1.5 s and 7 s after the cancel, not on a wait4 exit status.",
+   "cleanup": "Daemon 91045 terminated by the harness (events[k=daemon-stopped]); verified dead and no listener on 19010; no orphan `claude -p` process with ppid 91045.",
+   "environment": {
+    "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+    "binaryIdentity": "/Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai (interact-ai 0.8.0, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7)",
+    "agent": "claude-code",
+    "connectorVersion": "Claude Code CLI 2.1.263 via `claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config` (observed in ps output)",
+    "requestedModel": "not-specifiable-via-gateway",
+    "actualModel": "claude-fable-5-1",
+    "actualModelSource": "provider-local-log (not via gateway)",
+    "reasoning": "permissionMode=plan (read-only); thinking block present but empty in the provider log",
+    "newOrResumed": "new",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/claude-interrupt/workdir",
+    "authorization": "human Bearer token from <out>/home/state/api-token (isolated INTERACT_AI_HOME); restricted agent token only used for the A-07 clear-denial probe",
+    "durationSeconds": 73.61,
+    "costOrTokens": "provider log last assistant usage: input_tokens 2, cache_creation_input_tokens 5765, cache_read_input_tokens 2800, output_tokens 2; no total_cost_usd (the result message never arrived); gateway budget spentCost 0.0, spentMessages 1"
+   }
+  },
+  {
+   "id": "E0-03-codex-interrupt",
+   "scenario": "Cancel a live real Codex session with POST /v1/agent-sessions/{id}/interrupt 3 s after it is observed `active`, then close it 5 s later.",
+   "agentOrSurface": "real Codex CLI 0.153.4 (`codex app-server`) driven through the interact-ai HTTP API (127.0.0.1:19011), isolated INTERACT_AI_HOME",
+   "evidenceLevel": "real-agent",
+   "precondition": "Fresh daemon (pid 91044) on port 19011, isolated home, INTERACT_AI_MOBILE_ADVERTISE=0, agent-bin overrides unset; same essay task and workdir shape as the Claude case; run concurrently with E0-03-claude-interrupt.",
+   "steps": [
+    "POST /v1/agent-sessions {agentId:codex, ...} -> 200 created",
+    "POST .../messages {kind:task, body:{task:...}} -> 200",
+    "Poll until active (observed at mono 1.69 s)",
+    "Wait 3 s, POST .../interrupt -> 200",
+    "Poll to terminal; snapshot processes; read from-session mailbox",
+    "Wait 5 s, POST .../close {reason} -> 200; snapshot processes",
+    "Read ~/.codex/sessions/2026/09/07/rollout-*-01a07b1c-....jsonl read-only"
+   ],
+   "expected": {
+    "ui": "SSE agent.session.state -> cancelled",
+    "coreState": "record state = cancelled",
+    "effect": "`codex app-server` subprocess tree gone; no late from-session result"
+   },
+   "result": "completed",
+   "actual": "POST /interrupt returned 200 at 09:04:00.850; the record read `cancelled` 0.5 s later and SSE emitted `cancelled` at 09:04:00.857. No child of daemon 91044 remained in the post-cancel snapshot, from-session was empty, and the Codex rollout recorded turn_aborted reason=\"interrupted\" duration_ms=3543 plus a `<turn_aborted>` developer note. The later close kept the record at `cancelled` (detail \"phase0 close after cancel (was Cancelled)\") and the SSE event also said `cancelled` — projection and record agree.",
+   "evidence": [
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/codex-interrupt/result.json events[k=cancel-issued] status=200 @09:04:00.850; events[k=state] state=\"cancelled\" @09:04:01.353",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/codex-interrupt/sse.jsonl:103 state=cancelled; :109 state=cancelled after close",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/codex-interrupt/result.json messages-from-session = []",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/codex-interrupt/result.json psAgents — no `codex app-server` with ppid 91044 (the two live ones, 92732/92733, have ppids 92185/92186 = other agents' daemons)",
+    "/Users/user/.codex/sessions/2026/09/07/rollout-2026-09-07T17-03-57-01a07b1c-24b3-76e0-98b8-5ba7b3bf3cb9.jsonl last line: event_msg turn_aborted reason=interrupted duration_ms=3543"
+   ],
+   "observations": [
+    "Codex reached `active` in 1.7 s vs Claude's 61.3 s in the same wall-clock window.",
+    "Codex is the reference behaviour for D1: the same HTTP call on the same runtime yields `cancelled` here and `failed` for Claude.",
+    "This run's own ps snapshot is what proves the concurrent Claude child (pid 91453, ppid 91045) was alive at 09:04:09 and gone by 09:05:02."
+   ],
+   "productDefects": [],
+   "limitations": "Codex rollout files record no token counts (grep token_count = 0), so cost/tokens are unknown from the provider side. Process death is inferred from ps snapshots, not wait4.",
+   "cleanup": "Daemon 91044 terminated by the harness; verified dead, no listener on 19011, no orphan codex child.",
+   "environment": {
+    "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+    "binaryIdentity": "/Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai (interact-ai 0.8.0, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7)",
+    "agent": "codex",
+    "connectorVersion": "Codex CLI 0.153.4 via `codex app-server` JSON-RPC v2 (rollout cli_version 0.153.4, originator adaptive-interaction)",
+    "requestedModel": "not-specifiable-via-gateway",
+    "actualModel": "gpt-6-astra",
+    "actualModelSource": "provider-local-log (not via gateway)",
+    "reasoning": "turn_context.reasoning_effort = null; summary=auto; approval_policy=untrusted; sandbox_policy={type:read-only}",
+    "newOrResumed": "new",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/codex-interrupt/workdir",
+    "authorization": "human Bearer token from <out>/home/state/api-token (isolated INTERACT_AI_HOME); restricted agent token only used for the A-07 clear-denial probe",
+    "durationSeconds": 13.93,
+    "costOrTokens": "unknown — no token_count/usage records in the rollout; gateway budget spentCost 0.0, spentMessages 1"
+   }
+  },
+  {
+   "id": "E0-03-claude-close",
+   "scenario": "Cancel a live real Claude session with POST /v1/agent-sessions/{id}/close instead of /interrupt.",
+   "agentOrSurface": "real Claude Code CLI 2.1.263 via HTTP API 127.0.0.1:19012, isolated home",
+   "evidenceLevel": "real-agent",
+   "precondition": "Fresh daemon (pid 5662) on port 19012, isolated home, mobile advertise off, agent-bin overrides unset, --keep-daemon so I could inspect descendants myself after the script exited.",
+   "steps": [
+    "Create session, send the same long essay task",
+    "Poll until active (observed at mono 65.4 s)",
+    "Wait 3 s, POST /v1/agent-sessions/{id}/close {reason:'phase0 cancel test'} -> 200",
+    "Poll to terminal; snapshot processes at +1.5 s",
+    "Independently ps for descendants of pid 5662 at 09:08:25, then SIGTERM the daemon and confirm it died"
+   ],
+   "expected": {
+    "ui": "SSE agent.session.state -> closed",
+    "coreState": "record state = closed with detail '(was Active)' and closedAt set",
+    "effect": "subprocess tree gone; no late result"
+   },
+   "result": "completed",
+   "actual": "Close returned 200 at 09:08:15.766; the record read `closed`, detail \"phase0 cancel test (was Active)\", closedAt 09:08:15.765716Z, and SSE emitted `closed` at the same instant — consistent. At 09:08:25 no descendant of daemon 5662 existed (the child pid 6126, ppid 5662, had been visible at 09:07:14 in the concurrent Codex run's snapshot). from-session was empty.",
+   "evidence": [
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/claude-close/result.json events[k=cancel-issued] mode=close status=200 @09:08:15.767; final.state=\"closed\"; final.detail=\"phase0 cancel test (was Active)\"",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/claude-close/sse.jsonl:109 agent.session.state state=\"closed\" @09:08:15.766975Z",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/codex-close/result.json events[k=after-cancel].children lists '6126 6126 5662 claude -p ...' — my Claude child alive at 09:07:14",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/close-children-check.txt — at 09:08:25 only pids 5661/5662 themselves, no descendants",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/claude-close/result.json messages-from-session = []"
+   ],
+   "observations": [
+    "Unlike /interrupt, /close from an Active state produces a clean `closed` and does not misclassify anything — the D2 mismatch only appears when close follows an already-terminal Failed/TimedOut/Unknown state.",
+    "The provider log for this session (8797c154-....jsonl) stopped at 8 lines with no assistant entry: the SIGTERM landed before Claude flushed its turn, so the model id is not recoverable for this run."
+   ],
+   "productDefects": [],
+   "limitations": "actualModel is unknown for this case because the kill preceded the provider log flush; I did not infer it from the sibling runs. Process death confirmed by ps at +10 s, not by exit status.",
+   "cleanup": "I SIGTERMed daemon 5662 myself at 09:08:22 and verified with `ps -p` that it and 5661 were gone; no listener on 19012.",
+   "environment": {
+    "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+    "binaryIdentity": "/Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai (interact-ai 0.8.0, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7)",
+    "agent": "claude-code",
+    "connectorVersion": "Claude Code CLI 2.1.263 via `claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config` (observed in ps output)",
+    "requestedModel": "not-specifiable-via-gateway",
+    "actualModel": "unknown",
+    "actualModelSource": "provider-local-log (not via gateway)",
+    "reasoning": "permissionMode=plan recorded in the provider log; no assistant turn was flushed before the kill so no model line exists",
+    "newOrResumed": "new",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/claude-close/workdir",
+    "authorization": "human Bearer token from <out>/home/state/api-token (isolated INTERACT_AI_HOME); restricted agent token only used for the A-07 clear-denial probe",
+    "durationSeconds": 70.57,
+    "costOrTokens": "unknown from provider log (no assistant/usage entry flushed); gateway budget spentCost 0.0, spentMessages 1"
+   }
+  },
+  {
+   "id": "E0-03-codex-close",
+   "scenario": "Cancel a live real Codex session with POST /v1/agent-sessions/{id}/close instead of /interrupt.",
+   "agentOrSurface": "real Codex CLI 0.153.4 via HTTP API 127.0.0.1:19013, isolated home",
+   "evidenceLevel": "real-agent",
+   "precondition": "Fresh daemon (pid 5661) on port 19013, isolated home, mobile advertise off, agent-bin overrides unset, --keep-daemon; run concurrently with E0-03-claude-close.",
+   "steps": [
+    "Create session, send the long essay task",
+    "Poll until active (observed at mono 1.67 s)",
+    "Wait 3 s, POST .../close {reason:'phase0 cancel test'} -> 200",
+    "Poll to terminal; snapshot processes at +1.5 s",
+    "Independently ps for descendants of pid 5661 at 09:08:25, then SIGTERM the daemon"
+   ],
+   "expected": {
+    "ui": "SSE agent.session.state -> closed",
+    "coreState": "record state = closed, detail '(was Active)', closedAt set",
+    "effect": "`codex app-server` tree gone; no late result"
+   },
+   "result": "completed",
+   "actual": "Close returned 200 at 09:07:12.022; record `closed` with detail \"phase0 cancel test (was Active)\" and closedAt 09:07:12.020775Z; SSE `closed` at 09:07:12.021883Z. No descendant of daemon 5661 at 09:08:25. from-session empty. The Codex rollout for this session exists (proving a real app-server ran) and contains no turn_aborted record — the close killed the process rather than aborting the turn through the protocol.",
+   "evidence": [
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/codex-close/result.json events[k=cancel-issued] mode=close status=200 @09:07:12.022; final.state=\"closed\"; final.detail=\"phase0 cancel test (was Active)\"",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/codex-close/sse.jsonl:105 agent.session.state state=\"closed\"",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/close-children-check.txt (09:08:25) — no descendants of 5661",
+    "/Users/user/.codex/sessions/2026/09/07/rollout-2026-09-07T17-07-08-01a07b1f-0f86-7cf3-bb9a-54b7d5c3a474.jsonl (10 lines, turn_context model=gpt-6-astra, no turn_aborted event)"
+   ],
+   "observations": [
+    "Close is the only cancel path in this matrix that behaves identically for both agents (closed / closed).",
+    "Because close kills rather than aborting the turn, the Codex side has no protocol-level record that a human stopped it — the rollout just ends."
+   ],
+   "productDefects": [],
+   "limitations": "I never directly observed a `codex app-server` process with ppid 5661 while it was alive (the 1.5 s snapshot came after the kill); its existence is inferred from the rollout file and the 1.67 s transition to active.",
+   "cleanup": "I SIGTERMed daemon 5661 at 09:08:22 and confirmed it was gone; no listener on 19013.",
+   "environment": {
+    "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+    "binaryIdentity": "/Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai (interact-ai 0.8.0, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7)",
+    "agent": "codex",
+    "connectorVersion": "Codex CLI 0.153.4 via `codex app-server` JSON-RPC v2 (rollout cli_version 0.153.4, originator adaptive-interaction)",
+    "requestedModel": "not-specifiable-via-gateway",
+    "actualModel": "gpt-6-astra",
+    "actualModelSource": "provider-local-log (not via gateway)",
+    "reasoning": "turn_context.reasoning_effort = null; approval_policy=untrusted; sandbox_policy={type:read-only}",
+    "newOrResumed": "new",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/codex-close/workdir",
+    "authorization": "human Bearer token from <out>/home/state/api-token (isolated INTERACT_AI_HOME); restricted agent token only used for the A-07 clear-denial probe",
+    "durationSeconds": 6.83,
+    "costOrTokens": "unknown — no token_count records in the rollout; gateway budget spentCost 0.0, spentMessages 1"
+   }
+  },
+  {
+   "id": "B-07-claude-stop-vs-cancel",
+   "scenario": "Is POST /interrupt 'stop this turn' or 'end this session'? Interrupt a live Claude session, then try to send a NEW short task on the SAME session.",
+   "agentOrSurface": "real Claude Code CLI 2.1.263 via HTTP API 127.0.0.1:19014, isolated home; custom probe <out>/bin/b07.py",
+   "evidenceLevel": "real-agent",
+   "precondition": "Fresh daemon (pid 21899) on port 19014, isolated home, mobile advertise off, agent-bin overrides unset. Child-process checks in this probe walk only descendants of pid 21899, so other agents' processes cannot contaminate them.",
+   "steps": [
+    "Create session, send the long essay task",
+    "Poll until active (65.3 s); record descendants of 21899",
+    "Wait 3 s, POST /v1/agent-sessions/{id}/interrupt -> 200 {\"interrupted\":true}",
+    "Poll to terminal; record descendants at +0 s and +2 s; read from-session",
+    "POST /v1/agent-sessions/{id}/messages {kind:task, body:{task:'只回覆一個字：好'}} and record the HTTP status",
+    "GET the record again and re-check descendants"
+   ],
+   "expected": {
+    "ui": "if interrupt means 'stop generating', the session should return to a usable state and accept a new task",
+    "coreState": "session either stays open (turn-level stop) or goes terminal (session-level cancel) — the test decides which",
+    "effect": "a follow-up task either runs or is refused"
+   },
+   "result": "not-implemented",
+   "actual": "POST /interrupt is a SESSION-level cancel, not a 'stop generating'. Interrupt -> state `failed` in 0.5 s; the descendant list of daemon 21899 went from ['22342 21899 claude -p ...'] to [] immediately and stayed [] at +2 s. The follow-up task was refused with HTTP 409 {\"error\":{\"code\":\"conflict\",\"message\":\"conflict: agent session asession-65b89fa8-... is Failed; mailbox closed\"}}. There is no API path to stop the current turn and keep the session usable; the subprocess is gone, so nothing could resume in place either.",
+   "evidence": [
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-claude/result.json events[k=p1-active-observed].children = ['22342 21899 ... claude -p --input-format stream-json ...']",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-claude/result.json events[k=interrupt-issued] status=200 resp={\"interrupted\":true} @09:10:39.842",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-claude/result.json events[k=p1-terminal] state=\"failed\" children=[]; events[k=p1-children-after-2s] children=[]",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-claude/result.json task2Status=409, task2Resp.error.message=\"conflict: agent session asession-65b89fa8-a9a1-4234-a4aa-49b732052665 is Failed; mailbox closed\"",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-claude/sse.jsonl:109 agent.session.state state=\"failed\"",
+    "crates/interaction-runtime/src/agents.rs:900-904 (the 409 text)"
+   ],
+   "observations": [
+    "The 409 message leaks the internal Debug spelling `Failed` (capitalised) rather than the wire value `failed` that every other surface uses.",
+    "This run independently reproduces D1: a second real Claude interrupt, again `failed`, again with no `detail`.",
+    "Consequence for a UI: a 'stop' button wired to /interrupt cannot be offered as 'stop generating' — it destroys the session and the operator must create a new one (paying the ~65 s Claude cold start again)."
+   ],
+   "productDefects": [
+    {
+     "title": "No \"stop generating, keep the session\" path: POST /interrupt ends the session and closes its mailbox, so the next task is refused 409",
+     "severity": "medium",
+     "location": "crates/interaction-runtime/src/agents.rs:900-904 (send refused once state is not open: \"agent session {id} is {:?}; mailbox closed\"); reached because gateway.rs:579-587 turns the interrupt into a terminal report (failed for Claude, cancelled for Codex) rather than ending only the turn",
+     "repro": "python3 <out>/bin/b07.py --agent claude-code --port 19014 --out <out>/b07-claude (and --agent codex --port 19015): long task -> wait active -> POST /interrupt -> wait terminal -> POST /v1/agent-sessions/{id}/messages {\"kind\":\"task\",\"body\":{\"task\":\"只回覆一個字：好\"}}",
+     "evidence": [
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-claude/result.json task2Status=409, task2Resp.error.message=\"conflict: agent session ... is Failed; mailbox closed\"",
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-codex/result.json task2Status=409, task2Resp.error.message=\"conflict: agent session ... is Cancelled; mailbox closed\"",
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-claude/result.json events[k=children-final].children=[] (subprocess tree gone, so the session cannot be resumed in place)"
+     ],
+     "phase0MinimalFixCandidate": false
+    },
+    {
+     "title": "A human interrupt of a Claude session is reported as `failed`, not `cancelled` (Codex reports `cancelled` for the same action)",
+     "severity": "high",
+     "location": "crates/interaction-agent-gateway/src/claude.rs:442-451 (any `result` message whose subtype starts with \"error\" -> GatewayEvent::TaskFailed); claude.rs:354-357 (`interrupt()` sends SIGINT and latches nothing); crates/interaction-runtime/src/gateway.rs:579-583 (TaskFailed -> report_agent_session(\"failed\"))",
+     "repro": "python3 <harness>/agent_smoke.py --agent claude-code --port 19010 --out <out> --task '<long essay task>' --cancel-after 3 --cancel-when-active --cancel-mode interrupt --timeout 120  ->  final state \"failed\". Same flags with --agent codex -> \"cancelled\".",
+     "evidence": [
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/claude-interrupt/result.json (events[k=cancel-issued] mode=interrupt status=200; next state event = \"failed\"; final.state=\"failed\")",
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/claude-interrupt/sse.jsonl:109 agent.session.state state=\"failed\"",
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/codex-interrupt/sse.jsonl:103 agent.session.state state=\"cancelled\" (same action, same 3 s delay)",
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-claude/result.json events[k=p1-terminal].state=\"failed\" (independent second run)",
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/diag-failreason/result.json observations[0].inferences.report.error = \"error_during_execution\" (the only reason recorded anywhere)"
+     ],
+     "phase0MinimalFixCandidate": true
+    },
+    {
+     "title": "A `failed` agent session exposes no reason on the session record or in its mailbox; the cause exists only as an observation",
+     "severity": "medium",
+     "location": "crates/interaction-runtime/src/agents.rs:1209-1218 (report_agent_session assigns `entry.record.state = next_state` and never touches `entry.record.detail`; the error payload goes only to `ingest(\"agent.session\", ...)` at agents.rs:1254-1257)",
+     "repro": "Interrupt a live Claude session, then GET /v1/agent-sessions/{id} -> {\"state\":\"failed\", detail absent}; GET /v1/agent-sessions/{id}/messages?direction=from-session -> []. POST /v1/observations/query {\"receptorId\":\"agent.session\",\"limit\":50} is the only place the reason appears, and it is the raw provider token \"error_during_execution\".",
+     "evidence": [
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-claude/result.json p1Terminal = full record with state=\"failed\" and no `detail` key",
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/diag-failreason/result.json events[k=record] detail=null; events[k=mailbox dir=from-session] count=0; observations count=3, newest inferences.report.error=\"error_during_execution\"",
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/diag-failreason/result.json events[k=audit-exit-mentions] count=0 (nothing in /v1/audit either)"
+     ],
+     "phase0MinimalFixCandidate": true
+    }
+   ],
+   "limitations": "I did not test whether resumeProviderSessionId can rebuild an equivalent session after an interrupt — that is a separate case and was out of scope here.",
+   "cleanup": "Probe terminated daemon 21899 (events[k=daemon-stopped]); verified dead, no listener on 19014, descendants [] at exit.",
+   "environment": {
+    "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+    "binaryIdentity": "/Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai (interact-ai 0.8.0, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7)",
+    "agent": "claude-code",
+    "connectorVersion": "Claude Code CLI 2.1.263 via `claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config` (observed in ps output)",
+    "requestedModel": "not-specifiable-via-gateway",
+    "actualModel": "claude-fable-5-1",
+    "actualModelSource": "provider-local-log (not via gateway)",
+    "reasoning": "permissionMode=plan",
+    "newOrResumed": "new",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-claude/workdir",
+    "authorization": "human Bearer token from <out>/home/state/api-token (isolated INTERACT_AI_HOME); restricted agent token only used for the A-07 clear-denial probe",
+    "durationSeconds": 71.11,
+    "costOrTokens": "provider log last assistant usage: input_tokens 2, cache_creation_input_tokens 5764, cache_read_input_tokens 2800, output_tokens 2; no total_cost_usd; gateway budget spentCost 0.0, spentMessages 1"
+   }
+  },
+  {
+   "id": "B-07-codex-stop-vs-cancel",
+   "scenario": "Same probe against Codex: interrupt a live session, then try to send a NEW short task on the SAME session.",
+   "agentOrSurface": "real Codex CLI 0.153.4 via HTTP API 127.0.0.1:19015, isolated home; custom probe <out>/bin/b07.py",
+   "evidenceLevel": "real-agent",
+   "precondition": "Fresh daemon (pid 21898) on port 19015, isolated home, mobile advertise off, agent-bin overrides unset; descendant checks scoped to pid 21898; run concurrently with B-07-claude.",
+   "steps": [
+    "Create session, send the long essay task",
+    "Poll until active (1.63 s); record descendants of 21898",
+    "Wait 3 s, POST .../interrupt -> 200 {\"interrupted\":true}",
+    "Poll to terminal; record descendants at +0 s and +2 s; read from-session",
+    "POST .../messages {kind:task, body:{task:'只回覆一個字：好'}}; record status",
+    "GET the record; re-check descendants"
+   ],
+   "expected": {
+    "ui": "as above — the test decides whether interrupt is turn-level or session-level",
+    "coreState": "open vs terminal",
+    "effect": "follow-up task runs or is refused"
+   },
+   "result": "not-implemented",
+   "actual": "Identical conclusion, different terminal label. Interrupt -> `cancelled` in 0.5 s; descendants went from ['22282 21898 codex app-server', '22297 22282 /bin/zsh -lc ...'] to [] and stayed []. The follow-up task was refused 409 \"conflict: agent session asession-d0a324cc-... is Cancelled; mailbox closed\". So on both agents /interrupt terminates the session; no 'stop this turn' capability exists.",
+   "evidence": [
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-codex/result.json events[k=p1-active-observed].children = ['22282 21898 ... codex app-server', '22297 22282 ... /bin/zsh -lc ...']",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-codex/result.json events[k=interrupt-issued] status=200 resp={\"interrupted\":true} @09:09:36.163",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-codex/result.json events[k=p1-terminal] state=\"cancelled\" children=[]; events[k=p1-children-after-2s] children=[]",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-codex/result.json task2Status=409, task2Resp.error.message=\"conflict: agent session asession-d0a324cc-527d-4c08-b298-2766b8b85f73 is Cancelled; mailbox closed\"",
+    "/Users/user/.codex/sessions/2026/09/07/rollout-2026-09-07T17-09-32-01a07b21-4261-7fe3-ba12-5964bbeba550.jsonl: event_msg turn_aborted reason=interrupted duration_ms=3597"
+   ],
+   "observations": [
+    "Codex's turn/interrupt does abort the turn at the protocol level (turn_aborted), so the underlying provider COULD support a turn-level stop — the runtime chooses to end the session and kill the process anyway. That makes D4 a runtime-layer design gap for Codex, not a provider limitation.",
+    "The zsh child (22297, ppid 22282) is Codex's own shell helper and died with its parent."
+   ],
+   "productDefects": [
+    {
+     "title": "No \"stop generating, keep the session\" path: POST /interrupt ends the session and closes its mailbox, so the next task is refused 409",
+     "severity": "medium",
+     "location": "crates/interaction-runtime/src/agents.rs:900-904 (send refused once state is not open: \"agent session {id} is {:?}; mailbox closed\"); reached because gateway.rs:579-587 turns the interrupt into a terminal report (failed for Claude, cancelled for Codex) rather than ending only the turn",
+     "repro": "python3 <out>/bin/b07.py --agent claude-code --port 19014 --out <out>/b07-claude (and --agent codex --port 19015): long task -> wait active -> POST /interrupt -> wait terminal -> POST /v1/agent-sessions/{id}/messages {\"kind\":\"task\",\"body\":{\"task\":\"只回覆一個字：好\"}}",
+     "evidence": [
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-claude/result.json task2Status=409, task2Resp.error.message=\"conflict: agent session ... is Failed; mailbox closed\"",
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-codex/result.json task2Status=409, task2Resp.error.message=\"conflict: agent session ... is Cancelled; mailbox closed\"",
+      "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-claude/result.json events[k=children-final].children=[] (subprocess tree gone, so the session cannot be resumed in place)"
+     ],
+     "phase0MinimalFixCandidate": false
+    }
+   ],
+   "limitations": "Not tested: whether a second /interrupt-then-resume flow via resumeProviderSessionId preserves the Codex thread.",
+   "cleanup": "Probe terminated daemon 21898; verified dead, no listener on 19015, descendants [] at exit.",
+   "environment": {
+    "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+    "binaryIdentity": "/Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai (interact-ai 0.8.0, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7)",
+    "agent": "codex",
+    "connectorVersion": "Codex CLI 0.153.4 via `codex app-server` JSON-RPC v2 (rollout cli_version 0.153.4, originator adaptive-interaction)",
+    "requestedModel": "not-specifiable-via-gateway",
+    "actualModel": "gpt-6-astra",
+    "actualModelSource": "provider-local-log (not via gateway)",
+    "reasoning": "turn_context.reasoning_effort = null; approval_policy=untrusted; sandbox_policy={type:read-only}",
+    "newOrResumed": "new",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/b07-codex/workdir",
+    "authorization": "human Bearer token from <out>/home/state/api-token (isolated INTERACT_AI_HOME); restricted agent token only used for the A-07 clear-denial probe",
+    "durationSeconds": 7.46,
+    "costOrTokens": "unknown — no token_count records in the rollout; gateway budget spentCost 0.0, spentMessages 1"
+   }
+  },
+  {
+   "id": "A-07-estop-claude",
+   "scenario": "Press Emergency Stop while a real Claude session is actively generating; verify the session, its subprocess, the status projection, and the refusal of new sessions.",
+   "agentOrSurface": "real Claude Code CLI 2.1.263 via HTTP API 127.0.0.1:19016, isolated home; custom probe <out>/bin/a07.py",
+   "evidenceLevel": "real-agent",
+   "precondition": "Fresh daemon d1 (pid 41215) on port 19016, isolated home, mobile advertise off, agent-bin overrides unset; GET /v1/status.emergencyStop == false before the test; descendant checks scoped to pid 41215.",
+   "steps": [
+    "GET /v1/status -> emergencyStop false",
+    "Create Claude session, send the long essay task, poll until active (63.2 s); record descendants of 41215",
+    "Wait 3 s, POST /v1/emergency-stop {} with the HUMAN token",
+    "GET the session record; GET /v1/status; record descendants at +0.5 s and +3 s; read from-session",
+    "POST /v1/agent-sessions again (human token) and record the status",
+    "POST /v1/emergency-stop/clear with the RESTRICTED AGENT token from <home>/state/api-agent-token and record the status"
+   ],
+   "expected": {
+    "ui": "SSE emits emergency.stop and the session projection goes to a stopped state; /v1/status.emergencyStop true",
+    "coreState": "the open agent session is cancelled; consents revoked; estop latched in the store",
+    "effect": "the `claude -p` subprocess tree is terminated; new agent sessions are refused; the AI cannot clear the stop"
+   },
+   "result": "completed",
+   "actual": "All four invariants held. POST /v1/emergency-stop returned 200 with an itemised, honest report (stoppedActuators 14/14, unconfirmedActuators [], sensors.stopped true, sensors.uncertain false). The live session went to `cancelled` with detail \"cancelled (was Active)\"; SSE emitted session.stopped reason=cancelled, agent.session.state=cancelled and emergency.stop. The Claude child (pid 41483, ppid 41215) that was alive at 09:12:53 was gone 1 s after the stop and still gone at +3 s. /v1/status.emergencyStop became true. A new POST /v1/agent-sessions was refused 403 policy_blocked \"emergency stop engaged; no new agent sessions\". The restricted agent token was refused 403 token_scope_forbidden on /v1/emergency-stop/clear while still being able to READ emergencyStop=true.",
+   "evidence": [
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/result.json events[k=status-before] emergencyStop=false",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/result.json events[k=pre-estop] state=active children=['41483 41215 ... claude -p --input-format stream-json ...']",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/result.json events[k=emergency-stop] status=200 resp={stoppedActuators:14,totalActuators:14,unconfirmedActuators:[],sensors:{stopped:true,uncertain:false},stoppedActions:0}",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/result.json events[k=session-after-estop] state=\"cancelled\" detail=\"cancelled (was Active)\"",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/result.json events[k=children-after-estop] children=[] and events[k=children-after-estop-3s] children=[]",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/result.json events[k=create-while-estopped] status=403 code=policy_blocked",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/result.json events[k=agent-clear-attempt] status=403 code=token_scope_forbidden; events[k=status-via-agent-token] emergencyStop=true",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/sse-d1.jsonl: session.stopped reason=cancelled @09:12:56.970495Z, agent.session.state=cancelled @09:12:56.970505Z, emergency.stop @09:12:56.970905Z",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/result.json fromSessionAfterEstop[0].kind=\"emergency-stop\" body.deliveredToAgent=false, body.reason='緊急停止：這個工作已被取消，並已對它的子程序樹送出終止（先禮貌終止，寬限後強制）；不會自動恢復。'",
+    "crates/interaction-api/src/lib.rs:505-514 vs 660-690 — /v1/emergency-stop is agent-allowed, /v1/emergency-stop/clear is not"
+   ],
+   "observations": [
+    "The from-session mailbox message is explicitly honest about the honesty ladder: it says a termination was SENT to the subprocess tree and that deliveredToAgent=false — it does not claim the agent acknowledged anything.",
+    "Emergency stop is the ONE cancel path that puts a truthful reason on the session (detail 'cancelled (was Active)') and a message in the mailbox; /interrupt (D3) puts neither.",
+    "The estop report distinguishes stopped from unconfirmed actuators; with 14/14 confirmed and no devices attached this run cannot exercise the degraded wording.",
+    "The agent token could still READ emergencyStop=true, which is the right asymmetry (an AI may observe the stop, not lift it)."
+   ],
+   "productDefects": [],
+   "limitations": "No physical actuators or paired phones were attached, so `unconfirmedActuators` / `sensors.uncertain` / `characterEmergency` were all empty — the degraded-honesty branches of emergency_stop (runtime.rs:1190-1215) are NOT covered by this run. The subprocess death is from ps snapshots at +1 s/+3 s. actualModel is unknown here because the kill preceded the provider log flush.",
+   "cleanup": "Covered by A-07-estop-restart: daemon d1 SIGTERMed, d2 SIGTERMed after the clear; both verified dead, no listener on 19016.",
+   "environment": {
+    "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+    "binaryIdentity": "/Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai (interact-ai 0.8.0, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7)",
+    "agent": "claude-code",
+    "connectorVersion": "Claude Code CLI 2.1.263 via `claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config` (observed in ps output)",
+    "requestedModel": "not-specifiable-via-gateway",
+    "actualModel": "unknown",
+    "actualModelSource": "provider-local-log (not via gateway)",
+    "reasoning": "permissionMode=plan recorded; no assistant turn flushed before the estop kill, so no model line exists in b917c6c3-....jsonl (8 lines)",
+    "newOrResumed": "new",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/workdir",
+    "authorization": "human Bearer token from <out>/home/state/api-token (isolated INTERACT_AI_HOME); restricted agent token only used for the A-07 clear-denial probe",
+    "durationSeconds": 69.4,
+    "costOrTokens": "unknown from provider log (no assistant/usage entry flushed); gateway budget spentCost 0.0, spentMessages 1"
+   }
+  },
+  {
+   "id": "A-07-estop-restart",
+   "scenario": "After the emergency stop, SIGTERM the daemon and restart it against the same INTERACT_AI_HOME: the stop must not auto-recover, and only a human may clear it.",
+   "agentOrSurface": "interact-ai daemon restart on 127.0.0.1:19016 (same isolated home), continuation of the A-07 Claude run",
+   "evidenceLevel": "real-agent",
+   "precondition": "Emergency stop engaged by A-07-estop-claude; daemon d1 pid 41215 running; the cancelled Claude session asession-0be8d3e6-580c-415c-829f-94de61acea85 persisted in that home.",
+   "steps": [
+    "SIGTERM daemon d1 (41215); wait for exit; confirm /v1/ready no longer answers",
+    "Spawn daemon d2 against the SAME home and port; wait for /v1/ready",
+    "GET /v1/status -> emergencyStop must still be true",
+    "GET the original session -> state must still be cancelled",
+    "POST /v1/agent-sessions -> must still be refused",
+    "POST /v1/emergency-stop/clear with the HUMAN token -> 200",
+    "GET /v1/status -> emergencyStop false; POST /v1/agent-sessions -> 200; close that probe session; SIGTERM d2"
+   ],
+   "expected": {
+    "ui": "after restart the status projection still reports emergencyStop true; clearing emits emergency.stop {cleared:true}",
+    "coreState": "estop_engaged persisted in the store survives the restart; the cancelled session is not resurrected",
+    "effect": "session creation stays blocked until a human clears, then works"
+   },
+   "result": "completed",
+   "actual": "d1 exited on SIGTERM (returncode -15) and /v1/ready went false. d2 (pid 51232) came up on the same home in 0.26 s and reported emergencyStop=true — the stop did NOT auto-recover. The original session still read `cancelled` / \"cancelled (was Active)\" (not resurrected, not re-run). A new POST /v1/agent-sessions was still refused 403 policy_blocked. POST /v1/emergency-stop/clear with the human token returned 200 {\"cleared\":true}, /v1/status.emergencyStop went false, and the next POST /v1/agent-sessions succeeded (200, created) — which I then closed. Audit on the restarted daemon carries emergency.clear actor=api and character.session.emergency engaged=false.",
+   "evidence": [
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/result.json events[k=sigterm-daemon] pid=41215, events[k=daemon-exited] code=-15, events[k=ready-after-stop] ready=false",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/result.json events[k=daemon-spawned tag=d2] pid=51232; events[k=status-after-restart] emergencyStop=true",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/result.json events[k=session-after-restart] state=\"cancelled\" detail=\"cancelled (was Active)\"",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/result.json events[k=create-after-restart] status=403 policy_blocked",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/result.json events[k=human-clear] status=200 resp={\"cleared\":true}; events[k=status-after-clear] emergencyStop=false",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/result.json events[k=create-after-clear] status=200 state=created id=asession-a4f7245f-c6f4-4a61-b4c9-be9e2f2c9fb0; events[k=close-probe-session] status=200 state=closed",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/sse-d2.jsonl line 1: emergency.stop {\"actor\":\"api\",\"cleared\":true} @09:13:02.258017Z",
+    "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/result.json auditTail: kind=emergency.clear actor=api @09:13:02.258; kind=character.session.truth truth=\"emergency\" @09:13:01.674 (re-projected on restart before the clear)",
+    "crates/interaction-runtime/src/runtime.rs:1116-1118 (store.set_meta estop_engaged true) and runtime.rs:1253-1256 (clear only via explicit human call)"
+   ],
+   "observations": [
+    "On restart the runtime re-projected truth=\"emergency\" to the character layer (audit at 09:13:01.674) before any client asked — the stop is re-announced, not silently latched.",
+    "The whole restart-to-clear sequence took ~2.5 s, so a restarted daemon is blocked from the first request onward; there is no window in which a new session could slip through.",
+    "The cleared session created afterwards never received a task, so no additional provider spend."
+   ],
+   "productDefects": [],
+   "limitations": "Only SIGTERM was tested here (SIGKILL restart behaviour was covered by the previous round's restart-* runs, not re-run in R1). Only the API clear path was tested; the CLI `emergency-stop --clear` and the estop-file watcher (runtime.rs:2403-2435) were not exercised.",
+   "cleanup": "Daemon d2 (51232) SIGTERMed by the probe; I verified with `ps -p` that 41215 and 51232 are both gone, no listener on 19016, and no orphan `claude -p` child of either.",
+   "environment": {
+    "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+    "binaryIdentity": "/Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai (interact-ai 0.8.0, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7)",
+    "agent": "claude-code",
+    "connectorVersion": "Claude Code CLI 2.1.263 via `claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config` (observed in ps output)",
+    "requestedModel": "not-specifiable-via-gateway",
+    "actualModel": "n/a — no model turn ran in this phase",
+    "actualModelSource": "n/a",
+    "reasoning": "the post-clear probe session was created and closed without sending a task",
+    "newOrResumed": "resumed (same INTERACT_AI_HOME, new daemon process 51232)",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1/a07-claude/workdir",
+    "authorization": "human Bearer token from <out>/home/state/api-token (isolated INTERACT_AI_HOME); restricted agent token only used for the A-07 clear-denial probe",
+    "durationSeconds": 2.5,
+    "costOrTokens": "no provider call made in this phase; gateway budget spentCost 0.0, spentMessages 0 on the post-clear session"
+   }
+  }
+ ],
+ "commands": [
+  {
+   "name": "E0-03 interrupt pair (claude 19010 + codex 19011)",
+   "cmd": "python3 harness/agent_smoke.py --agent claude-code --port 19010 --out <R>/claude-interrupt --task '<essay>' --cancel-after 3 --cancel-when-active --cancel-mode interrupt --close-after-cancel 5 --timeout 120  &  python3 harness/agent_smoke.py --agent codex --port 19011 --out <R>/codex-interrupt ... (same flags)",
+   "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2",
+   "start": "2026-09-07T09:03:56Z",
+   "end": "2026-09-07T09:05:09Z",
+   "seconds": 73,
+   "exit": 0,
+   "stdout": "RESULT claude-code final=failed; RESULT codex final=cancelled",
+   "stderr": ""
+  },
+  {
+   "name": "E0-03 close pair (claude 19012 + codex 19013)",
+   "cmd": "python3 harness/agent_smoke.py --agent claude-code --port 19012 --out <R>/claude-close ... --cancel-mode close --close-after-cancel 0 --timeout 150 --keep-daemon  &  same for codex on 19013",
+   "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2",
+   "start": "2026-09-07T09:07:07Z",
+   "end": "2026-09-07T09:08:17Z",
+   "seconds": 70,
+   "exit": 0,
+   "stdout": "RESULT claude-code final=closed; RESULT codex final=closed",
+   "stderr": ""
+  },
+  {
+   "name": "close-mode descendant check + daemon kill",
+   "cmd": "ps -axo pid,pgid,ppid,etime,stat,command | awk '$3==5661 || $3==5662 || $1==5661 || $1==5662' ; kill -TERM 5661 5662 ; ps -p 5661 -p 5662",
+   "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1",
+   "start": "2026-09-07T09:08:25Z",
+   "end": "2026-09-07T09:08:30Z",
+   "seconds": 5,
+   "exit": 0,
+   "stdout": "only 5661/5662 themselves listed (no descendants); after kill both gone",
+   "stderr": ""
+  },
+  {
+   "name": "B-07 stop-vs-cancel pair (claude 19014 + codex 19015)",
+   "cmd": "python3 bin/b07.py --agent claude-code --port 19014 --out <R>/b07-claude  &  python3 bin/b07.py --agent codex --port 19015 --out <R>/b07-codex",
+   "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1",
+   "start": "2026-09-07T09:09:31Z",
+   "end": "2026-09-07T09:10:42Z",
+   "seconds": 71,
+   "exit": 0,
+   "stdout": "RESULT claude p1=failed task2Status=409; RESULT codex p1=cancelled task2Status=409",
+   "stderr": ""
+  },
+  {
+   "name": "A-07 emergency stop + restart (19016)",
+   "cmd": "python3 bin/a07.py --agent claude-code --port 19016 --out <R>/a07-claude",
+   "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1",
+   "start": "2026-09-07T09:11:50Z",
+   "end": "2026-09-07T09:13:02Z",
+   "seconds": 72,
+   "exit": 0,
+   "stdout": "RESULT estopStatus=true afterRestart=true sessionAfterEstop=cancelled",
+   "stderr": ""
+  },
+  {
+   "name": "DIAGNOSTIC re-run: is the Claude failure reason retrievable? (19017)",
+   "cmd": "python3 bin/diag_failreason.py <R>/diag-failreason 19017",
+   "cwd": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R1",
+   "start": "2026-09-07T09:15:14Z",
+   "end": "2026-09-07T09:16:16Z",
+   "seconds": 62,
+   "exit": 0,
+   "stdout": "record detail=null; from-session count=0; /v1/observations/query -> 3 observations, newest inferences.report.error='error_during_execution'; audit exit-mentions 0",
+   "stderr": ""
+  },
+  {
+   "name": "final cleanup verification",
+   "cmd": "for p in 91045 91044 5662 5661 21899 21898 41215 51232 71157; do ps -p $p; done ; lsof -nP -iTCP -sTCP:LISTEN | grep ':190' ; ps -axo pid,ppid,command | grep -E 'claude -p --input-format|codex app-server' ; find ~/.adaptive-interaction -newermt '-40 minutes'",
+   "cwd": "/Users/user/Workspace/claude-lab/adaptive-interaction",
+   "start": "2026-09-07T09:17:30Z",
+   "end": "2026-09-07T09:17:33Z",
+   "seconds": 3,
+   "exit": 0,
+   "stdout": "all 9 daemon PIDs gone; no listener on 19010-19019; no orphan agent child; ~/.adaptive-interaction untouched; disk 12Gi free",
+   "stderr": ""
+  }
+ ],
+ "openQuestions": [
+  "D1 minimal fix: should ClaudeHandle latch an `interrupt_requested` flag (claude.rs:354) so the next error `result` maps to TaskCancelled, or should gateway.rs remember that a human interrupt was issued for this session? The second is connector-agnostic and would also cover future connectors.",
+  "D2: should close emit the record's actual state string verbatim, or should the event carry BOTH `state` and a separate `closed:true` field so consumers can tell 'failed and now closed' from 'closed cleanly'?",
+  "Is `error_during_execution` stable across Claude Code versions? If the fix keys on that subtype rather than on an interrupt latch it will silently rot.",
+  "D4: Codex's turn/interrupt already aborts only the turn (turn_aborted) and the runtime kills the process anyway. Is a turn-level stop wanted as a distinct API verb (e.g. POST .../stop-turn), and is it even expressible for Claude's -p mode?",
+  "The ~63 s Claude cold start (task-sent -> working) was consistent across all five Claude runs. Is that the MCP config load in `--strict-mcp-config --mcp-config {...}`, and does it belong in the Phase 0 baseline as a usability defect?",
+  "Should partial agent output produced before a cancel be written into the from-session mailbox (it currently survives only as an `agent.session` observation), or is discarding it the intended honesty behaviour?"
+ ],
+ "notes": "R1 ran 7 real-agent sessions (5 Claude Code 2.1.263, 4 Codex 0.153.4 — counting the B-07 pair and the diagnostic) on ports 19010-19017, each with its own daemon and INTERACT_AI_HOME under the R1 out directory. No repo file was modified and nothing was built. Every daemon I spawned (91045, 91044, 5662, 5661, 21899, 21898, 41215, 51232, 71157) is confirmed dead and no `claude -p` / `codex app-server` descendant of any of them survives; ~/.adaptive-interaction, ~/.claude and ~/.codex were only read. Headline results: emergency stop (A-07) passes every invariant I could exercise on this hardware — live session cancelled, subprocess killed, status latched true across a SIGTERM restart, new sessions 403, and the restricted agent token refused the clear while still able to read the flag. Cancellation (E0-03) works mechanically on both agents and in both modes, but Claude's /interrupt is misreported as `failed` with no reason attached, while Codex reports `cancelled` — same call, same runtime, two different honesty outcomes. B-07 has a clean answer: /interrupt is a session-level cancel on BOTH agents (409 'mailbox closed' on the follow-up task), so there is currently no 'stop generating' capability. Two additional defects fell out of the evidence rather than the plan: the close event projects `closed` over a record that stayed `failed` (D2), and a failed session carries no reason on the record or in the mailbox (D3) — the cause exists only as an `agent.session` observation reading `error_during_execution`. D1/D2/D3 are all small, local, Phase-0-sized fixes. Model identity is provider-local only, as required: Claude runs came back claude-fable-5-1 / permissionMode plan, Codex runs gpt-6-astra with approval_policy untrusted and sandbox read-only; two Claude runs (claude-close, a07-claude) have actualModel unknown because the kill preceded the provider log flush and I did not infer them from sibling runs."
+}

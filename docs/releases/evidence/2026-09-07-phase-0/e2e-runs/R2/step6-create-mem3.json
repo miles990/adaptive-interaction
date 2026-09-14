@@ -1,0 +1,2 @@
+{"agentDenylist":[],"agentVisibility":["claude-code"],"confidence":1.0,"content":"重啟後應仍存在（暗號 phase0-mem3-7d1dbf）","createdAt":"2026-09-07T09:09:22.786281Z","createdBy":{"kind":"human"},"kind":"preference","layer":"user-memory","memoryId":"mem-6a6e03f4-74b8-4bc7-bc25-4f3b4a4e6572","provenance":[],"retention":{"reviewAfter":"2026-10-07T09:09:22.786227Z"},"schemaVersion":"1.0","tags":["persist-probe"],"title":"持久化探測","updatedAt":"2026-09-07T09:09:22.786281Z"}
+HTTP_STATUS:200

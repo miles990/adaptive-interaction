@@ -1,0 +1,22 @@
+START 2026-09-07T10:24:48Z
+architecture-checks @ /Users/user/Workspace/claude-lab/adaptive-interaction
+完整輸出：/var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/architecture-evidence.VzuNQD
+
+── drill-lint ──────────────────────────────────────────────
+  ✔ scripts/drills/provider-disable-reenable.sh — bash -n 通過，引用的檔案與端點都在（未實跑）
+  ✔ scripts/drills/remove-package-keep-user-data.sh — bash -n 通過，引用的檔案與端點都在（未實跑）
+  ✔ node --check scripts/drills/character-package.mjs（未實跑）
+  ✔ node --check scripts/drills/optional-state.mjs（未實跑）
+  ✔ Python syntax scripts/drills/provider-lifecycle.py（未實跑）
+  ✔ Python syntax scripts/drills/restricted-device.py（未實跑）
+
+── 摘要 ────────────────────────────────────────────────
+  docs       SKIP 未指定 --docs
+  ts         SKIP 未指定 --ts
+  rust       SKIP 未指定 --rust
+  drill-lint PASS 6 支腳本靜態檢查通過（未實跑）: provider-disable-reenable.sh:ok remove-package-keep-user-data.sh:ok
+  swift      SKIP 未指定 --swift；不以測試檔存在當成通過
+  drills     SKIP 未指定 --drills；靜態 lint 不代表演練通過
+architecture-checks: 所選組全部通過；5 組未選取（不是通過）；證據 /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/architecture-evidence.VzuNQD
+drill-lint exit=0
+END 2026-09-07T10:24:48Z

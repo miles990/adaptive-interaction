@@ -1,0 +1,185 @@
+{
+ "group": "E0-04 核心重啟（分析上一輪原始資料，不跑新東西）",
+ "notes": "本輪不重跑任何 daemon／agent，只讀取上一輪（同一 HEAD 78dcda1、同一 binary sha256 1e066d84…c7c、2026-09-07 11:44–11:58 台北時間）restart-claude-kill 與 restart-codex-kill 的 result.json／daemon.log／home/state，並對照 crates/interaction-runtime/src/agents.rs（restore_agent_sessions／reap_recorded_gateway_pgids）、crates/interaction-runtime/src/runtime.rs（crash recovery）、docs（ARCHITECTURE.md／FEATURES.md／v0.8.0-known-limitations.md／CHANGELOG.md）與 provider-local session log（~/.claude/projects/…、~/.codex/sessions/…，唯讀）。結論：核心重啟後的 lease／mailbox／狀態誠實度契約（expired、409/mailbox closed、404/gateway not found、409/cannot renew）在 claude 與 codex 兩路都符合預期，判 completed；孤兒子程序回收 best-effort、僅在下次重啟時 reap，是 v0.4 就記錄在案的既有已知限制（非本輪新發現缺陷）；claude 該次 session 在被殺前 21 s 仍卡在 created（從未 active），對照同一批次 claude-smoke-1 只需 ~5 s 就 active，成因從現有證據無法判定（很可能與 Claude 用量額度在台北時間中午重置前後的延遲有關，但 daemon.log 未開 debug、provider-local session log 也沒有錯誤訊息可佐證），誠實標 unknown，不歸咎程式碼。SIGTERM 路徑上一輪沒有涵蓋，標 not-run 並給出重現命令。",
+ "cases": [
+  {
+   "id": "E0-04-claude-kill",
+   "scenario": "真 claude-code agent session 進行中，daemon 收到 SIGKILL（非乾淨關閉），驗證重啟後 session 狀態誠實度、lease／mailbox 端點行為、以及 claude 子程序孤兒回收",
+   "agentOrSurface": "interact-ai daemon HTTP API (/v1/agent-sessions) + Claude Code CLI 真子程序（-p --input-format stream-json --output-format stream-json --safe-mode，plan 模式）",
+   "evidenceLevel": "real-agent",
+   "precondition": "同一 home 目錄先啟動 daemon（port 18931），POST /v1/agent-sessions 建立 claude-code session（label phase0-restart，workdir 隔離 tmp 目錄，ttlMinutes 20，maxMessages 40），POST task 訊息（繁中 1500 字重啟主題短文，明示不讀寫檔案）",
+   "steps": [
+    "harness restart_test.py --agent claude-code --port 18931 --out .../restart-claude-kill --signal KILL",
+    "建 session（create, status 200, sid asession-ba926819-...）",
+    "送 task 訊息（task-sent, status 200）",
+    "輪詢 GET /v1/agent-sessions/{id} 直到 active 或逾時 80×0.25s=20s",
+    "state-before-kill：21.226s 時仍是 created（從未觀察到 active），ps 顯示 claude 子程序 pid=pgid=15721、ppid=15527（daemon pid）、已存活 21s",
+    "對 daemon pid 15527 送 SIGKILL（daemon-killed, exitcode -9）",
+    "kill 後 +2s 與 +5s 各查一次子程序：pid 15721 仍在，ppid 已變成 1（孤兒，被 init 收養）",
+    "同一 home 目錄重新啟動 daemon（daemon-restarted, pid 16346）",
+    "GET session：session-after-restart",
+    "GET list：list-after-restart",
+    "GET messages?direction=from-session：from-session-after-restart",
+    "POST task 訊息：send-after-restart",
+    "POST interrupt：interrupt-after-restart",
+    "POST renew {extraMinutes:5}：renew-after-restart",
+    "GET /v1/status：statusAfter",
+    "再查一次子程序：children-final"
+   ],
+   "expected": {
+    "ui": "重啟後任何查詢這個 session 的介面都必須誠實顯示已終結狀態（expired），不得停在重啟前的假象（例如仍顯示「工作中」）；不得讓使用者以為工作還在跑",
+    "coreState": "record.state 從任何 is_open() 狀態（含 created）被 restore_agent_sessions 標成 Expired，detail 帶重啟與（若能歸因）pgid 回收訊息；lease 保留但已不可續；孤兒 claude 子程序被同一輪 restore 用記錄的 pgid 終結（TERM→≤1s 輪詢→KILL）",
+    "effect": "後續對這個 session 的操作要嘛被檔在正確邊界（send/renew 409 conflict，因為已 Expired；interrupt 404 not_found，因為 gateway session 已不存在），要嘛回報空／終結狀態；kill 前存活的孤兒 claude 行程在重啟後應被清乾淨（ps 查不到）"
+   },
+   "result": "completed",
+   "actual": "session-after-restart：status 200, state=\"expired\", detail=\"runtime restarted; orphan subprocess group reaped (pgid 15721)\"（agents.rs:1493-1499 精確符合：record.state.is_open() 為 true 時標 Expired，detail 依 reap_recorded_gateway_pgids 回傳的 sid→pgid map 組字串）。list-after-restart：n=1, states=[\"expired\"]。send-after-restart：409 conflict \"agent session ... is Expired; mailbox closed\"。interrupt-after-restart：404 not_found \"not found: gateway session ...\"（gateway 層 handle 已隨 daemon 死亡且未跨重啟持久化，是預期行為，不是 mailbox 層邏輯）。renew-after-restart：409 conflict \"...Expired; expired/closed sessions cannot be renewed\"。children-after-daemon-death（kill 後 +2s／+5s）：pid 15721 仍存活，ppid 從 15527 變成 1（孤兒，未提前退出）。daemon-restarted 後 children-final：[]（已被回收）。statusAfter.agentSessions=0、unresolvedStopHealth.recoveryUnknown=true（因 clean_shutdown 標記在 SIGKILL 前未寫 true，sensor_journal.rs:105 !clean_shutdown → recoveryUnknown，屬預期的誠實旗標，非 agent-session 專屬但同樣反映『上一輪沒走完』）。三者（API 投影 session-after-restart、核心狀態 record.state=Expired 落地於 store、實際效果 pid 15721 從存活孤兒→ps 查無）互相一致，判 completed。",
+   "evidence": [
+    "/private/tmp/.../79983209.../scratchpad/e2e/restart-claude-kill/result.json events[3] state-before-kill (mono 21.226)",
+    "同上 events[4] daemon-killed exitcode -9",
+    "同上 events[5]/[6] children-after-daemon-death / +5s：pid 15721 ppid=1",
+    "同上 events[7] daemon-restarted pid 16346",
+    "同上 events[8] session-after-restart：state=expired, detail=\"runtime restarted; orphan subprocess group reaped (pgid 15721)\"",
+    "同上 events[9] list-after-restart：n=1, states=[expired]",
+    "同上 events[11] send-after-restart：409 mailbox closed",
+    "同上 events[12] interrupt-after-restart：404 not_found",
+    "同上 events[13] renew-after-restart：409 cannot renew",
+    "同上 events[14] children-final：[]",
+    "同上 statusAfter.unresolvedStopHealth={overflowCount:0,parked:false,recoveryUnknown:true,storage:durable}",
+    "/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime/src/agents.rs:1479-1520 restore_agent_sessions（is_open→Expired、reaped map 組 detail、emit 'unknown' taxonomy）",
+    "同 repo crates/interaction-runtime/src/agents.rs:1620-1671 reap_recorded_gateway_pgids（TERM→輪詢→KILL、pid/pgid/cmd 三重驗證後才送訊號）",
+    "同 repo crates/interaction-runtime/src/sensor_journal.rs:105 recovery_unknown = !clean_shutdown"
+   ],
+   "observations": [
+    "session-before-kill 卡在 created 21.2s、從未觀察到 active，屬異常慢：同一批次 claude-smoke-1（同 daemon binary、同 --safe-mode 連接器、同一 harness）從 create 到 active 只花 ~5s（mono 1.012→6.083）。restart-claude-kill 的 claude provider-local session log（~/.claude/projects/.../bd7e523b-....jsonl）只有 queue-operation 與 user 訊息（03:58:06.171Z enqueue），完全沒有任何 assistant/回應紀錄，即使子程序已存活到 21s 後才被殺——代表這段時間內連第一個 assistant 事件都沒發生，不是『daemon 沒轉發』而是『claude CLI／上游 API 這段時間沒有回應內容』。daemon.log 在此輪只有 info 等級（沒開 debug），看不到 gateway 對 claude stdout 的逐行處理紀錄，故無法從程式碼證據上鎖定原因。發生時間 2026-09-07T03:58Z ≈ 台北 11:58，接近使用者提到的 Claude 用量上限中午重置窗口，是合理但未證實的假說；也不能排除本機當時資源競爭（同機還有其他 agent 在跑，任務前提提及）。誠實標 unknown，不歸咎特定程式碼路徑。",
+    "孤兒子程序『daemon SIGKILL 後、下次重啟前』的存活期是設計已知、且 CHANGELOG 明確記錄的殘餘風險，不是本輪新發現的缺陷：agents.rs:1618 註解『才送訊號，其餘放過並丟棄記錄——寧可留下孤兒（誠實記為已知限制），不可誤殺無關行程』；CHANGELOG.md:1846『10. agent 子程序孤兒回收 best-effort：pgid OS 快照歸因、重啟 reap 驗證存活＋leader＋command；極端 pid 重用可能誤殺、歸因不唯一時誠實放棄（warn）』（v0.4 起）與 CHANGELOG.md:1859『8. agent orphan recovery 對無法唯一歸因的 pgid fail-safe 放棄並記錄 warning』。本輪實測（events[5]/[6]：pid 15721 存活到 ppid 變 1 為止，直到 daemon 重啟才在 children-final 消失）與該設計描述完全一致：只有『下一次啟動 restore_agent_sessions()（含被動的下一次 daemon 上線)』會呼叫 reap_recorded_gateway_pgids 清理；若使用者從此不再啟動這個 home 的 daemon，這個孤兒 claude 子程序會依照它自己的（無 stdin/父程序管理下的）生命週期跑到自然結束或被系統其它機制回收，這段期間內它仍持有真 API 額度、可能仍在寫外部副作用（本輪測試已明示 claude 不讀寫檔案，但一般任務不受此限）。這是 by-design 的已知限制，不是新缺陷，未列入 productDefects。",
+    "docs/ARCHITECTURE.md、docs/FEATURES.md、docs/releases/v0.8.0-known-limitations.md 三份文件用 grep -i restart 都沒有命中任何段落——v0.8.0 known-limitations 清單沒有重申『重啟後孤兒子程序 best-effort』這條，只在 CHANGELOG 歷史（v0.4 段落）與程式碼註解裡看得到；使用者若只讀 v0.8.0 known-limitations.md 不會看到這條，屬文件延續性的小落差（非本輪要修的功能缺陷，僅記錄供之後決定要不要把它上提到目前版本的已知限制清單）。",
+    "interrupt-after-restart 回 404『not found: gateway session』而不是 409：這是因為 gateway 層的 in-memory handle（用於 interrupt 的即時通道）本來就不跨重啟持久化，重啟後任何 sessionId 對 gateway 而言都是『沒見過』，與 mailbox/lease 層（409 Expired）是兩套獨立檢查、順序不同、回應碼也不同，屬預期分工，非不一致。"
+   ],
+   "productDefects": [],
+   "limitations": "孤兒子程序回收是 best-effort（pgid OS 快照歸因＋重啟時才 reap），若 daemon 從此不再啟動，孤兒 claude 行程會不受管理地跑到自然結束；本輪只驗證『下次重啟會清乾淨』，沒有驗證『長期不重啟』的上限（那需要真的放著不重啟觀察，超出本輪範圍）。session 卡在 created 21s 未 active 的成因無法從現有證據確定，標 unknown。",
+   "cleanup": "harness 自行在 SIGTERM d2.terminate() 後結束，人工核對本分析未新建任何 daemon／程序，純讀檔分析。",
+   "environment": {
+    "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032 (v0.8.0 tag 1fa69b8 之後只有 docs/test commits)",
+    "binaryIdentity": "/Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai, version 0.8.0, built 2026-09-07 11:29 台北, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7",
+    "agent": "claude-code",
+    "connectorVersion": "unknown（本輪未量測；claude CLI 版本依環境資訊為 Claude Code 2.1.263，未在本次 log 內重新核對）",
+    "requestedModel": "not-specifiable-via-gateway",
+    "actualModel": "unknown（provider-local session log ~/.claude/projects/.../bd7e523b-....jsonl 只有 user/queue-operation/attachment 事件，沒有任何 assistant 訊息，因此沒有 model 欄位可讀；子程序在有機會回應前就被 SIGKILL 連帶孤兒化）",
+    "actualModelSource": "provider-local-log (not via gateway)",
+    "reasoning": "unknown（同上，無 assistant 紀錄）",
+    "newOrResumed": "new",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/restart-claude-kill/workdir",
+    "authorization": "human bearer token（home/state/api-token；harness 用人類 token 呼叫 /v1/agent-sessions，非受限 agent token）",
+    "durationSeconds": 28.23,
+    "costOrTokens": "budget.spentCost=0.0, budget.spentMessages=1（人工任務訊息計 1 則；agent 本身未產出任何回應可計費）"
+   }
+  },
+  {
+   "id": "E0-04-codex-kill",
+   "scenario": "真 codex app-server agent session 進行中，daemon 收到 SIGKILL，驗證 codex 子程序隨 daemon 死亡（非孤兒化）、重啟後同一組 lease／mailbox 契約端點行為",
+   "agentOrSurface": "interact-ai daemon HTTP API (/v1/agent-sessions) + codex app-server 真子程序（JSON-RPC v2，sandbox read-only，approval_policy untrusted）",
+   "evidenceLevel": "real-agent",
+   "precondition": "同一 home 目錄先啟動 daemon（port 18931，緊接在 claude-kill 測試之後的同一輪），POST /v1/agent-sessions 建立 codex session（同樣的 label／workdir 隔離／ttlMinutes 20／maxMessages 40／同一份繁中重啟主題任務文字）",
+   "steps": [
+    "harness restart_test.py --agent codex --port 18931 --out .../restart-codex-kill --signal KILL",
+    "建 session（create, status 200, sid asession-55196a99-...）",
+    "送 task 訊息（task-sent, status 200）",
+    "輪詢 GET /v1/agent-sessions/{id}：僅 0.858s 即觀察到 active（比 claude 快很多，見 observations）",
+    "state-before-kill：children 顯示 codex app-server pid=pgid=16818、ppid=16638（daemon pid）",
+    "對 daemon pid 16638 送 SIGKILL（daemon-killed, exitcode -9）",
+    "kill 後 +2s 與 +5s 各查一次子程序：children 皆為空（codex 未存活成孤兒）",
+    "同一 home 目錄重新啟動 daemon（daemon-restarted, pid 17240）",
+    "GET session／list／messages／send／interrupt／renew／status／children-final，同 claude-kill 案例步驟"
+   ],
+   "expected": {
+    "ui": "同 claude-kill：重啟後必須誠實顯示已終結狀態，不得讓使用者誤以為工作還在跑",
+    "coreState": "record.state 由 is_open() 狀態被 restore_agent_sessions 標成 Expired；因 codex app-server 隨 daemon 一起死亡，理論上 reap_recorded_gateway_pgids 應該找不到存活孤兒（pgid 已不存在），detail 落回『runtime restarted』（不含 pgid 回收字樣）",
+    "effect": "codex app-server 子程序應在 daemon 死亡時（stdin 關閉）自行中止當前 turn 並退出，不留下孤兒；後續對這個 session 的 mailbox/renew/interrupt 操作應與 claude-kill 案例得到同型別的邊界回應（409/404/409）"
+   },
+   "result": "completed",
+   "actual": "children-after-daemon-death（+2s／+5s）：均為空陣列——codex app-server 沒有變成孤兒，daemon 死亡（stdin 被關閉）後幾乎立即退出。provider-local codex rollout log（~/.codex/sessions/2026/09/07/rollout-...-01a07a04-....jsonl）證實：03:58:34.564Z 收到使用者訊息（item_completed），03:58:34.569Z 即記下 turn_aborted{reason:\"interrupted\", duration_ms:311}，與 daemon 被 SIGKILL 的時間 03:58:34.564Z（events[4] daemon-killed）幾乎同時——codex CLI 自己偵測到中斷（stdin/管線關閉）並乾淨地中止當前 turn，不是被外部訊號強殺。session-after-restart：status 200, state=\"expired\", detail=\"runtime restarted\"（沒有 pgid 回收字樣，因為 reap_recorded_gateway_pgids 掃到的 known pgid 記錄已對不上任何存活行程，agents.rs:1495-1499 的 match 落到 None 分支）。list-after-restart：n=1, states=[expired]。send/interrupt/renew-after-restart 分別回 409 mailbox closed／404 not_found／409 cannot renew，與 claude-kill 案例同型。children-final：[]。三者（API 投影、核心 state=Expired、實際效果『codex 沒有孤兒殘留』）一致，判 completed。",
+   "evidence": [
+    "/private/tmp/.../79983209.../scratchpad/e2e/restart-codex-kill/result.json events[3] state-before-kill（active，mono 0.858）",
+    "同上 events[4] daemon-killed exitcode -9（mono 0.862）",
+    "同上 events[5]/[6] children-after-daemon-death / +5s：children=[]",
+    "同上 events[8] session-after-restart：state=expired, detail=\"runtime restarted\"（無 pgid）",
+    "同上 events[11]/[12]/[13] send/interrupt/renew-after-restart：409/404/409",
+    "同上 events[14] children-final：[]",
+    "~/.codex/sessions/2026/09/07/rollout-2026-09-07T11-58-34-01a07a04-8e4e-7892-9ee5-264d4ab0193f.jsonl ordinal 4/5：turn_aborted reason=interrupted, duration_ms=311, timestamp 03:58:34.569Z（唯讀）",
+    "同上 session_meta payload.model_provider=openai；grep \"model\":\"gpt-6-astra\" 命中於同檔（唯讀）",
+    "/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime/src/agents.rs:1493-1499 restore_agent_sessions detail 組字邏輯"
+   ],
+   "observations": [
+    "codex 從 create 到 active 只花 0.858s（幾乎立即），claude 同批次的另一個 session 卻連 21s 都沒到 active——兩者連接器機制本來就不同（codex app-server JSON-RPC 常駐、claude 每次 -p 都要重新啟動整個 CLI 行程並走 --safe-mode 初始化），加上前一個 observation 提到的疑似額度/延遲因素，讓這個時間差進一步放大；本輪證據不足以拆解兩個成因各自的貢獻。",
+    "provider-local rollout log 的 turn_aborted 時間點（03:58:34.569Z）與 daemon-killed 時間點（result.json 記的是 03:58:34.564Z，wall clock 由 harness 記錄）幾乎同步，佐證 codex.rs 文件所述『codex app-server 隨 daemon 死亡（stdin 關閉）』的機制是真實生效的，不是文件一廂情願的說法。",
+    "detail 文字在有 pgid 可歸因時是『runtime restarted; orphan subprocess group reaped (pgid N)』、歸因不到（本案例）則是『runtime restarted』，這個差異本身就是誠實訊號（沒有謊稱『有 reap 一個其實不存在的東西』），與 agents.rs:1497-1499 的 match 邏輯一致。"
+   ],
+   "productDefects": [],
+   "limitations": "本案例的 codex session 在 kill 前只到 active 狀態，尚未產生任何 assistant 回應（turn_aborted 發生在 task 剛送出、模型還沒開始生成的階段），因此沒有機會觀察『codex 已在寫外部副作用時被中斷』的行為；只驗證了『codex 剛開始跑就被中斷』這一種時序。",
+   "cleanup": "harness 自行在最後 d2.terminate() 結束 daemon；本分析純讀檔，未新建任何程序。",
+   "environment": {
+    "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+    "binaryIdentity": "/Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai, version 0.8.0, built 2026-09-07 11:29 台北, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7",
+    "agent": "codex",
+    "connectorVersion": "codex CLI 0.153.4（環境資訊已核實；provider-local session_meta.cli_version=\"0.153.4\" 與之一致）",
+    "requestedModel": "not-specifiable-via-gateway",
+    "actualModel": "gpt-6-astra（來自 ~/.codex/sessions/2026/09/07/rollout-...-01a07a04-....jsonl session_meta.base_instructions.provenance.model，唯讀）",
+    "actualModelSource": "provider-local-log (not via gateway)",
+    "reasoning": "unknown（該 rollout log 只有 6 行，turn 在產生任何內容前就被中止，沒有 reasoning_effort/approval_policy/sandbox_policy 欄位落地；session_meta 裡也沒有這三個欄位，可能是這次 turn 太短還沒序列化，或欄位名稱不同——本輪未進一步確認，誠實標 unknown）",
+    "newOrResumed": "new",
+    "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/restart-codex-kill/workdir",
+    "authorization": "human bearer token（home/state/api-token）",
+    "durationSeconds": 6.31,
+    "costOrTokens": "budget.spentCost=0.0, budget.spentMessages=1"
+   }
+  },
+  {
+   "id": "E0-04-term-not-run",
+   "scenario": "核心重啟的 SIGTERM（乾淨關閉）路徑——本輪與上一輪都只跑了 SIGKILL，SIGTERM 路徑未涵蓋",
+   "agentOrSurface": "interact-ai daemon（乾淨關閉路徑，理論上應該會設 clean_shutdown=true 並讓 open receipts 標 'runtime restarted with open action' 而非 'runtime crashed with open action'，agent session 的處理是否因訊號種類而不同則未驗證）",
+   "evidenceLevel": "not-run",
+   "precondition": "同 E0-04-claude-kill／E0-04-codex-kill 的建置與隔離設定；harness 已支援 --signal TERM 參數（restart_test.py 的 argparse 有 --signal，預設 KILL）但上一輪與本輪都只實際呼叫了 --signal KILL",
+   "steps": [
+    "（未執行）harness /private/tmp/.../95db6375-.../scratchpad/e2e2/harness/restart_test.py --agent claude-code --port <你的埠> --out <out>/restart-claude-term --signal TERM",
+    "（未執行）同上 --agent codex --signal TERM"
+   ],
+   "expected": {
+    "ui": "未知——理論上乾淨關閉會走 runtime.rs 的 clean_shutdown=true 分支，agent session 的 lease/mailbox 契約端點行為預期與 SIGKILL 案例相同（都會被 restore_agent_sessions 標 Expired），但『乾淨關閉時是否有機會先主動 close/interrupt 掉還在跑的 agent session（而不是留給下次啟動的 restore 去標 expired）』未經程式碼或測試證實，不能假設",
+    "coreState": "未知",
+    "effect": "未知——尤其 claude 子程序在收到 SIGTERM（透過 process group 或僅 daemon 本身）時的行為，與 SIGKILL 案例（daemon 來不及做任何事、孤兒直接變成 ppid 1）可能不同：若 daemon 的 shutdown handler 有機會呼叫 reap_recorded_gateway_pgids 或直接 kill 該 session 的 gateway handle，孤兒化窗口可能為 0；未驗證"
+   },
+   "result": "not-run",
+   "actual": "unknown（未執行）",
+   "evidence": [],
+   "observations": [
+    "runtime.rs 的 store.set_meta(\"clean_shutdown\", \"false\") 在 start() 一開始就設，只有真正走到乾淨 shutdown 路徑才會改回 true（本輪只找到 crash-recovery 的讀取端 runtime.rs:270-280，沒有進一步追蹤 shutdown 路徑的寫入端，因為題目要求分析既有資料而非新讀程式碼做完整流程圖，此處留白）",
+    "SIGKILL 案例的兩個 log 都能看到 daemon.log 只印了啟動訊息（listening/token file/press Ctrl-C），沒有任何 shutdown 相關訊息——因為 SIGKILL 不給行程機會執行任何 handler；SIGTERM 案例理論上會印出不同的 log（有機會執行 async shutdown 邏輯），這也是為什麼 SIGTERM 案例的行為無法用 SIGKILL 的證據去外推"
+   ],
+   "productDefects": [],
+   "limitations": "SIGTERM 路徑完全未經本輪或上一輪驗證，任何『乾淨關閉應該更好』的推測都只是理論，沒有實測支持；需要另外一輪執行 restart_test.py --signal TERM 才能補上。",
+   "cleanup": "N/A（未執行任何程序）",
+   "environment": {
+    "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+    "binaryIdentity": "/Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai, version 0.8.0, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7",
+    "agent": "unknown（未執行；claude-code 與 codex 皆未涵蓋 SIGTERM）",
+    "connectorVersion": "unknown",
+    "requestedModel": "not-specifiable-via-gateway",
+    "actualModel": "unknown",
+    "actualModelSource": "provider-local-log (not via gateway)",
+    "reasoning": "unknown",
+    "newOrResumed": "unknown",
+    "workdir": "unknown",
+    "authorization": "unknown",
+    "durationSeconds": 0,
+    "costOrTokens": "unknown（未執行，未產生任何花費）"
+   }
+  }
+ ],
+ "commands": [],
+ "openQuestions": [
+  "restart-claude-kill 的 session 在 21s 內未進入 active 的確切原因（provider 端額度/延遲？本機資源競爭？claude CLI 啟動異常慢？）需要在非額度緊繃時段重跑一次同型測試（同一 harness，--agent claude-code --signal KILL）並開 debug 級 daemon 日誌（RUST_LOG=debug 或至少 interaction.gateway=debug）才能鎖定成因；本輪未做因為規則要求不改程式碼且不得無界重跑。",
+  "SIGTERM 路徑（--signal TERM）需要另外執行 restart_test.py 才能補齊 E0-04-term-not-run 的證據；執行時應同時涵蓋 claude 與 codex 兩種 agent，並比較孤兒化窗口是否為 0（乾淨關閉是否真的比 SIGKILL 更快清乾淨）。",
+  "codex rollout log 沒有落地 reasoning_effort/approval_policy/sandbox_policy 欄位（本輪 turn 太短，可能在正常完成的 codex session 裡才會出現）；若之後要拿這些欄位當證據，需要找一個活得夠久、走完至少一輪 approval 流程的 codex session log 核對欄位是否真的在別處（例如 turn_context 事件）。",
+  "docs/v0.8.0-known-limitations.md 沒有重申 v0.4 就記錄的『agent 子程序孤兒回收 best-effort』限制，只在 CHANGELOG 歷史段落找得到——是否要把這條顯式提升到目前版本的已知限制清單，屬文件維護決策，不在本輪分析範圍內裁決。"
+ ]
+}

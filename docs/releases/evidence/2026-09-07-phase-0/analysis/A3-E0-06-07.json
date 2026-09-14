@@ -1,0 +1,230 @@
+{
+  "group": "E0-06/E0-07 multi-session isolation baseline (analysis of previous round's raw data, no new runs)",
+  "notes": "Analysis-only task: read /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/{multi-C-claude-x2,multi-D-codex-x2,multi-E-claude-codex}/{result.json,sse.jsonl,daemon.log,work-0,work-1}. No daemon spawned by this task; no code changed. All cases fed by the same three runs. Concurrency-limit test (E0-06-limits) was not exercised in the prior round -> not-run, with a concrete repro derived from source inspection of crates/interaction-runtime/src/agents.rs and crates/interaction-core/src/agent.rs (both read this session, no build/exec).",
+  "cases": [
+    {
+      "id": "E0-06-claude-x2",
+      "scenario": "Two concurrent claude-code agent sessions on one daemon (multi-C-claude-x2, port 18921): i=0 given a read-only NOTES.md task with a unique secret token per workdir; i=1 given a long write-nothing essay task, then cancelled mid-flight via POST /interrupt while active. Verify context/stream/result isolation, that cancelling one does not affect the other, and that the cancelled session's record/mailbox are not silently lost.",
+      "agentOrSurface": "HTTP API (POST /v1/agent-sessions, /messages, /interrupt, GET /messages, SSE /v1/events) driving two real claude-code CLI subprocesses",
+      "evidenceLevel": "real-agent",
+      "precondition": "Isolated daemon on port 18921, INTERACT_AI_HOME=<...>/multi-C-claude-x2/home, INTERACT_AI_MOBILE_ADVERTISE=0. Two workdirs work-0 (secret TOKEN-0-a1fe3a) and work-1 (secret TOKEN-1-4e682b), each with its own NOTES.md. Both sessions created with allowWrite:false, no delegation envelope.",
+      "steps": [
+        "POST /v1/agent-sessions x2 (agentId claude-code, label phase0-multi-0/1, workdir work-0/work-1) -> sid asession-cc9e9021... (i=0), asession-696af0c2... (i=1)",
+        "POST .../messages {kind:task} to both (i=0: 讀 NOTES.md 回覆識別碼; i=1: 寫 1500 字十段短文, 不讀寫檔案)",
+        "poll state via GET .../messages and SSE; i=0 -> active at mono 4.24s",
+        "at mono 6.28s: POST /v1/agent-sessions/{i=1}/interrupt while i=1 still created (never reached active in this run) -> {interrupted:true}",
+        "i=1 state -> failed at mono 6.79s",
+        "i=0 continues unaffected -> claimed-completed at mono 8.82s with result body",
+        "GET final messages (from-session) for both; GET /v1/agent-sessions (list) after stop; kill children"
+      ],
+      "expected": {
+        "ui": "n/a (HTTP-only harness)",
+        "coreState": "Each session's from-session result/summary contains only its own secret; SSE events tagged with the correct sessionId and never cross; i=1's cancellation does not change i=0's trajectory or state; both session records survive in the list after the run, including the cancelled one",
+        "effect": "work-0/NOTES.md and work-1/NOTES.md untouched (allowWrite:false); no cross-file writes"
+      },
+      "result": "completed",
+      "actual": "i=0 (claude-code) ran to claimed-completed with from-session result {costUsd:0.139, summary:\"識別碼是 TOKEN-0-a1fe3a\"} -- only its own secret, no TOKEN-1 anywhere in its messages. i=1 was interrupted while state was still \"created\" (task had been sent but the process had not yet reported active); interrupt returned {interrupted:true} and state transitioned created->failed (consistent with A2: claude-code interrupt always yields failed, not cancelled, because interrupt() signals the process group and the subprocess exits non-zero -> gateway.rs TaskFailed). i=0's own state timeline (created@1.19s, active@4.24s, claimed-completed@8.82s) shows no perturbation from i=1's interrupt at 6.28s. SSE session.started/agent.session.state/receptor.observation/session.stopped events all correctly tag one of the two distinct sessionIds (verified: 0 events found with a wrong or missing sessionId among the 4 session-scoped event types across 134 total SSE lines). GET list after the run still contains both records (i=0 claimed-completed, i=1 failed) -- cancelled work was not silently dropped. Neither work-0/NOTES.md nor work-1/NOTES.md was modified or had extra files created (ls shows only the original NOTES.md in each dir).",
+      "evidence": [
+        "/private/tmp/.../79983209.../scratchpad/e2e/multi-C-claude-x2/result.json events[] (create i=0/i=1, cancel-issued i=1 @mono 6.279, state i=1 failed @6.788, state i=0 claimed-completed @8.822)",
+        "result.json sessions[0].from[0].body = {costUsd:0.139..., summary:\"識別碼是 TOKEN-0-a1fe3a\"}",
+        "result.json sessions[0].ownSecretInSummary=true, sessions[0].otherSecretInSummary=[] ; sessions[1].summary=null",
+        "result.json sessions[*].final.providerSessionId: 408c217d-a7a1-4e30-be8c-1a48997ef78e (i=0) vs 789129e8-ddff-4aec-ad53-9f9844a3e6e2 (i=1) -- distinct, no accidental resume",
+        "result.json list[] (len=2) after run: both sessionIds present with final states claimed-completed / failed",
+        "sse.jsonl: 134 lines; session.started/agent.session.state/receptor.observation/session.stopped payloads carry sessionId matching exactly {asession-cc9e9021...,asession-696af0c2...}, 0 mismatches (python scan)",
+        "daemon.log: no ERROR/WARN/panic lines",
+        "work-0/NOTES.md, work-1/NOTES.md: unchanged, only original file present in each dir (ls -la)",
+        "~/.claude/projects/-private-tmp-.../multi-C-claude-x2-work-0/408c217d-....jsonl: \"model\":\"claude-fable-5-1\", \"permissionMode\":\"plan\" (i=0 only; i=1's log has no model field since it was interrupted before any result)"
+      ],
+      "observations": [
+        "i=1 never reached 'active' before being interrupted in this run (state stayed 'created' from creation to interrupt) -- interrupt worked even pre-active",
+        "Claude-code interrupt -> failed (not cancelled) reconfirmed, matching prior single-session case A2",
+        "status.agentSessions=1 in the post-run snapshot even though list has 2 records -- that counter appears to track only currently-open/active sessions, not total records; not a data-loss signal since list still returns both"
+      ],
+      "productDefects": [],
+      "limitations": "Single run only (n=1); no adversarial/concurrent-write scenario was exercised on this pair (allowWrite:false both). No test of what happens if i=1's interrupt fires mid-active (this run happened to catch it pre-active).",
+      "cleanup": "Daemon and child claude-code process for this run were already stopped in the prior round (children-before-daemon-stop showed pid 9406 claude subprocess; childrenAfterStop=[] confirms clean reap). This analysis task spawned nothing.",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+        "binaryIdentity": "target/debug/interact-ai v0.8.0 sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7 (built 2026-09-07 11:29, prior round)",
+        "agent": "claude-code x2",
+        "connectorVersion": "Claude Code 2.1.263 (claude -p --input-format stream-json --output-format stream-json --safe-mode)",
+        "requestedModel": "not-specifiable-via-gateway",
+        "actualModel": "claude-fable-5-1 (i=0 only; i=1 log has no model field, interrupted pre-result)",
+        "actualModelSource": "provider-local-log (not via gateway)",
+        "reasoning": "unknown (permissionMode plan; no reasoning-effort concept for Claude)",
+        "newOrResumed": "new (both sessions; no resumeProviderSessionId used)",
+        "workdir": "work-0=/private/tmp/.../multi-C-claude-x2/work-0, work-1=/private/tmp/.../multi-C-claude-x2/work-1",
+        "authorization": "allowWrite=false, toolScope=[], consentScope=[], dataScope=[] on both",
+        "durationSeconds": 12.47,
+        "costOrTokens": "i=0 spentCost=0.139, spentMessages=2; i=1 spentCost=0.0, spentMessages=1 (interrupted before result)"
+      }
+    },
+    {
+      "id": "E0-06-codex-x2",
+      "scenario": "Two concurrent codex agent sessions on one daemon (multi-D-codex-x2, port 18922): i=0 read-only NOTES.md task (requires an approval since sandbox is read-only/untrusted), i=1 long write-nothing essay task, cancelled mid-active via /interrupt. Verify isolation, cancel-independence, approval routing per-session, and non-silent record retention.",
+      "agentOrSurface": "HTTP API driving two real codex app-server (JSON-RPC v2) subprocesses",
+      "evidenceLevel": "real-agent",
+      "precondition": "Isolated daemon on port 18922. work-0 secret TOKEN-0-5e2a49, work-1 secret TOKEN-1-fd1d92. Both allowWrite:false, no delegation envelope. Harness auto-approves commandExecution requests (--approve approve).",
+      "steps": [
+        "POST /v1/agent-sessions x2 -> sid asession-2c9e4436... (i=0), asession-7a59f727... (i=1)",
+        "POST .../messages task to both; both reach active at ~1.9s",
+        "at mono 7.457s: POST .../interrupt on i=1 while active -> {interrupted:true}; i=1 -> cancelled @7.965s",
+        "i=0 hits its read-only sandbox restriction on `cat NOTES.md`: state -> waiting-for-consent @8.472s, operator-approval event requestId=0 summary 'item/commandExecution/requestApproval \"/bin/zsh -lc \\'cat NOTES.md\\'\"'",
+        "POST .../approve {requestId:0, approve:true} -> approved; i=0 -> active @8.985s -> claimed-completed @13.055s",
+        "GET final messages, list, status; teardown"
+      ],
+      "expected": {
+        "ui": "n/a",
+        "coreState": "i=0's from-session result carries only TOKEN-0; i=1's cancellation is isolated to i=1; approval-request/approval-resolved events target only i=0's session; both records retained in list after run",
+        "effect": "no file writes in either workdir"
+      },
+      "result": "completed",
+      "actual": "i=0 correctly required and received approval only for its own command (cat NOTES.md in work-0); i=1's cancellation (interrupt while active) turned it into 'cancelled' (NOT 'failed') -- this is the opposite of claude-code's interrupt->failed behavior in the same run-set, matching the documented connector-level difference (codex turn/interrupt -> TaskCancelled -> cancelled vs claude group-signal -> TaskFailed -> failed). i=0's own progression (active@1.88s -> waiting-for-consent@8.47s -> active@8.99s -> claimed-completed@13.06s) was not perturbed by i=1's interrupt at 7.46s/cancelled at 7.97s -- i=0 continued and only entered waiting-for-consent afterward for its own unrelated reason (its own sandboxed cat command). from-session result for i=0: summary '識別碼是 TOKEN-0-5e2a49' -- no TOKEN-1 leakage. i=1's from-session has no result (summary None, ownSecretInSummary false) since it was cancelled before producing one. approved=['0'] recorded against i=0 only; i=1's approved=[] (never needed one). SSE session-scoped events (session.started/agent.session.state/receptor.observation/session.stopped, 46 of 151 lines) all tag exactly the two correct distinct sessionIds, 0 mismatches. list after run retains both records (i=0 claimed-completed, i=1 cancelled). providerSessionId distinct (01a07a02-f448... vs 01a07a02-f58b...). Neither work-0/NOTES.md nor work-1/NOTES.md modified.",
+      "evidence": [
+        "result.json events[]: cancel-issued i=1 @mono 7.457 -> state i=1 cancelled @7.965; state i=0 waiting-for-consent @8.472, operator-approval i=0 requestId 0, state i=0 active @8.985, claimed-completed @13.055",
+        "result.json sessions[0].from: approval-request, approval-resolved{approved:true,by:human,decision:approved}, result{summary:'識別碼是 TOKEN-0-5e2a49'} -- all tagged to i=0 only",
+        "result.json sessions[0].approved=['0']; sessions[1].approved=[]",
+        "result.json sessions[1].final.state='cancelled' (not 'failed') -- codex interrupt semantics differ from claude-code",
+        "result.json sessions[*].final.providerSessionId: 01a07a02-f448-7e40-a81e-3a0e19d5d947 (i=0) vs 01a07a02-f58b-70d1-8bf3-5cf0ec43de04 (i=1)",
+        "result.json list[] len=2, both records present post-run",
+        "sse.jsonl 151 lines; session.started/agent.session.state/receptor.observation/session.stopped payloads: sessionId set = exactly {asession-2c9e4436...,asession-7a59f727...}, 0 without sessionId among those event types",
+        "daemon.log: no ERROR/WARN/panic",
+        "work-0/NOTES.md, work-1/NOTES.md unchanged",
+        "~/.codex/sessions/2026/09/07/rollout-...-01a07a02-f448-7e40-a81e-3a0e19d5d947.jsonl: model=gpt-6-astra, reasoning_effort=medium, approval_policy=untrusted, sandbox_policy.type=read-only"
+      ],
+      "observations": [
+        "codex interrupt -> cancelled, claude-code interrupt -> failed: this asymmetry is consistent across all three multi-session runs analyzed here and matches the single-session baseline (A2)",
+        "Approval routing is correctly scoped per session: i=1's interrupt/cancel never triggered or consumed i=0's approval-request, and i=0's approval never touched i=1"
+      ],
+      "productDefects": [],
+      "limitations": "n=1 run; did not test cancelling the session that is itself waiting-for-consent (only tested cancelling the non-approval session while the approval one was pending/active)",
+      "cleanup": "Daemon and codex app-server subprocess (pid 11156) for this run already stopped in prior round; childrenAfterStop=[] confirms clean reap. No new processes spawned by this analysis task.",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+        "binaryIdentity": "target/debug/interact-ai v0.8.0 sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7 (built 2026-09-07 11:29, prior round)",
+        "agent": "codex x2",
+        "connectorVersion": "Codex CLI 0.153.4, codex app-server JSON-RPC v2, approval_policy=untrusted, sandbox_policy=read-only",
+        "requestedModel": "not-specifiable-via-gateway",
+        "actualModel": "gpt-6-astra (both sessions, from rollout logs)",
+        "actualModelSource": "provider-local-log (not via gateway)",
+        "reasoning": "reasoning_effort=medium (both sessions)",
+        "newOrResumed": "new (both sessions)",
+        "workdir": "work-0=/private/tmp/.../multi-D-codex-x2/work-0, work-1=/private/tmp/.../multi-D-codex-x2/work-1",
+        "authorization": "allowWrite=false, toolScope=[], consentScope=[], dataScope=[] on both; i=0's cat NOTES.md required and got human approval via harness --approve approve",
+        "durationSeconds": 16.73,
+        "costOrTokens": "spentCost=0.0 both (codex connector doesn't report cost in this harness); i=0 spentMessages=4, i=1 spentMessages=4"
+      }
+    },
+    {
+      "id": "E0-07-claude-codex",
+      "scenario": "Cross-species concurrency: one claude-code session (i=0, long write-nothing essay task) and one codex session (i=1, read-only NOTES.md task requiring approval) on the same daemon (multi-E-claude-codex, port 18923). i=0 cancelled mid-active via interrupt; i=1 runs to completion via approval. Verify cross-agent-type isolation and that a claude-code cancel does not disturb a concurrently-running codex session (or vice versa).",
+      "agentOrSurface": "HTTP API driving one claude-code CLI subprocess + one codex app-server subprocess concurrently",
+      "evidenceLevel": "real-agent",
+      "precondition": "Isolated daemon on port 18923. work-0 (claude-code) secret TOKEN-0-54146b, work-1 (codex) secret TOKEN-1-cd1568. Both allowWrite:false, no delegation.",
+      "steps": [
+        "POST /v1/agent-sessions: i=0 agentId=claude-code -> asession-3f281085...; i=1 agentId=codex -> asession-95ecab2c...",
+        "POST .../messages task to both",
+        "i=1 (codex) reaches active @1.685s (claude-code i=0 has no explicit 'active' event logged before its interrupt -- state stayed 'created' until interrupted)",
+        "mono 6.252s: POST .../interrupt on i=0 (claude-code) -> {interrupted:true}; i=0 -> failed @6.757s",
+        "i=1 (codex) hits sandbox restriction on cat NOTES.md: waiting-for-consent @9.299s, operator-approval requestId=0",
+        "POST .../approve {requestId:0, approve:true} -> i=1 active @9.81s -> claimed-completed @13.877s",
+        "GET final messages, list, status; teardown"
+      ],
+      "expected": {
+        "ui": "n/a",
+        "coreState": "i=1's (codex) from-session result carries only TOKEN-1, unaffected by i=0's (claude-code) interrupt which happened ~3s earlier in wall time; both providerSessionIds distinct and species-appropriate; both records retained after run",
+        "effect": "no file writes in either workdir"
+      },
+      "result": "completed",
+      "actual": "i=0 (claude-code) was interrupted and went to state 'failed' -- same claude-code interrupt->failed semantics as case E0-06-claude-x2, now reconfirmed in a mixed-species pair, i.e. this is a per-agent-type property, not an artifact of same-type pairing. i=1 (codex) continued through its own approval flow and completed with from-session result 'summary: 識別碼是 TOKEN-1-cd1568' -- no TOKEN-0 leakage, and its state timeline (created@1.178s, active@1.685s, waiting-for-consent@9.299s [~2.5s after i=0's interrupt-issued@6.252s and ~2.5s after i=0 already failed@6.757s], active@9.81s, claimed-completed@13.877s) shows no observable perturbation from i=0's cancellation -- i=1's approval request/response cycle proceeded on its own timeline. approved=['0'] recorded only against i=1; i=0's approved=[] (never needed one, it never got that far before being cut off). SSE session-scoped events (session.started/agent.session.state/receptor.observation/session.stopped, tallied across 146 lines) tag exactly the two distinct sessionIds with 0 mismatches. list after run retains both: i=0 failed, i=1 claimed-completed. providerSessionId: 276c9883-389b-4627-9ac3-a577ef79ad17 (claude, i=0) vs 01a07a03-368c-72e0-9990-fe5919d6546c (codex, i=1) -- distinct and provider-appropriate (codex ids use the 01a07a0x-... UUIDv7-like codex thread-id format, claude uses standard UUIDv4). No files modified in either workdir.",
+      "evidence": [
+        "result.json events[]: cancel-issued i=0 @mono 6.252 -> state i=0 failed @6.757; state i=1 waiting-for-consent @9.299, operator-approval i=1 requestId 0, state i=1 active @9.81, claimed-completed @13.877",
+        "result.json sessions[1].from: approval-request, approval-resolved{approved:true}, result{summary:'識別碼是 TOKEN-1-cd1568'} -- tagged to i=1 only, no TOKEN-0",
+        "result.json sessions[0].final.state='failed' (claude-code interrupt, cross-species pairing, same as E0-06-claude-x2)",
+        "result.json sessions[0].final.providerSessionId=276c9883-389b-4627-9ac3-a577ef79ad17 vs sessions[1].final.providerSessionId=01a07a03-368c-72e0-9990-fe5919d6546c -- distinct, species-appropriate id formats",
+        "result.json list[] len=2 post-run: i=0 failed, i=1 claimed-completed both retained",
+        "sse.jsonl 146 lines; session.started/agent.session.state/receptor.observation/session.stopped: sessionId set = exactly {asession-3f281085...,asession-95ecab2c...}, 0 mismatches",
+        "daemon.log: no ERROR/WARN/panic",
+        "work-0/NOTES.md, work-1/NOTES.md unchanged",
+        "~/.claude/projects/.../multi-E-claude-codex-work-0/276c9883-....jsonl: permissionMode=plan (no model field logged -- interrupted before result)",
+        "~/.codex/sessions/2026/09/07/rollout-2026-09-07T11-57-06-01a07a03-368c-72e0-9990-fe5919d6546c.jsonl: model=gpt-6-astra, reasoning_effort=medium, approval_policy=untrusted, sandbox_policy.type=read-only"
+      ],
+      "observations": [
+        "Cross-species isolation held: a claude-code session's cancel/fail had zero observable effect on a concurrently-running codex session's own approval/completion timeline",
+        "claude-code interrupt->failed vs codex interrupt->cancelled reconfirmed across all 3 multi-session runs (same-type x2, same-type x2, cross-type x1) -- 3/3 consistent with the single-session A2 baseline"
+      ],
+      "productDefects": [],
+      "limitations": "n=1 run; did not test the reverse pairing (cancel the codex session while claude-code runs) in this round -- that combination exists implicitly in E0-06-codex-x2 (codex cancelled) but not paired against a live claude-code session; not tested here as its own case.",
+      "cleanup": "Daemon and codex app-server subprocess (pid 13216) for this run already stopped in prior round; childrenAfterStop=[] confirms clean reap. No new processes spawned by this analysis task.",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+        "binaryIdentity": "target/debug/interact-ai v0.8.0 sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7 (built 2026-09-07 11:29, prior round)",
+        "agent": "claude-code (i=0) + codex (i=1)",
+        "connectorVersion": "Claude Code 2.1.263 (i=0); Codex CLI 0.153.4 app-server JSON-RPC v2, approval_policy=untrusted, sandbox read-only (i=1)",
+        "requestedModel": "not-specifiable-via-gateway",
+        "actualModel": "i=0: unknown (interrupted before result, no model field in provider log); i=1: gpt-6-astra",
+        "actualModelSource": "provider-local-log (not via gateway)",
+        "reasoning": "i=0: permissionMode=plan; i=1: reasoning_effort=medium",
+        "newOrResumed": "new (both sessions)",
+        "workdir": "work-0=/private/tmp/.../multi-E-claude-codex/work-0 (claude), work-1=/private/tmp/.../multi-E-claude-codex/work-1 (codex)",
+        "authorization": "allowWrite=false, toolScope=[], consentScope=[], dataScope=[] on both; i=1's cat NOTES.md required and got human approval via harness --approve approve",
+        "durationSeconds": 17.53,
+        "costOrTokens": "i=0 spentCost=0.0, spentMessages=1 (interrupted before result); i=1 spentCost=0.0, spentMessages=4"
+      }
+    },
+    {
+      "id": "E0-06-limits-not-run",
+      "scenario": "Concurrency/retention limits (max open agent sessions and per-delegation-tree max_parallel) were not exercised in the prior round's multi-session runs (only 2 concurrent sessions were ever created per daemon, well under any limit). This case records the limit constants found by reading the source (no build/exec) and a concrete, ready-to-run repro for a later round.",
+      "agentOrSurface": "HTTP API (POST /v1/agent-sessions) -- source-level analysis only, no daemon run in this task",
+      "evidenceLevel": "static-inspection",
+      "precondition": "None exercised; static read of crates/interaction-runtime/src/agents.rs and crates/interaction-core/src/agent.rs at HEAD 78dcda1a.",
+      "steps": [
+        "Read crates/interaction-core/src/agent.rs: DelegationLimits::default() = {max_depth:3, max_sessions:8, max_messages_per_session:200, max_parallel:4, provider_allowlist:[]}",
+        "Read crates/interaction-runtime/src/agents.rs create_agent_session(): for a plain create with NO delegation envelope, `open = open_agent_sessions()`; if `open >= policy.delegation.max_sessions` (default 8) -> Err(DomainError::PolicyBlocked(\"too many open agent sessions ({open} ≥ {max_sessions})\"))",
+        "For a create WITH a delegation envelope: check_delegation() enforces max_depth/cycle/budget/max_sessions (agent.rs:143-176); additionally agents.rs computes `same_tree` = count of open sessions sharing the same delegation.root_task_id and rejects with 'delegation tree {root_task_id} already has {same_tree} open sessions (max_parallel {max_parallel})' when same_tree >= policy.delegation.max_parallel (default 4)",
+        "PolicyBlocked maps to an HTTP 4xx (exact status not re-verified this task; prior static inventory documents PolicyBlocked as a rejection path, not a 200)"
+      ],
+      "expected": {
+        "ui": "n/a",
+        "coreState": "The 9th concurrent plain agent-session create (no delegation envelope) on one daemon should be rejected with PolicyBlocked citing max_sessions=8; the 5th concurrent create sharing one delegation.root_task_id should be rejected citing max_parallel=4",
+        "effect": "No new AgentSessionRecord created on rejection; existing 8 (or 4) sessions unaffected"
+      },
+      "result": "not-implemented",
+      "actual": "Not run this round (no test exercised >2 concurrent sessions). Classified not-run per task instructions rather than completed/product-failed since no live evidence exists yet -- only source-level static findings, which are not proof of runtime behavior.",
+      "evidence": [
+        "crates/interaction-core/src/agent.rs:121-140 DelegationLimits + Default impl (max_sessions:8, max_parallel:4, max_messages_per_session:200, max_depth:3)",
+        "crates/interaction-core/src/agent.rs:145-176 check_delegation() -- max_sessions check at line 171-176",
+        "crates/interaction-runtime/src/agents.rs:468-503 create_agent_session() -- non-delegation path 'open >= policy.delegation.max_sessions' at line 496-500; delegation-tree max_parallel check at line 470-491"
+      ],
+      "observations": [
+        "Two distinct limits exist and are reached via two different code paths: max_sessions (8) applies to ALL open agent sessions on the daemon when NO delegation envelope is supplied on create; max_parallel (4) applies only within one delegation tree (same rootTaskId) when a delegation envelope IS supplied -- a plain multi_session.py-style test (as used for E0-06/E0-07) will only ever hit max_sessions, never max_parallel, since it doesn't set a delegation envelope",
+        "Policy values are runtime-configurable (policy.delegation.*), so the effective limit on this daemon should be re-confirmed via GET /v1/status or the policy endpoint before relying on the '8'/'4' defaults for a later run",
+        "Repro for a later round (max_sessions=8, no delegation envelope): start an isolated daemon (INTERACT_AI_HOME=<out>/home, INTERACT_AI_MOBILE_ADVERTISE=0, unique port P), then: TOKEN=$(cat <out>/home/state/api-agent-token); for i in $(seq 1 9); do curl -s -o /tmp/r$i.json -w '%{http_code}\\n' -X POST http://127.0.0.1:$P/v1/agent-sessions -H \"Authorization: Bearer $TOKEN\" -H 'Content-Type: application/json' -d '{\"agentId\":\"codex\",\"label\":\"limit-'$i'\",\"workdir\":\"<out>/work-'$i'\",\"ttlMinutes\":5}'; done -- expect 200 x8 then a 4xx on i=9 whose body contains 'too many open agent sessions (8 ≥ 8)'.",
+        "Repro for max_parallel=4 (same delegation.root_task_id, distinct hop_count/visited_sessions per hop): create 5 sessions each with a 'delegation' envelope object sharing one rootTaskId and incrementing hopCount/visitedSessions; expect the 5th to be rejected with 'delegation tree {root_task_id} already has 4 open sessions (max_parallel 4)'. Exact DelegationEnvelope JSON shape should be re-derived from crates/interaction-core/src/agent.rs's serde(rename_all=camelCase) fields (delegationId, originAgentId, hopCount, maxHops, visitedSessions, budgetRemaining) before running."
+      ],
+      "productDefects": [],
+      "limitations": "Purely static; the exact HTTP status code returned for PolicyBlocked on /v1/agent-sessions was not re-verified this task (would need to trace the API layer's DomainError->HTTP mapping, not done here to avoid scope creep beyond what was asked).",
+      "cleanup": "n/a -- nothing run",
+      "environment": {
+        "sourceCommit": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+        "binaryIdentity": "target/debug/interact-ai v0.8.0 sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7",
+        "agent": "n/a (no agent spawned)",
+        "connectorVersion": "n/a",
+        "requestedModel": "not-specifiable-via-gateway",
+        "actualModel": "unknown",
+        "actualModelSource": "provider-local-log (not via gateway)",
+        "reasoning": "unknown",
+        "newOrResumed": "unknown",
+        "workdir": "/Users/user/Workspace/claude-lab/adaptive-interaction (source read only)",
+        "authorization": "n/a",
+        "durationSeconds": 0,
+        "costOrTokens": "n/a"
+      }
+    }
+  ],
+  "commands": [],
+  "openQuestions": [
+    "Exact HTTP status code for a PolicyBlocked rejection on POST /v1/agent-sessions (max_sessions / max_parallel) was not traced this task -- needs a look at the API layer's error mapping or a live repro.",
+    "The concurrency-limit repro below was not executed this round; a future round should run it to move E0-06-limits from not-run to a real evidenceLevel."
+  ]
+}

@@ -1,0 +1,239 @@
+import json
+E="/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e"
+R="/Users/user/Workspace/claude-lab/adaptive-interaction"
+cmds=json.load(open("/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/analysis/commands.json"))
+for c in cmds:
+    c["stdout"]=c.get("stdout","")[:700]; c["stderr"]=c.get("stderr","")[:200]
+
+base_env=dict(
+ sourceCommit="78dcda1a3733c97d266ca9b60ad4461c69ca2032 (= origin/main; worktree has one untracked dir scripts/tests/phase0/ created by another agent, no tracked-file change)",
+ binaryIdentity=f"{R}/target/debug/interact-ai — re-verified this round: `interact-ai 0.8.0`, sha256 1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7 (matches the orchestrator's stated build)",
+ connectorVersion="unknown",
+ requestedModel="not-specifiable-via-gateway",
+ actualModel="unknown",
+ actualModelSource="provider-local-log (not via gateway)",
+ reasoning="unknown",
+ newOrResumed="new (no resumeProviderSessionId in the create payload)",
+ authorization="human Bearer token read from <out>/home/state/api-token (harness agent_smoke.py / multi_session.py); no agent token used",
+ costOrTokens="unknown",
+)
+def env(**kw):
+    d=dict(base_env); d.update(kw); return d
+
+claude_env=env(
+ agent="claude-code (real binary, `claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode ...`, permissionMode=plan)",
+ connectorVersion='Claude Code 2.1.263 — read from the provider-local log field "version" (entrypoint "sdk-cli"); Codex CLI not involved',
+ actualModel='unknown — the provider-local log for this session contains no assistant message, so no "model" field was ever written (the turn was interrupted before the first assistant event). permissionMode="plan" is recorded.',
+ workdir=f"{E}/claude-cancel-1/workdir",
+ durationSeconds=15.31,
+ costOrTokens='unknown — record.budget.spentCost=0.0, spentMessages=1; no cost/usage recorded anywhere. claude.rs:446-455 discards total_cost_usd on the error branch, and the provider log has no usage entry for this turn.',
+)
+codex_env=env(
+ agent="codex (real binary, `codex app-server` JSON-RPC v2, sandbox read-only, approval_policy untrusted)",
+ connectorVersion='Codex CLI 0.153.4 — read from the rollout log session_meta.cli_version',
+ actualModel='gpt-6-astra',
+ reasoning='unknown — rollout turn_context.reasoning_effort is null (summary="auto"); approval_policy="untrusted", sandbox_policy={"type":"read-only"}',
+ workdir=f"{E}/codex-cancel-1/workdir",
+ durationSeconds=15.46,
+ costOrTokens='unknown — record.budget.spentCost=0.0, spentMessages=1; the rollout token_count event carries rate_limits only ("info": null), so no token count for the interrupted turn.',
+)
+multi_env=env(
+ agent="claude-code x2 sessions interrupted (multi-C i=1 and multi-E i=0), real binary, permissionMode=plan",
+ connectorVersion="Claude Code 2.1.263 (provider-local log \"version\" field, same as A2-E0-03-claude)",
+ actualModel="unknown — neither interrupted session's provider log contains an assistant message, so no model field was written. (The sibling non-interrupted claude session in multi-C did complete and reported costUsd 0.13904424999999998, showing cost is available when a turn is not interrupted.)",
+ workdir=f"{E}/multi-C-claude-x2/work-1 and {E}/multi-E-claude-codex/work-0",
+ durationSeconds=30.0,
+ costOrTokens="unknown for both interrupted sessions — record.budget.spentCost=0.0 in each",
+)
+
+defect_claude=dict(
+ title="人類 interrupt 真 claude-code session → 核心狀態 failed（誠實階梯：取消≠失敗）；Claude 連接器完全無法產生 cancelled",
+ severity="high",
+ location="crates/interaction-agent-gateway/src/claude.rs:354-357 (interrupt 只送 SIGINT，不記錄「這是人類取消」) + claude.rs:442-455 (result/subtype 以 error 開頭 → TaskFailed) + claude.rs:213-231 (TaskFailed 設 saw_result，讓 SessionClosed→unknown 的退路失效) → crates/interaction-runtime/src/gateway.rs:579-584 → crates/interaction-runtime/src/agents.rs:1185",
+ repro=("1) INTERACT_AI_HOME=<out>/home INTERACT_AI_MOBILE_ADVERTISE=0 <repo>/target/debug/interact-ai serve（unset INTERACT_AI_CLAUDE_BIN，用真 claude）；"
+        "2) POST /v1/agent-sessions {agentId:'claude-code', workdir:<隔離目錄>, allowWrite:false}；"
+        "3) POST /v1/agent-sessions/{id}/messages {kind:'task',body:{task:'（約 1500 字長文，確保 turn 還在跑）'}}；"
+        "4) 約 6 s 後 POST /v1/agent-sessions/{id}/interrupt；"
+        "5) GET /v1/agent-sessions/{id} → state=='failed'（期望 'cancelled'）。"
+        f"harness 等價命令：python3 <e2e2>/harness/agent_smoke.py --agent claude-code --port N --out DIR --cancel-after 6 --close-after-cancel 4。已存在的三次證據：{E}/claude-cancel-1、{E}/multi-C-claude-x2（i=1）、{E}/multi-E-claude-codex（i=0）。"),
+ evidence=[
+  f"{E}/claude-cancel-1/result.json :: events[5] cancel-issued mono 7.133 resp{{interrupted:true}}；events[6] state=failed mono 7.640；final.state='failed'",
+  f"{E}/claude-cancel-1/sse.jsonl :: id=101 agent.session.state state='failed' @03:54:10.323467Z（取消後 8 ms）；id=102 character.system-text intent='failed' truthState='failed' message='動作失敗。'",
+  f"{E}/claude-cancel-1/home/state/interaction.db :: observations obs-93f1d928 inferences.report.error=='error_during_execution'（證明 failed 來自 claude.rs:446 的 result 解析，不是 claude.rs:274 的 exit-code 分支）",
+  "/Users/user/.claude/projects/-private-tmp-claude-501--Users-user-Workspace-claude-lab-adaptive-interaction-79983209-6a38-4bdc-894b-1b32e1b2de38-scratchpad-e2e-claude-cancel-1-workdir/5779447a-6c8b-46aa-aea2-1e784e5898d6.jsonl :: line 9 = {\"type\":\"user\",...,\"text\":\"[Request interrupted by user]\"} @03:54:10.320Z —— provider 自己認定這是「使用者中斷」",
+  f"{R}/crates/interaction-agent-gateway/src/claude.rs:446 `if is_error || subtype.starts_with(\"error\")` → :447 TaskFailed（沒有任何取消旗標可看）",
+  f"{R}/crates/interaction-agent-gateway/src/codex_exec.rs:253-258（interrupt 先 set cancel_requested 再送 SIGINT）與 :320-329 drain_outcome_event（cancelled 判斷排在 exit code 之前）—— 同 repo 內已有正確做法，claude.rs 沒有",
+  "`grep -c TaskCancelled crates/interaction-agent-gateway/src/claude.rs` == 0（本輪重跑，exit 0）—— Claude 連接器在任何路徑都不可能產生 cancelled",
+  f"{R}/crates/interaction-runtime/tests/gateway_loop.rs:1826-1829 `an interrupted turn is neither a claim nor a failure` —— 這條契約只對 codex 有測試，claude-code 無等價測試",
+  f"{R}/apps/interaction-desktop/src/statusProjection/workState.ts:143-147 failed → label 「失敗」/ badge \"bad\"（無 honesty 註記）；:104-109 + :168 cancelled → 「已取消」/ badge \"muted\"",
+ ],
+ phase0MinimalFixCandidate=True,
+)
+
+case_claude=dict(
+ id="A2-E0-03-claude-interrupt",
+ scenario="E0-03 取消：人類對進行中的真 claude-code agent session 發 POST /v1/agent-sessions/{id}/interrupt，4 s 後再 close。本輪只重新分析上一輪原始資料＋讀 HEAD 原始碼，未跑任何新 session。",
+ agentOrSurface="claude-code（真 agent）經 HTTP API /v1/agent-sessions/{id}/interrupt；投影面：/v1/events SSE、character.system-text、桌面 workState.ts",
+ evidenceLevel="real-agent",
+ precondition=("上一輪（同 HEAD 78dcda1、同 binary sha256 1e066d84…、2026-09-07 11:54 台北時間）已跑完的真 agent 產物："
+  f"{E}/claude-cancel-1（隔離 INTERACT_AI_HOME、port 18914、workdir 內只有 NOTES.md）。本輪未啟動任何 daemon、未跑任何 agent、未改任何 repo 檔案。"),
+ steps=[
+  f"讀 {E}/claude-cancel-1/result.json（events／snapshots／afterCancel／final／messages-*／auditTail／psAgents）",
+  f"讀 {E}/claude-cancel-1/sse.jsonl 全部 109 筆，抽出 agent.session.state／character.system-text／receptor.observation",
+  f"唯讀查詢 {E}/claude-cancel-1/home/state/interaction.db 的 observations 表，取出 failed 那筆的 inferences.report",
+  "唯讀讀取 provider 端本機紀錄 ~/.claude/projects/<workdir 編碼>/5779447a-….jsonl（取 model／permissionMode／version／中斷標記）",
+  "讀 HEAD 原始碼：claude.rs（interrupt／stdout task／parse_claude_line）、process.rs::interrupt、gateway.rs:530-620 與 :995-1009、agents.rs:1174-1320、character.rs:470-485、workState.ts、gateway_loop.rs:1766-1835、codex.rs:518-535、codex_exec.rs:218-330",
+  "重跑 8 條唯讀驗證命令（binary sha256／版本／HEAD／grep TaskCancelled／sqlite observations／provider log grep），見 commands[]",
+ ],
+ expected=dict(
+  ui="「已取消」（workState.ts CANCELLED：badge \"muted\"、kind \"stopped\"）；角色 system.text 「已取消。」，intent=cancelled、truthState=cancelled",
+  coreState="record.state == \"cancelled\"；close 之後仍是 cancelled（agents.rs:1300-1307 終局不被關閉改寫），detail 為 \"… (was Cancelled)\"、closedAt 有值",
+  effect="claude 子程序整組退出、無孤兒；取消之後沒有遲到的 from-session 結果訊息",
+ ),
+ result="product-failed",
+ actual=("投影與核心狀態都錯，只有實際效果對。cancel 發出時（mono 7.133 / 03:54:10.315Z）harness 每 0.5 s 輪詢到的 record.state 一直是 \"created\"（從 mono 1.069 起沒變過；SSE 另有一筆 taxonomy \"fetched\" @03:54:04.248317Z，"
+  "來自 gateway.rs:798，record 沒有對應狀態）；也就是說這一次中斷是在 created/fetched（子程序已起、尚未有第一個 assistant 事件）時發出的，不是 active。"
+  "終態：failed（SSE id=101 @03:54:10.323467Z，取消後 8 ms）。角色投影 intent=failed／truthState=failed／「動作失敗。」。"
+  "after-cancel（mono 9.203）children=[]；after-close（mono 15.262）children=[]。取消之後 messages?direction=from-session 長度 0，沒有遲到訊息。"
+  "close（mono 13.217）成功，closedAt=2026-09-07T03:54:16.392251Z，state 仍是 failed，detail=\"phase0 close after cancel (was Failed)\"。"
+  "根因（原始碼）：真 claude 收到 SIGINT（process.rs:134-137 對 -pgid 送 SIGINT）後，自己吐出一行 stream-json result，subtype 以 error 開頭（實測 error_during_execution，見 observations 的 inferences.report.error），"
+  "claude.rs:446 的 `is_error || subtype.starts_with(\"error\")` 把它翻成 TaskFailed（:447），claude.rs:222-227 同時把 saw_result 設 true，讓 :267-283 那條「被訊號終止 ⇒ 不算失敗、交給 SessionClosed → unknown」的誠實退路完全用不到；"
+  "gateway.rs:579-584 收到 TaskFailed → report_agent_session(\"failed\") → agents.rs:1185 → AgentSessionState::Failed。claude.rs:354-357 的 interrupt 只送訊號、不留任何「這是人類取消」的旗標，所以連接器沒有資訊可以區分。"),
+ evidence=[
+  f"{E}/claude-cancel-1/result.json :: events[2..10]（create/task-sent/state created/cancel-issued/state failed/after-cancel/close-issued/after-close/final）、afterCancel.state=\"failed\"、final.state=\"failed\"、final.closedAt=\"2026-09-07T03:54:16.392251Z\"、final.detail=\"phase0 close after cancel (was Failed)\"、messages-from-session=[]（len 0）、wallSeconds=15.31",
+  f"{E}/claude-cancel-1/sse.jsonl :: id=96 state=created；id=99 state=\"fetched\"；id=101 state=\"failed\" @03:54:10.323467Z；id=102 character.system-text intent=failed truthState=failed message=\"動作失敗。\"；id=103 receptor.observation facts.event=failed；id=107 session.stopped；id=108 state=closed",
+  f"{E}/claude-cancel-1/home/state/interaction.db :: observations obs-93f1d928-a4e9-4f1f-98b1-917a868eecd6 → inferences.report.error == \"error_during_execution\"",
+  f"{E}/claude-cancel-1/daemon.log :: 4 行，只有啟動訊息，無錯誤",
+  "/Users/user/.claude/projects/-private-tmp-claude-501--Users-user-Workspace-claude-lab-adaptive-interaction-79983209-6a38-4bdc-894b-1b32e1b2de38-scratchpad-e2e-claude-cancel-1-workdir/5779447a-6c8b-46aa-aea2-1e784e5898d6.jsonl :: line 3 permissionMode=\"plan\"、version=\"2.1.263\"、entrypoint=\"sdk-cli\"；line 9 \"[Request interrupted by user]\" @03:54:10.320Z；全檔 9 行、無 assistant 訊息 ⇒ 無 model 欄位",
+  f"{R}/crates/interaction-agent-gateway/src/claude.rs:354-357、:442-455、:213-231、:267-283",
+  f"{R}/crates/interaction-agent-gateway/src/process.rs:131-137（interrupt = SIGINT 給 -pgid）",
+  f"{R}/crates/interaction-runtime/src/gateway.rs:995-1009（gateway_interrupt 只呼叫 handle.interrupt()，不記錄取消意圖）、:579-584（TaskFailed→failed）、:585-590（TaskCancelled→cancelled）、:798（emit \"fetched\"）",
+  f"{R}/crates/interaction-runtime/src/agents.rs:1185（\"failed\"→Failed）、:1189（\"cancelled\"→Cancelled）、:1300-1311（close 保留終局＋detail \"(was …)\"）",
+  f"{R}/apps/interaction-desktop/src/statusProjection/workState.ts:143-147（failed→「失敗」badge bad）、:104-109 與 :168-169（cancelled/closed→「已取消」badge muted）",
+  f"{R}/crates/interaction-runtime/src/character.rs:478（\"failed\"→(Failed,Failed)）、:481（\"cancelled\"→(Cancelled,Cancelled)）",
+ ],
+ observations=[
+  "判定：product-failed，不是 by-design。理由三條：(a) CLAUDE.md 的誠實階梯不變量要求結果分類反映真實觀察，人類取消與 agent 失敗是不同事實；(b) 同 repo 的 codex 路徑有明文契約與測試 gateway_loop.rs:1826-1829「an interrupted turn is neither a claim nor a failure」，claude 沒有等價測試；(c) codex_exec.rs:310-317 的 doc comment 寫「誠實階梯（與 claude.rs 同一條規則）… 人類中斷／關閉 ⇒ TaskCancelled」——這句話對 claude.rs 目前並不成立，是文件與實作的落差。",
+  "claude.rs:267-270 的註解明確寫「被訊號終止時 code() 是 None——那多半是我們自己的 kill，不是 agent 的錯誤，不得記成失敗」，可見設計意圖就是「取消不得記成失敗」；缺口在於真 claude 會把 SIGINT 轉成自己的 result/error 行，繞過了那個守門。",
+  "UI 後果：workState.ts:143-147 的 failed 是 badge \"bad\"、kind \"failed\"、沒有 honesty 註記；使用者按下取消後看到的是紅色「失敗」，與 agent 真的出錯無法區分。桌面角色再說一次「動作失敗。」。",
+  "最小修復候選（僅描述，未改任何檔案）：在 claude.rs 比照 codex_exec.rs 加一個 per-turn 的 `cancel_requested: Arc<AtomicBool>`——(1) 與 `saw_result` 同一處建立（claude.rs:176-178）並複製進 stdout task；(2) `ClaudeHandle::interrupt`（:354-357）在 `group.interrupt()` 之前 store(true)；(3) 在 stdout task 檢視事件的那段（:213-231）把 `TaskFailed` 在旗標為真時換成 `GatewayEvent::TaskCancelled`（保持 `parse_claude_line` 仍是純函式，既有單元測試不動），並照樣設 saw_result 讓 SessionClosed 不再覆寫；(4) 在 `send_user_message`（:325-333）與 `saw_result` 同一行重置旗標，避免下一輪真正的錯誤被吞成取消；(5) 補一支對稱回歸測試（fake_claude.sh 需加 SIGINT trap，收到後印一行 result/error_during_execution 再退出），斷言 state 走到 cancelled 且不出現 failed。",
+  "為什麼不能在 close 端補救：agents.rs:1300-1307 讓 Failed/Unknown/TimedOut/Cancelled 這些「任務結局」優先於 close 的 reason，所以就算之後用 reason=\"cancelled\" 關閉（:1308），已經是 Failed 的 record 也不會被改回 cancelled。修復必須在連接器層。",
+  "旁證（非本 case 的缺陷主張）：SSE 有一個 taxonomy 值 \"fetched\"（gateway.rs:798），但 AgentSessionRecord 沒有對應狀態，所以同一時刻 GET record 說 \"created\"、SSE 說 \"fetched\"。workState.ts 兩個值都認得（都投影成「準備中」類），所以不造成錯誤呈現，但會讓「取消當下是什麼狀態」這個問題有兩個答案。",
+  "旁證：claude.rs:446-455 的失敗分支只讀 `result` 字串，把同一行的 total_cost_usd／num_turns 丟掉，所以被中斷的 turn 成本一律記為 0（record.budget.spentCost=0.0）。本輪沒有原始 stdout，無法證明那一行是否帶 cost，因此不列為缺陷。",
+  "K-01/02/03（模型不可指定／不可回報）在此得到一個附帶佐證：claude.rs:405-412 解析 system/init 時只取 session_id，而 claude.rs:512-517 的單元測試樣本顯示 init 行本來就帶 \"model\":\"claude-haiku-4-5\"——模型資訊在線上存在但被連接器丟棄。",
+ ],
+ productDefects=[defect_claude],
+ limitations=("(1) 本輪是純分析，沒有跑任何新 session，也沒有改動任何 repo 檔案（磁碟限制）。"
+  "(2) 三次 claude 中斷全部發生在 record.state 還是 created/fetched 的時候；沒有任何一次是在 record 已經是 active 時中斷的直接證據。程式路徑（claude.rs:446）與 record 狀態無關，所以 active 時中斷極可能同樣是 failed，但這一點是推論不是觀察。"
+  "(3) 沒有保留 claude 子程序的原始 stdout，subtype 是由 observations 的 inferences.report.error 反推的（值就是 subtype 本身，因為 claude.rs:449-452 在沒有 result 字串時回退到 subtype）。"
+  "(4) 桌面 UI 的「失敗」呈現是讀 workState.ts 對照表推得的，本輪沒有跑真 Tauri／Playwright 走查。"
+  "(5) actualModel 為 unknown：被中斷的 turn 沒有 assistant 訊息，provider log 因此沒有 model 欄位。"),
+ cleanup="無需清理：未 spawn 任何 daemon 或 agent 子程序，未寫入 ~/.adaptive-interaction／~/.claude／~/.codex（只唯讀），本輪唯一寫入的是自己 out 目錄下的 analysis/commands.json、analysis/build_a2.py 與 analysis/A2-E0-03.json。",
+ environment=claude_env,
+)
+
+case_codex=dict(
+ id="A2-E0-03-codex-interrupt",
+ scenario="E0-03 取消：人類對進行中的真 codex（app-server）agent session 發 interrupt，4 s 後再 close。分析上一輪原始資料，未跑新 session。",
+ agentOrSurface="codex（真 agent，app-server JSON-RPC v2）經 HTTP API /v1/agent-sessions/{id}/interrupt",
+ evidenceLevel="real-agent",
+ precondition=f"上一輪產物 {E}/codex-cancel-1（隔離 home、port 18915、read-only sandbox＋approval untrusted）。本輪未啟動 daemon。",
+ steps=[
+  f"讀 {E}/codex-cancel-1/result.json（events／afterCancel／final／messages-*／auditTail）",
+  f"讀 {E}/codex-cancel-1/sse.jsonl（110 筆）抽 agent.session.state 與 character.system-text",
+  "唯讀讀取 ~/.codex/sessions/2026/09/07/rollout-2026-09-07T11-54-19-01a07a00-….jsonl（session_meta.cli_version、turn_context.model/approval_policy/sandbox_policy、turn_aborted）",
+  "讀 HEAD 原始碼 codex.rs:518-535（turn.status→事件）與 gateway.rs:585-590",
+ ],
+ expected=dict(
+  ui="「已取消」（badge muted）；角色 system.text 「已取消。」，intent=cancelled、truthState=cancelled",
+  coreState="record.state == \"cancelled\"；close 後仍是 cancelled、closedAt 有值、detail \"(was Cancelled)\"",
+  effect="codex 子程序不再殘留；取消之後沒有遲到的 from-session 結果訊息",
+ ),
+ result="completed",
+ actual=("三面一致。取消在 mono 7.301（03:54:25.872Z）發出，當時 record.state 已經是 active（mono 1.739 起）。"
+  "終態 cancelled（SSE id=103 @03:54:25.887729Z）；角色 id=104 intent=cancelled／truthState=cancelled／「已取消。」。"
+  "after-cancel（mono 9.353）children=[]；after-close（mono 15.408）children=[]。messages?direction=from-session 長度 0，沒有遲到結果。"
+  "close（mono 13.358）成功：closedAt=2026-09-07T03:54:31.928111Z、state 仍為 cancelled、detail=\"phase0 close after cancel (was Cancelled)\"（agents.rs:1300-1307 保留終局）。"
+  "provider 端獨立佐證：rollout 第 13 行 event_msg turn_aborted reason=\"interrupted\" duration_ms=6066，與 runtime 在 2 ms 後記下的 cancelled 對得上。"),
+ evidence=[
+  f"{E}/codex-cancel-1/result.json :: events[6] cancel-issued mono 7.301；events[7] state=cancelled mono 7.807；events[8] after-cancel children=[]；events[10] after-close children=[]；final.state=\"cancelled\"、final.closedAt=\"2026-09-07T03:54:31.928111Z\"、final.detail=\"phase0 close after cancel (was Cancelled)\"；messages-from-session=[]；wallSeconds=15.46",
+  f"{E}/codex-cancel-1/sse.jsonl :: id=96 created、id=99 fetched、id=101 working、id=103 cancelled @03:54:25.887729Z、id=104 character intent=cancelled message=\"已取消。\"、id=108 session.stopped、id=109 state 仍 cancelled",
+  f"{E}/codex-cancel-1/result.json :: auditTail 內 agent-session.closed（actor=user）與兩筆 character.session.truth truth=\"cancelled\"",
+  "/Users/user/.codex/sessions/2026/09/07/rollout-2026-09-07T11-54-19-01a07a00-ac27-74c2-94e2-a922510d74ad.jsonl :: line 1 session_meta.cli_version=\"0.153.4\"；line 8 turn_context model=\"gpt-6-astra\"、approval_policy=\"untrusted\"、sandbox_policy={\"type\":\"read-only\"}、reasoning_effort=null；line 13 turn_aborted reason=\"interrupted\"",
+  f"{R}/crates/interaction-agent-gateway/src/codex.rs:518-529（turn.status==\"interrupted\" → TaskCancelled）",
+  f"{R}/crates/interaction-runtime/src/gateway.rs:585-590（TaskCancelled → report \"cancelled\"）",
+ ],
+ observations=[
+  "三要素齊備：投影（SSE state + 角色 system.text「已取消。」）、核心狀態（record cancelled，close 後仍 cancelled、closedAt 有值）、實際效果（無殘留子程序、無遲到訊息）。",
+  "與 claude 的差別完全在連接器：codex 走協定層 turn/interrupt，agent 自己回報 turn.status=\"interrupted\"（codex.rs:529）；claude 只能靠訊號，而訊號後的自陳是一行 error result。",
+  "codex 的取消是在 record.state==active 時發出的，claude 那三次都是在 created/fetched；這是兩邊唯一未對齊的比較條件。",
+ ],
+ productDefects=[],
+ limitations=("(1) 純分析，未跑新 session。(2) 這次沒有測試「取消後 agent 仍送出遲到結果」的對抗情境（例如中斷後 agent 才把答案寫出來）——只能說本次觀察窗（取消後約 8 s，含 close 後 2 s）內沒有遲到訊息。"
+  "(3) 沒有驗證 codex deny 的 wire 值（codex.rs:643-644 送 \"reject\"）在 0.153.4 是否被接受——那是另一個 case。"),
+ cleanup="無需清理（同上，本輪未 spawn 任何程序、未寫入使用者 home）。",
+ environment=codex_env,
+)
+
+case_multi=dict(
+ id="A2-E0-03-claude-interrupt-multi-recheck",
+ scenario="核對上一輪 multi 目錄裡的 claude interrupt 是否同樣落到 failed（多 session 併發下的重現性）。",
+ agentOrSurface="claude-code（真 agent）×2 次中斷：multi-C-claude-x2 的 i=1、multi-E-claude-codex 的 i=0",
+ evidenceLevel="real-agent",
+ precondition=f"上一輪產物 {E}/multi-C-claude-x2 與 {E}/multi-E-claude-codex（各自隔離 home／port 18921、18923）。本輪未啟動 daemon。",
+ steps=[
+  "讀兩個 result.json 的 events 與 sessions[i].states／last",
+  "唯讀查詢兩個 home/state/interaction.db 的 observations（agent.session）",
+  "唯讀讀取兩個被中斷 session 的 ~/.claude/projects/… provider log",
+ ],
+ expected=dict(
+  ui="兩次都應是「已取消」",
+  coreState="兩次 record.state 都應是 cancelled",
+  effect="被中斷的 session 不留子程序，也不干擾同時進行的另一個 session",
+ ),
+ result="product-failed",
+ actual=("兩次都是 failed，與 A2-E0-03-claude 完全同一個機制（機制指紋一致：observations 的 inferences.report.error 都是 \"error_during_execution\"）。"
+  "multi-C i=1：states=[[1.189,\"created\"],[6.788,\"failed\"]]，cancel-issued mono 6.279，provider log 於 03:56:26.160Z 記 \"[Request interrupted by user]\"，runtime 於 03:56:26.163724Z 記 failed。"
+  "multi-E i=0：states=[[1.175,\"created\"],[6.757,\"failed\"]]，cancel-issued mono 6.252，provider log 03:57:11.294Z，runtime 03:57:11.301107Z 記 failed。"
+  "兩次同樣都在 record.state 還是 created 時被中斷（都沒觀察到 active）。"
+  "隔離面是好的：兩次被中斷的 session 都沒有 crossTalk、summary 為空、ownSecretInSummary=false，而同一 daemon 內的另一個 session 照常完成（multi-C i=0 claimed-completed costUsd 0.139，multi-E i=1 codex claimed-completed）。"
+  "childrenAfterStop 兩邊都是 []；children（daemon 停止前）各有 1 個，但屬於另一個尚未關閉的 session（multi-C 是 `claude -p …`，multi-E 是 `codex app-server`），不是被中斷的那一個。"
+  "對照組：multi-D-codex-x2 的 codex 中斷（i=1，cancel mono 7.457）終態是 cancelled——同一輪、同一機器、同一 harness，只有連接器不同。"),
+ evidence=[
+  f"{E}/multi-C-claude-x2/result.json :: events cancel-issued(i=1) mono 6.279、state(i=1)=failed mono 6.788；sessions[i=1].states、sessions[i=1].last.state=\"failed\"、providerSessionId=789129e8-ddff-4aec-ad53-9f9844a3e6e2；children=[\" 9406 … claude -p …\"]（屬 i=0）；childrenAfterStop=[]",
+  f"{E}/multi-C-claude-x2/home/state/interaction.db :: observations obs-32fa8dcc @03:56:26.163724Z facts.event=\"failed\" sessionId=asession-696af0c2 inferences.report.error=\"error_during_execution\"",
+  f"{E}/multi-E-claude-codex/result.json :: events cancel-issued(i=0) mono 6.252、state(i=0)=failed mono 6.757；sessions[i=0].last.state=\"failed\"、providerSessionId=276c9883-389b-4627-9ac3-a577ef79ad17；children=[\"13216 … codex app-server\"]（屬 i=1）；childrenAfterStop=[]",
+  f"{E}/multi-E-claude-codex/home/state/interaction.db :: observations obs-09fb1641 @03:57:11.301107Z facts.event=\"failed\" inferences.report.error=\"error_during_execution\"",
+  "/Users/user/.claude/projects/…-multi-C-claude-x2-work-1/789129e8-ddff-4aec-ad53-9f9844a3e6e2.jsonl :: line 9 \"[Request interrupted by user]\" @03:56:26.160Z（全檔 9 行、無 assistant 訊息）",
+  "/Users/user/.claude/projects/…-multi-E-claude-codex-work-0/276c9883-389b-4627-9ac3-a577ef79ad17.jsonl :: line 9 \"[Request interrupted by user]\" @03:57:11.294Z",
+  f"{E}/multi-D-codex-x2/result.json :: events cancel-issued(i=1) mono 7.457 → state(i=1)=\"cancelled\" mono 7.965（對照組）",
+ ],
+ observations=[
+  "重現次數：claude-code 人類中斷 3/3 都是 failed（claude-cancel-1、multi-C i=1、multi-E i=0）；codex 人類中斷 2/2 都是 cancelled（codex-cancel-1、multi-D i=1）。",
+  "併發隔離本身沒有問題：被中斷的 session 不影響同 daemon 內另一個 session 的完成，也沒有秘密交叉洩漏（crossTalk=[]）。",
+  "三次 claude 中斷的 last observed record state 都是 created；換句話說目前證據只覆蓋「turn 已送出、第一個 assistant 事件尚未出現」這個窗口。",
+ ],
+ productDefects=[dict(defect_claude, title=defect_claude["title"]+"（重現 ×2，併發情境）")],
+ limitations="(1) 純分析。(2) multi 的 harness 不做 close-after-cancel，所以這兩次沒有 close 之後的 record 證據（closedAt 未取得）。(3) 同樣沒有 active 時中斷的樣本。",
+ cleanup="無需清理（未 spawn 任何程序、未寫入使用者 home）。",
+ environment=multi_env,
+)
+
+doc=dict(
+ group="A2 — E0-03（取消）原始資料再分析與程式碼歸因",
+ cases=[case_claude,case_codex,case_multi],
+ commands=cmds,
+ openQuestions=[
+  "在 record.state 已經是 active（claude 已吐出第一個 assistant 事件）時中斷，真 claude 是否仍吐 result/subtype=error_during_execution？三次樣本都落在 created/fetched，需要一次 --cancel-when-active 的真 agent 跑來釘死。",
+  "被中斷的那一行 result 是否帶 total_cost_usd／num_turns？claude.rs:446-455 的失敗分支會丟掉它們；要證實需要保留連接器原始 stdout（目前 harness 沒有錄）。",
+  "修好 claude 中斷語意之後，`kill`（claude.rs:359-365，用於 close／estop／到期）該不該也記成 cancelled？codex_exec.rs:260-264 在 kill 時同樣設旗標；但 runtime 端 close／expire 已經在 record 層各有結局，重複標記可能反而把 expired 蓋成 cancelled，需要決定。",
+  "同一個誠實缺口是否也影響 claude 的 timeout／estop 路徑（都走 kill → SIGTERM，code() 為 None → SessionClosed → unknown）？本輪沒有樣本。",
+  "SSE taxonomy 的 \"fetched\" 沒有對應的 AgentSessionRecord 狀態（gateway.rs:798）。要不要讓 record 也有 Fetched，否則「取消當下是什麼狀態」在 API 與 SSE 上永遠有兩個答案。",
+ ],
+ notes=("本輪完全沒有跑新的 agent／daemon，也沒有修改任何 repo 檔案；所有結論來自上一輪（同 commit、同 binary）的產物加上 HEAD 原始碼閱讀，外加 8 條唯讀驗證命令（見 commands[]，全部 exit 0）。"
+  "核心結論：E0-03 對 codex 是 completed，對 claude-code 是 product-failed——人類 interrupt 被記成 failed，違反誠實階梯（取消≠失敗），且 Claude 連接器在任何路徑都無法產生 cancelled（`grep -c TaskCancelled claude.rs` == 0）。"
+  "修復候選已定位到 claude.rs 的三處（interrupt 加旗標、stdout task 事件轉換、send_user_message 重置）＋一支對稱回歸測試；本輪只描述，未動任何一行。"),
+)
+p="/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/analysis/A2-E0-03.json"
+json.dump(doc,open(p,"w"),ensure_ascii=False,indent=1)
+print("written",p,len(json.dumps(doc,ensure_ascii=False)))

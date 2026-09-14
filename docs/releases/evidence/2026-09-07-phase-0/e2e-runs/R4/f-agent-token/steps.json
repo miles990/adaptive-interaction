@@ -1,0 +1,262 @@
+[
+ {
+  "step": "agent-approve-closed",
+  "who": "agent",
+  "method": "POST",
+  "path": "/v1/agent-sessions/asession-e1e8ce07-aa6f-454a-8bc1-d3e2d0d63bca/approve",
+  "body": {
+   "requestId": "0",
+   "approve": true
+  },
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "token_scope_forbidden",
+    "message": "agent token cannot perform this human/control-center operation"
+   }
+  },
+  "t": "2026-09-07T09:09:59Z"
+ },
+ {
+  "step": "agent-approve-resume",
+  "who": "agent",
+  "method": "POST",
+  "path": "/v1/agent-sessions/asession-1e51a3d0-474d-46f6-ad78-c3c64a23e7a0/approve",
+  "body": {
+   "requestId": "0",
+   "approve": true
+  },
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "token_scope_forbidden",
+    "message": "agent token cannot perform this human/control-center operation"
+   }
+  },
+  "t": "2026-09-07T09:09:59Z"
+ },
+ {
+  "step": "agent-create-session",
+  "who": "agent",
+  "method": "POST",
+  "path": "/v1/agent-sessions",
+  "body": {
+   "agentId": "claude-code",
+   "label": "agent-token-should-fail",
+   "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/c-claude-write/workdir",
+   "ttlMinutes": 10,
+   "allowWrite": true,
+   "toolScope": [
+    "workspace.write"
+   ],
+   "consentScope": [
+    "agent-session:workspace-write"
+   ]
+  },
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "token_scope_forbidden",
+    "message": "agent token cannot perform this human/control-center operation"
+   }
+  },
+  "t": "2026-09-07T09:09:59Z"
+ },
+ {
+  "step": "agent-policy-patch",
+  "who": "agent",
+  "method": "PATCH",
+  "path": "/v1/policy",
+  "body": {
+   "delegation": {
+    "maxMessagesPerSession": 9999
+   }
+  },
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "token_scope_forbidden",
+    "message": "agent token cannot perform this human/control-center operation"
+   }
+  },
+  "t": "2026-09-07T09:09:59Z"
+ },
+ {
+  "step": "agent-estop-clear",
+  "who": "agent",
+  "method": "POST",
+  "path": "/v1/emergency-stop/clear",
+  "body": null,
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "token_scope_forbidden",
+    "message": "agent token cannot perform this human/control-center operation"
+   }
+  },
+  "t": "2026-09-07T09:09:59Z"
+ },
+ {
+  "step": "agent-verify",
+  "who": "agent",
+  "method": "POST",
+  "path": "/v1/agent-sessions/asession-1e51a3d0-474d-46f6-ad78-c3c64a23e7a0/verify",
+  "body": {
+   "note": "agent should not verify"
+  },
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "token_scope_forbidden",
+    "message": "agent token cannot perform this human/control-center operation"
+   }
+  },
+  "t": "2026-09-07T09:09:59Z"
+ },
+ {
+  "step": "agent-get-session",
+  "who": "agent",
+  "method": "GET",
+  "path": "/v1/agent-sessions/asession-1e51a3d0-474d-46f6-ad78-c3c64a23e7a0",
+  "body": null,
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "token_scope_forbidden",
+    "message": "agent token cannot perform this human/control-center operation"
+   }
+  },
+  "t": "2026-09-07T09:09:59Z"
+ },
+ {
+  "step": "agent-renew",
+  "who": "agent",
+  "method": "POST",
+  "path": "/v1/agent-sessions/asession-1e51a3d0-474d-46f6-ad78-c3c64a23e7a0/renew",
+  "body": {
+   "extraMinutes": 60
+  },
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "token_scope_forbidden",
+    "message": "agent token cannot perform this human/control-center operation"
+   }
+  },
+  "t": "2026-09-07T09:09:59Z"
+ },
+ {
+  "step": "agent-onboarding-commit",
+  "who": "agent",
+  "method": "POST",
+  "path": "/v1/onboarding/commit",
+  "body": {
+   "enableActuators": [
+    "actuator.builtin.notify"
+   ]
+  },
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "token_scope_forbidden",
+    "message": "agent token cannot perform this human/control-center operation"
+   }
+  },
+  "t": "2026-09-07T09:09:59Z"
+ },
+ {
+  "step": "agent-estop-set",
+  "who": "agent",
+  "method": "POST",
+  "path": "/v1/emergency-stop",
+  "body": {
+   "reason": "agent-token estop allowed by design"
+  },
+  "status": 200,
+  "resp": {
+   "actor": "agent",
+   "characterEmergency": [],
+   "reason": "agent-token estop allowed by design",
+   "sensors": {
+    "devices": [],
+    "local": {
+     "microphone": "idle"
+    },
+    "stopped": true,
+    "uncertain": false
+   },
+   "stoppedActions": 0,
+   "stoppedActuators": 14,
+   "totalActuators": 14,
+   "unconfirmedActuators": []
+  },
+  "t": "2026-09-07T09:09:59Z"
+ },
+ {
+  "step": "human-estop-clear",
+  "who": "human",
+  "method": "POST",
+  "path": "/v1/emergency-stop/clear",
+  "body": null,
+  "status": 200,
+  "resp": {
+   "cleared": true
+  },
+  "t": "2026-09-07T09:09:59Z"
+ },
+ {
+  "step": "human-status-after",
+  "who": "human",
+  "method": "GET",
+  "path": "/v1/status",
+  "body": null,
+  "status": 200,
+  "resp": {
+   "activeSensors": [],
+   "agentSessions": 0,
+   "capabilityVersion": 56,
+   "characterProtocol": {
+    "activeCharacter": null,
+    "instances": 0,
+    "version": "1.0"
+   },
+   "configErrors": [],
+   "emergencyStop": false,
+   "eventSequence": 165,
+   "hasReceipts": false,
+   "name": "adaptive-interaction",
+   "onboardingCompleted": false,
+   "pendingAiAssists": 0,
+   "presentation": {
+    "behaviorExplanation": null,
+    "behaviorState": null,
+    "character": null,
+    "connected": false,
+    "lastSeenSecondsAgo": null,
+    "packId": null,
+    "pendingCommands": 0,
+    "visible": false
+   },
+   "proactivePause": {
+    "paused": false
+   },
+   "quietHours": false,
+   "recipes": {
+    "errors": 0,
+    "loaded": 1
+   },
+   "schemaVersion": "1.0",
+   "session": null,
+   "startedAt": "2026-09-07T09:06:06.603646Z",
+   "unresolvedStopHealth": {
+    "overflowCount": 0,
+    "parked": false,
+    "recoveryUnknown": false,
+    "storage": "durable"
+   },
+   "uptimeSeconds": 232,
+   "version": "0.8.0"
+  },
+  "t": "2026-09-07T09:09:59Z"
+ }
+]

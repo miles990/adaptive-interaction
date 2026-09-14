@@ -1,0 +1,99 @@
+AXGroup: group
+AXGroup: group
+AXScrollArea:
+AXWebArea: Interaction Control Center
+AXLink: 跳到主要內容
+AXStaticText: 跳到主要內容
+AXGroup:
+AXGroup:
+AXStaticText: Interaction
+AXGroup:
+AXStaticText: Control Center
+AXGroup: 主要導覽
+AXButton: 現在
+AXButton: 小樞
+AXButton: 工作
+AXButton: 連接與權限
+AXButton: 更多
+AXStaticText: 運作中
+AXGroup:
+AXStaticText: 連線到外部系統
+AXGroup:
+AXGroup:
+AXGroup:
+AXStaticText: 工作
+AXButton: 全域搜尋與指令（Cmd+K）
+AXButton: 通知中心，0 項待決定
+AXButton: 緊急停止
+AXTabGroup: 工作分類
+AXRadioButton: 工作
+AXRadioButton: 自動互動
+AXHeading: 交代一件工作
+AXStaticText: 交代一件工作
+AXGroup:
+AXStaticText: 想讓小樞幫你做什麼？
+AXStaticText: 想讓
+AXStaticText: 小樞
+AXStaticText: 幫你做什麼？
+AXTextArea: 想讓 小樞 幫你做什麼？
+AXGroup:
+AXStaticText: Native fixture code
+AXStaticText: 加入檔案或選擇資料夾
+AXStaticText: 加入檔案或選擇資料夾
+AXTextField: 加入檔案或選擇資料夾
+AXGroup:
+AXButton: 選擇資料夾…
+AXStaticText: 這是哪一種工作
+AXStaticText: 這是哪一種工作
+AXPopUpButton: 這是哪一種工作
+AXStaticText: 問問題、寫文件、做規劃
+AXGroup: 開始前預覽
+AXStaticText: 開始前先看一下
+AXList:
+AXGroup:
+AXStaticText: 這次會讀取什麼
+AXGroup:
+AXStaticText: 沒有選資料夾：從系統資料夾開始工作，不會用到你自己的檔案。
+AXGroup:
+AXStaticText: 會不會修改內容
+AXGroup:
+AXStaticText: 不會修改：這次只看不改，任何檔案都不會被動到。
+AXGroup:
+AXCheckBox: 允許修改這個資料夾裡的檔案 不授予其他位置或網路；工作結束、逾時或緊急停止時立即失效。
+AXStaticText: 允許修改這個資料夾裡的檔案
+AXStaticText: 不授予其他位置或網路；工作結束、逾時或緊急停止時立即失效。
+AXGroup:
+AXStaticText: 最多使用多少時間與費用
+AXGroup:
+AXStaticText: 30 分鐘，最多 US$0.50
+AXGroup:
+AXDisclosureTriangle: 查看技術細節
+AXStaticText: 查看技術細節
+AXIncrementor:
+AXIncrementorArrow:
+AXIncrementorArrow:
+AXIncrementor:
+AXIncrementorArrow:
+AXIncrementorArrow:
+AXGroup:
+AXStaticText: 內容會送到該 Agent 的模型服務（依你在該 Agent 的登入方案計費）。到期、關閉或緊急停止時，權限立即失效。
+AXButton: 開始
+AXButton: 清空
+AXGroup:
+AXStaticText: 目前分工：
+AXStaticText: 程式工作交給 Codex；一般對話、知識整理與結果複審交給 Claude Code
+AXButton: 調整分工
+AXHeading: 進行中與最近的工作
+AXStaticText: 進行中與最近的工作
+AXGroup:
+AXGroup:
+AXStaticText: 目前沒有交代中的工作。
+AXGroup:
+AXDisclosureTriangle: 工作設定：本機 AI Agent 與分工
+AXStaticText: 工作設定：本機 AI Agent 與分工
+AXButton: close button
+AXButton: full screen button
+AXGroup: group
+AXGroup: group
+AXButton: minimize button
+AXStaticText: Interaction Control Center

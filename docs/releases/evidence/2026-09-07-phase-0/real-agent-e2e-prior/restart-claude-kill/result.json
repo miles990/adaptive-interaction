@@ -1,0 +1,240 @@
+{
+ "agent": "claude-code",
+ "signal": "KILL",
+ "events": [
+  {
+   "t": "2026-09-07T03:58:05.654Z",
+   "mono": 0.273,
+   "k": "daemon-ready",
+   "pid": 15527
+  },
+  {
+   "t": "2026-09-07T03:58:05.917Z",
+   "mono": 0.535,
+   "k": "create",
+   "status": 200,
+   "sid": "asession-ba926819-53fe-4637-9738-abb121965276"
+  },
+  {
+   "t": "2026-09-07T03:58:05.920Z",
+   "mono": 0.538,
+   "k": "task-sent",
+   "status": 200
+  },
+  {
+   "t": "2026-09-07T03:58:26.608Z",
+   "mono": 21.226,
+   "k": "state-before-kill",
+   "state": "created",
+   "children": [
+    "15721 15721 15527       00:21 S    claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-confi"
+   ]
+  },
+  {
+   "t": "2026-09-07T03:58:26.612Z",
+   "mono": 21.23,
+   "k": "daemon-killed",
+   "exitcode": -9
+  },
+  {
+   "t": "2026-09-07T03:58:28.697Z",
+   "mono": 23.315,
+   "k": "children-after-daemon-death",
+   "children": [
+    "15721 15721     1       00:23 S    claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-confi"
+   ]
+  },
+  {
+   "t": "2026-09-07T03:58:31.780Z",
+   "mono": 26.398,
+   "k": "children-after-daemon-death+5s",
+   "children": [
+    "15721 15721     1       00:26 S    claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-confi"
+   ]
+  },
+  {
+   "t": "2026-09-07T03:58:33.562Z",
+   "mono": 28.179,
+   "k": "daemon-restarted",
+   "pid": 16346
+  },
+  {
+   "t": "2026-09-07T03:58:33.563Z",
+   "mono": 28.181,
+   "k": "session-after-restart",
+   "status": 200,
+   "state": "expired",
+   "detail": "runtime restarted; orphan subprocess group reaped (pgid 15721)",
+   "lease": {
+    "expiresAt": "2026-09-07T04:18:05.662876Z",
+    "issuedAt": "2026-09-07T03:58:05.662876Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   }
+  },
+  {
+   "t": "2026-09-07T03:58:33.564Z",
+   "mono": 28.182,
+   "k": "list-after-restart",
+   "n": 1,
+   "states": [
+    "expired"
+   ]
+  },
+  {
+   "t": "2026-09-07T03:58:33.566Z",
+   "mono": 28.184,
+   "k": "from-session-after-restart",
+   "kinds": []
+  },
+  {
+   "t": "2026-09-07T03:58:33.567Z",
+   "mono": 28.185,
+   "k": "send-after-restart",
+   "status": 409,
+   "resp": {
+    "error": {
+     "code": "conflict",
+     "message": "conflict: agent session asession-ba926819-53fe-4637-9738-abb121965276 is Expired; mailbox closed"
+    }
+   }
+  },
+  {
+   "t": "2026-09-07T03:58:33.568Z",
+   "mono": 28.186,
+   "k": "interrupt-after-restart",
+   "status": 404,
+   "resp": {
+    "error": {
+     "code": "not_found",
+     "message": "not found: gateway session asession-ba926819-53fe-4637-9738-abb121965276"
+    }
+   }
+  },
+  {
+   "t": "2026-09-07T03:58:33.569Z",
+   "mono": 28.187,
+   "k": "renew-after-restart",
+   "status": 409,
+   "resp": {
+    "error": {
+     "code": "conflict",
+     "message": "conflict: agent session asession-ba926819-53fe-4637-9738-abb121965276 is Expired; expired/closed sessions cannot be renewed"
+    }
+   }
+  },
+  {
+   "t": "2026-09-07T03:58:33.613Z",
+   "mono": 28.231,
+   "k": "children-final",
+   "children": []
+  }
+ ],
+ "statusAfter": {
+  "activeSensors": [],
+  "agentSessions": 0,
+  "capabilityVersion": 56,
+  "characterProtocol": {
+   "activeCharacter": null,
+   "instances": 0,
+   "version": "1.0"
+  },
+  "configErrors": [],
+  "emergencyStop": false,
+  "eventSequence": 94,
+  "hasReceipts": false,
+  "name": "adaptive-interaction",
+  "onboardingCompleted": false,
+  "pendingAiAssists": 0,
+  "presentation": {
+   "behaviorExplanation": null,
+   "behaviorState": null,
+   "character": null,
+   "connected": false,
+   "lastSeenSecondsAgo": null,
+   "packId": null,
+   "pendingCommands": 0,
+   "visible": false
+  },
+  "proactivePause": {
+   "paused": false
+  },
+  "quietHours": false,
+  "recipes": {
+   "errors": 0,
+   "loaded": 1
+  },
+  "schemaVersion": "1.0",
+  "session": null,
+  "startedAt": "2026-09-07T03:58:31.868058Z",
+  "unresolvedStopHealth": {
+   "overflowCount": 0,
+   "parked": false,
+   "recoveryUnknown": true,
+   "storage": "durable"
+  },
+  "uptimeSeconds": 1,
+  "version": "0.8.0"
+ },
+ "after": {
+  "agentId": "claude-code",
+  "allowWrite": false,
+  "budget": {
+   "maxCost": 0.0,
+   "maxDurationMs": 1200000,
+   "maxMessages": 40,
+   "spentCost": 0.0,
+   "spentMessages": 1
+  },
+  "closedAt": "2026-09-07T03:58:33.393013Z",
+  "consentScope": [],
+  "contextBundles": [
+   {
+    "bundle": {
+     "agentId": "claude-code",
+     "domains": [],
+     "excluded": {
+      "needsReview": [],
+      "notVisibleToAgent": 0,
+      "outsideGrantedDomains": 0,
+      "overCapacity": 0,
+      "sensitive": 0,
+      "unreviewedCandidates": 0
+     },
+     "generatedAt": "2026-09-07T03:58:05.919443Z",
+     "includes": [],
+     "limits": {
+      "maxBytes": 49152,
+      "maxItems": 24,
+      "scanLimit": 1000,
+      "scanLimitReached": false
+     },
+     "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+     "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「核心重啟」。不要讀取、建立或修改任何檔案。",
+     "truncated": false
+    },
+    "bundleId": "bundle-7686a41b-635d-482e-b8fd-14c438ad76c6",
+    "contentHash": "2781a094b65304efa5e75c2aea9b87cdd7750245265812086fd9dbe9608ef530",
+    "generatedAt": "2026-09-07T03:58:05.919627Z",
+    "messageId": "msg-asession-ba926819-53fe-4637-9738-abb121965276-1"
+   }
+  ],
+  "createdAt": "2026-09-07T03:58:05.662876Z",
+  "dataScope": [],
+  "detail": "runtime restarted; orphan subprocess group reaped (pgid 15721)",
+  "label": "phase0-restart",
+  "lease": {
+   "expiresAt": "2026-09-07T04:18:05.662876Z",
+   "issuedAt": "2026-09-07T03:58:05.662876Z",
+   "renewable": true,
+   "revokeOnSessionEnd": true
+  },
+  "providerId": "provider.ai-agent.claude-code",
+  "providerSessionId": "bd7e523b-b4da-4359-8108-595583bac9e6",
+  "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/restart-claude-kill/workdir",
+  "sessionId": "asession-ba926819-53fe-4637-9738-abb121965276",
+  "state": "expired",
+  "toolScope": []
+ },
+ "wallSeconds": 28.23
+}

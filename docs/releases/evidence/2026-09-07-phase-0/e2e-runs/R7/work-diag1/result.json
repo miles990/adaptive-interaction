@@ -1,0 +1,440 @@
+{
+  "evidenceLevel": "native Tauri AX + production daemon + repository fixture agents",
+  "realAgentExecuted": false,
+  "humanEvaluation": false,
+  "consentGranted": false,
+  "safetyUnlocked": false,
+  "binarySha256": "1103cda7f8491ece2adbaab478056d14a174da47ab8536a2d652c734a0765f19",
+  "cliSha256": "1e066d84d28b9397c6c6843522ec6a0fbaf692d10ffbea59481afb79860c84c7",
+  "codexFixtureSha256": "b51ad9be5e1c90500ae2430b1d9af8104bf2734db83003fac15eb505443fe295",
+  "claudeFixtureSha256": "84816fd16d87229440db59c6d22fb6e6584ece65b41bcee9c585dbd1a40f9031",
+  "driverSha256": "897187c3539fe1d1083d713395d56573ffae3c3dff88590f30a6bd56795a6a94",
+  "axHelperSha256": "3e1bd72d19bfebc876a8c69b47e72aa5634218fc371111dfe73e50d19e49817b",
+  "sourceSha": "78dcda1a3733c97d266ca9b60ad4461c69ca2032",
+  "dirtyTree": true,
+  "provenanceCapturedAt": "2026-09-07T09:29:42Z",
+  "artifactVerification": {
+    "unchanged": true,
+    "changed": []
+  },
+  "fixtureSha256": {
+    "codex": "b51ad9be5e1c90500ae2430b1d9af8104bf2734db83003fac15eb505443fe295",
+    "claude": "84816fd16d87229440db59c6d22fb6e6584ece65b41bcee9c585dbd1a40f9031"
+  },
+  "prefsFixture": null,
+  "startingPreferences": {
+    "schemaVersion": 3,
+    "companionPack": "plain-text",
+    "companionVisible": true,
+    "openControlCenterOnStart": true,
+    "advancedMode": false
+  },
+  "casePreferenceOverrides": {
+    "companionPack": "plain-text",
+    "companionVisible": true,
+    "openControlCenterOnStart": true,
+    "advancedMode": false
+  },
+  "steps": [],
+  "ax": [
+    {
+      "command": [
+        "windows"
+      ],
+      "exit": 0,
+      "seconds": 0.668
+    },
+    {
+      "command": [
+        "navclick",
+        "3"
+      ],
+      "exit": 0,
+      "seconds": 0.636
+    },
+    {
+      "command": [
+        "navclick",
+        "3"
+      ],
+      "exit": 0,
+      "seconds": 0.481
+    },
+    {
+      "command": [
+        "exists",
+        "AXAny",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.98
+    },
+    {
+      "command": [
+        "fill",
+        "AXTextArea",
+        "幫你做什麼",
+        "Native fixture codex cancel"
+      ],
+      "exit": 0,
+      "seconds": 0.731
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.641
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.62
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.703
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.65
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.638
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.653
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.636
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.646
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.663
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.639
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.636
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.629
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.639
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.628
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.637
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.669
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.666
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.652
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.628
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.64
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.67
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.638
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.65
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.696
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.645
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.646
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.628
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.639
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.647
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.645
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.644
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.631
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.662
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.632
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.645
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.704
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.649
+    },
+    {
+      "command": [
+        "value",
+        "AXTextArea",
+        "幫你做什麼"
+      ],
+      "exit": 0,
+      "seconds": 0.66
+    },
+    {
+      "command": [
+        "dump"
+      ],
+      "exit": 0,
+      "seconds": 2.603
+    }
+  ],
+  "seconds": 37.008,
+  "result": "failed",
+  "error": "AX input readback: 幫你做什麼: timed out (expected state absent)",
+  "limitations": [
+    "No real AI or remote task success",
+    "Codex turn cancellation does not claim the app-server process exited",
+    "Process termination is checked on the separate Claude hang/close case"
+  ]
+}

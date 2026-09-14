@@ -1,0 +1,15 @@
+{"t": "2026-09-07T09:15:14Z", "k": "daemon-spawned", "pid": 71157}
+{"t": "2026-09-07T09:15:14Z", "k": "create", "status": 200, "id": "asession-e7ae985c-6e67-4c08-9770-97a4f673849f"}
+{"t": "2026-09-07T09:15:14Z", "k": "state", "state": "created"}
+{"t": "2026-09-07T09:16:12Z", "k": "state", "state": "active"}
+{"t": "2026-09-07T09:16:15Z", "k": "interrupt", "status": 200, "resp": {"interrupted": true}}
+{"t": "2026-09-07T09:16:16Z", "k": "state", "state": "failed"}
+{"t": "2026-09-07T09:16:16Z", "k": "record", "state": "failed", "detail": null}
+{"t": "2026-09-07T09:16:16Z", "k": "mailbox", "dir": "to-session", "count": 1}
+{"t": "2026-09-07T09:16:16Z", "k": "mailbox", "dir": "from-session", "count": 0}
+{"t": "2026-09-07T09:16:16Z", "k": "observations", "status": 200, "count": 3}
+  OBS {"confidence": 0.5, "facts": {"event": "failed", "sessionId": "asession-e7ae985c-6e67-4c08-9770-97a4f673849f"}, "freshnessMs": 0, "inferences": {"report": {"error": "error_during_execution"}}, "observationId": "obs-807ac76b-7291-4d89-a419-cb65a37f6f30", "quality": 1.0, "receivedAt": "2026-09-07T09:16:16.019873Z", "receptorId": "agent.session", "schemaVersion": "1.0", "source": {"driver": "builtin.push", "quality": 1.0}, "timestamp": "2026-09-07T09:16:16.019873Z"}
+  OBS {"confidence": 0.5, "facts": {"event": "progress", "sessionId": "asession-e7ae985c-6e67-4c08-9770-97a4f673849f"}, "freshnessMs": 0, "inferences": {"report": {"text": "以下直接輸出全文，未讀取、建立或修改任何檔案。\n\n**隔離工作目錄**\n\n隔離工作目錄，指的是為某一項任務單獨劃出一塊檔案空間，讓所有讀寫都發生在這個範圍之內，不去碰觸原本的專案主體。這個概念聽起來平淡，卻是許多工程實務的基礎：從早期的沙箱編譯、持續整合的臨時建置目錄，到今天自動化代理在雲端或本機執行任務，背後都是同一種想法，先把場地圍起來，再開始動手。\n\n需要隔離的理由，首先是安全。一段程式或一個工具在執行時，往往會產生副作用：寫入暫存檔、覆蓋設定、刪除它以為多餘的東西。若這些動作直接落在主要的程式碼庫上，一次失誤就可能抹掉尚未提交的修改。把工作目錄隔開，等於替失誤預先留了退路，錯了就整個丟掉,代價只是一份複本。\n\n其次是可重現。同一個任務在不同機器、不同時間執行，若都從一個乾淨、內容明確的目錄開始，結"}}, "observationId": "obs-ce05a6a4-c815-4aab-8f12-550b9ca4e5ea", "q
+  OBS {"confidence": 0.5, "facts": {"event": "progress", "sessionId": "asession-e7ae985c-6e67-4c08-9770-97a4f673849f"}, "freshnessMs": 0, "inferences": {"report": {"text": null}}, "observationId": "obs-83dc520a-f128-4e15-b762-8dfa6c9725c6", "quality": 1.0, "receivedAt": "2026-09-07T09:16:12.462541Z", "receptorId": "agent.session", "schemaVersion": "1.0", "source": {"driver": "builtin.push", "quality": 1.0}, "timestamp": "2026-09-07T09:16:12.462541Z"}
+{"t": "2026-09-07T09:16:16Z", "k": "audit-exit-mentions", "count": 0}
+{"t": "2026-09-07T09:16:16Z", "k": "daemon-stopped"}

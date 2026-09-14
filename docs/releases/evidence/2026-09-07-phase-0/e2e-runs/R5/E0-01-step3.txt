@@ -1,0 +1,13 @@
+=== GET /v1/onboarding (after commit) ===
+{"completed":true,"completedAt":"2026-09-07T09:04:09.711925Z","draft":null,"starterRecipes":[{"id":"starter-task-complete","title":"任務完成時，用最低干擾方式回應"},{"id":"starter-quiet-log","title":"安靜時段只記錄、不打擾"},{"id":"starter-device-warning","title":"裝置或服務異常時通知"}]}
+=== GET /v1/status.onboardingCompleted (after) ===
+{"onboardingCompleted": true}
+
+=== GET /v1/ui/preferences (before patch) ===
+{"agentRoutes":{"conversation":"claude-code","knowledge":"claude-code","programming":"codex","review":"claude-code"},"appearance":"system","customNames":{},"disabledAgents":[],"firstSuccessSeen":false,"locale":"en-US","mode":"simple","reduceMotion":false,"scalePercent":100,"schemaVersion":"1.0"}
+=== PATCH /v1/ui/preferences (locale zh-TW -> ja-JP, mode simple->advanced) ===
+{"agentRoutes":{"conversation":"claude-code","knowledge":"claude-code","programming":"codex","review":"claude-code"},"appearance":"system","customNames":{},"disabledAgents":[],"firstSuccessSeen":false,"locale":"ja-JP","mode":"advanced","reduceMotion":false,"scalePercent":100,"schemaVersion":"1.0"}
+HTTP_STATUS:200
+
+=== GET /v1/ui/preferences (after patch, re-read) ===
+{"agentRoutes":{"conversation":"claude-code","knowledge":"claude-code","programming":"codex","review":"claude-code"},"appearance":"system","customNames":{},"disabledAgents":[],"firstSuccessSeen":false,"locale":"ja-JP","mode":"advanced","reduceMotion":false,"scalePercent":100,"schemaVersion":"1.0"}

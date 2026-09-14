@@ -1,0 +1,11 @@
+   Compiling tower-http v0.6.11
+   Compiling clap_builder v4.6.6
+   Compiling adapters-media v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/adapters/media)
+   Compiling axum v0.8.9
+   Compiling reqwest v0.12.28
+   Compiling interaction-adapter-declarative v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-adapter-declarative)
+   Compiling adapters-builtin v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/adapters/builtin)
+   Compiling clap v4.6.6
+   Compiling rumqttd v0.19.0
+   Compiling interaction-runtime v0.8.0 (/Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.60s

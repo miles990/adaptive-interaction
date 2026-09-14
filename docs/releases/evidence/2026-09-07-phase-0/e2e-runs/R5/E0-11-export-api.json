@@ -1,0 +1,114 @@
+{
+    "count": 4,
+    "exportedAt": "2026-09-07T09:04:54.295173Z",
+    "included": [
+        "memory-items"
+    ],
+    "items": [
+        {
+            "agentDenylist": [],
+            "agentVisibility": [],
+            "confidence": 1.0,
+            "content": "\u4f7f\u7528\u8005\u5e38\u5728\u65e9\u4e0a\u8655\u7406\u90f5\u4ef6",
+            "createdAt": "2026-09-07T09:04:35.566256Z",
+            "createdBy": {
+                "id": "claude-code",
+                "kind": "agent"
+            },
+            "kind": "inference",
+            "layer": "user-memory",
+            "memoryId": "mem-5bf8b021-d246-44fa-ac04-e4829c05b2ef",
+            "provenance": [],
+            "retention": {
+                "reviewAfter": "2026-10-07T09:04:35.566219Z"
+            },
+            "schemaVersion": "1.0",
+            "status": "active",
+            "tags": [
+                "habit"
+            ],
+            "title": "Agent \u89c0\u5bdf\u5230\u7684\u7fd2\u6163",
+            "updatedAt": "2026-09-07T09:04:35.566256Z"
+        },
+        {
+            "agentDenylist": [],
+            "agentVisibility": [],
+            "confidence": 1.0,
+            "content": "\u4f7f\u7528\u8005\u504f\u597d\u88ab\u7a31\u70ba Alex",
+            "createdAt": "2026-09-07T09:04:27.795703Z",
+            "createdBy": {
+                "kind": "human"
+            },
+            "kind": "fact",
+            "layer": "persona-core",
+            "memoryId": "mem-dccd7dc0-dfb7-4d0c-a180-8a2e2ccb4150",
+            "provenance": [],
+            "retention": {},
+            "schemaVersion": "1.0",
+            "status": "active",
+            "tags": [
+                "persona"
+            ],
+            "title": "\u7a31\u547c\u504f\u597d",
+            "updatedAt": "2026-09-07T09:04:27.795703Z"
+        },
+        {
+            "agentDenylist": [],
+            "agentVisibility": [],
+            "confidence": 1.0,
+            "content": "\u4f7f\u7528\u8005\u4f4d\u65bc Asia/Taipei",
+            "createdAt": "2026-09-07T09:04:27.783766Z",
+            "createdBy": {
+                "kind": "human"
+            },
+            "kind": "fact",
+            "layer": "world-knowledge",
+            "memoryId": "mem-39788804-db05-4bb9-9314-a0897c4c4e4a",
+            "provenance": [],
+            "retention": {},
+            "schemaVersion": "1.0",
+            "status": "active",
+            "tags": [
+                "timezone"
+            ],
+            "title": "\u6642\u5340\u8a2d\u5b9a",
+            "updatedAt": "2026-09-07T09:04:27.783766Z"
+        },
+        {
+            "agentDenylist": [],
+            "agentVisibility": [],
+            "confidence": 1.0,
+            "content": "\u665a\u4e0a\u516b\u9ede\u5f8c\u4e0d\u8981\u6253\u64fe",
+            "createdAt": "2026-09-07T09:04:27.770915Z",
+            "createdBy": {
+                "kind": "human"
+            },
+            "kind": "preference",
+            "layer": "user-memory",
+            "memoryId": "mem-1de7f42f-c196-4216-baf5-5f5ff0c6d7bc",
+            "provenance": [],
+            "retention": {
+                "reviewAfter": "2026-10-07T09:04:27.770870Z"
+            },
+            "schemaVersion": "1.0",
+            "status": "active",
+            "tags": [
+                "notification",
+                "quiet-hours"
+            ],
+            "title": "\u559c\u6b61\u7684\u901a\u77e5\u6642\u6bb5",
+            "updatedAt": "2026-09-07T09:04:27.770915Z"
+        }
+    ],
+    "limit": 1000,
+    "limitReached": false,
+    "notIncluded": [
+        "knowledge-nodes",
+        "assets-and-derivatives",
+        "knowledge-receipts",
+        "character-interaction-memory"
+    ],
+    "note": "\u672c\u6a94\u53ea\u542b\u8a18\u61b6\uff0c\u4e0d\u542b\u77e5\u8b58\u7bc0\u9ede\u3001\u7d20\u6750\u8207\u884d\u751f\u7269\u3001\u77e5\u8b58\u6536\u64da\u8207\u89d2\u8272\u4e92\u52d5\u8a18\u61b6\u3002",
+    "scope": "memory-items-only",
+    "total": 4
+}

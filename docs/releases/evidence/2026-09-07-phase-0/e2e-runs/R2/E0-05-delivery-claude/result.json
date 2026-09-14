@@ -1,0 +1,604 @@
+{
+ "agent": "claude-code",
+ "port": 19020,
+ "task": "根據你收到的上下文（Context Bundle），使用者最喜歡的顏色是什麼？只回一行，並附上上下文裡的暗號。",
+ "allowWrite": false,
+ "events": [
+  {
+   "t": "2026-09-07T09:04:44.352Z",
+   "mono": 0.006,
+   "k": "daemon-ready"
+  },
+  {
+   "t": "2026-09-07T09:04:45.157Z",
+   "mono": 0.81,
+   "k": "create",
+   "status": 200,
+   "state": "created",
+   "id": "asession-922c9167-ab5f-4fde-8eaf-f8ef75ad516f",
+   "error": null
+  },
+  {
+   "t": "2026-09-07T09:04:45.159Z",
+   "mono": 0.813,
+   "k": "task-sent",
+   "status": 200,
+   "resp": {
+    "id": null,
+    "kind": "task",
+    "direction": "to-session",
+    "contextBundle": null
+   }
+  },
+  {
+   "t": "2026-09-07T09:04:45.161Z",
+   "mono": 0.814,
+   "k": "state",
+   "state": "created",
+   "delegation": null
+  },
+  {
+   "t": "2026-09-07T09:04:52.261Z",
+   "mono": 7.914,
+   "k": "state",
+   "state": "claimed-completed",
+   "delegation": null
+  },
+  {
+   "t": "2026-09-07T09:04:53.765Z",
+   "mono": 9.418,
+   "k": "final",
+   "state": "claimed-completed"
+  }
+ ],
+ "snapshots": [
+  {
+   "agentId": "claude-code",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.0,
+    "spentMessages": 1
+   },
+   "consentScope": [],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 1,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:04:45.158463Z",
+      "includes": [
+       {
+        "confidence": 1.0,
+        "content": "使用者最喜歡的顏色是靛青色（暗號 phase0-mem-32b415）",
+        "kind": "preference",
+        "layer": "user-memory",
+        "memoryId": "mem-488c9b40-19c7-45f6-86c2-52ee101d5fe0",
+        "title": "偏好顏色"
+       }
+      ],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "根據你收到的上下文（Context Bundle），使用者最喜歡的顏色是什麼？只回一行，並附上上下文裡的暗號。",
+      "truncated": false
+     },
+     "bundleId": "bundle-ef246ca1-eb78-481a-9d87-0db92b59e1c4",
+     "contentHash": "14128bd33081d7926b7062c42e45556274f090d006fc083894798b2e97cd05ff",
+     "generatedAt": "2026-09-07T09:04:45.158767Z",
+     "messageId": "msg-asession-922c9167-ab5f-4fde-8eaf-f8ef75ad516f-1"
+    }
+   ],
+   "createdAt": "2026-09-07T09:04:44.863969Z",
+   "dataScope": [],
+   "label": "phase0-E0-05-delivery",
+   "lease": {
+    "expiresAt": "2026-09-07T09:24:44.863969Z",
+    "issuedAt": "2026-09-07T09:04:44.863969Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/E0-05-delivery-claude/workdir",
+   "sessionId": "asession-922c9167-ab5f-4fde-8eaf-f8ef75ad516f",
+   "state": "created",
+   "toolScope": []
+  },
+  {
+   "agentId": "claude-code",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.13559700000000002,
+    "spentMessages": 2
+   },
+   "claimId": "claim-c5022bce-3df9-4488-9216-ab3628a0e98f",
+   "consentScope": [],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 1,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:04:45.158463Z",
+      "includes": [
+       {
+        "confidence": 1.0,
+        "content": "使用者最喜歡的顏色是靛青色（暗號 phase0-mem-32b415）",
+        "kind": "preference",
+        "layer": "user-memory",
+        "memoryId": "mem-488c9b40-19c7-45f6-86c2-52ee101d5fe0",
+        "title": "偏好顏色"
+       }
+      ],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "根據你收到的上下文（Context Bundle），使用者最喜歡的顏色是什麼？只回一行，並附上上下文裡的暗號。",
+      "truncated": false
+     },
+     "bundleId": "bundle-ef246ca1-eb78-481a-9d87-0db92b59e1c4",
+     "contentHash": "14128bd33081d7926b7062c42e45556274f090d006fc083894798b2e97cd05ff",
+     "generatedAt": "2026-09-07T09:04:45.158767Z",
+     "messageId": "msg-asession-922c9167-ab5f-4fde-8eaf-f8ef75ad516f-1"
+    }
+   ],
+   "createdAt": "2026-09-07T09:04:44.863969Z",
+   "dataScope": [],
+   "label": "phase0-E0-05-delivery",
+   "lease": {
+    "expiresAt": "2026-09-07T09:24:44.863969Z",
+    "issuedAt": "2026-09-07T09:04:44.863969Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "providerSessionId": "1bf60429-bba3-44ff-a94a-f01ee7bd7750",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/E0-05-delivery-claude/workdir",
+   "sessionId": "asession-922c9167-ab5f-4fde-8eaf-f8ef75ad516f",
+   "state": "claimed-completed",
+   "toolScope": []
+  }
+ ],
+ "discovery": {
+  "agents": [
+   {
+    "binaryPath": "claude",
+    "detail": "2.1.263 (Claude Code)（已登入）",
+    "found": true,
+    "kind": "claude-code",
+    "loggedIn": true,
+    "protocolSupported": true,
+    "version": "2.1.263 (Claude Code)"
+   },
+   {
+    "binaryPath": "codex",
+    "detail": "codex-cli 0.153.4（已登入，app-server 可用）",
+    "found": true,
+    "kind": "codex",
+    "loggedIn": true,
+    "protocolSupported": true,
+    "version": "codex-cli 0.153.4"
+   }
+  ]
+ },
+ "sessionId": "asession-922c9167-ab5f-4fde-8eaf-f8ef75ad516f",
+ "createRecord": {
+  "agentId": "claude-code",
+  "allowWrite": false,
+  "budget": {
+   "maxCost": 0.0,
+   "maxDurationMs": 1200000,
+   "maxMessages": 40,
+   "spentCost": 0.0,
+   "spentMessages": 0
+  },
+  "consentScope": [],
+  "contextBundles": [],
+  "createdAt": "2026-09-07T09:04:44.863969Z",
+  "dataScope": [],
+  "label": "phase0-E0-05-delivery",
+  "lease": {
+   "expiresAt": "2026-09-07T09:24:44.863969Z",
+   "issuedAt": "2026-09-07T09:04:44.863969Z",
+   "renewable": true,
+   "revokeOnSessionEnd": true
+  },
+  "providerId": "provider.ai-agent.claude-code",
+  "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/E0-05-delivery-claude/workdir",
+  "sessionId": "asession-922c9167-ab5f-4fde-8eaf-f8ef75ad516f",
+  "state": "created",
+  "toolScope": []
+ },
+ "taskSend": {
+  "body": {
+   "contextBundle": {
+    "agentId": "claude-code",
+    "domains": [],
+    "excluded": {
+     "needsReview": [],
+     "notVisibleToAgent": 1,
+     "outsideGrantedDomains": 0,
+     "overCapacity": 0,
+     "sensitive": 0,
+     "unreviewedCandidates": 0
+    },
+    "generatedAt": "2026-09-07T09:04:45.158463Z",
+    "includes": [
+     {
+      "confidence": 1.0,
+      "content": "使用者最喜歡的顏色是靛青色（暗號 phase0-mem-32b415）",
+      "kind": "preference",
+      "layer": "user-memory",
+      "memoryId": "mem-488c9b40-19c7-45f6-86c2-52ee101d5fe0",
+      "title": "偏好顏色"
+     }
+    ],
+    "limits": {
+     "maxBytes": 49152,
+     "maxItems": 24,
+     "scanLimit": 1000,
+     "scanLimitReached": false
+    },
+    "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+    "task": "根據你收到的上下文（Context Bundle），使用者最喜歡的顏色是什麼？只回一行，並附上上下文裡的暗號。",
+    "truncated": false
+   },
+   "task": "根據你收到的上下文（Context Bundle），使用者最喜歡的顏色是什麼？只回一行，並附上上下文裡的暗號。"
+  },
+  "createdAt": "2026-09-07T09:04:45.158720Z",
+  "deliveredAt": "2026-09-07T09:04:45.159429Z",
+  "direction": "to-session",
+  "kind": "task",
+  "messageId": "msg-asession-922c9167-ab5f-4fde-8eaf-f8ef75ad516f-1",
+  "sessionId": "asession-922c9167-ab5f-4fde-8eaf-f8ef75ad516f"
+ },
+ "final": {
+  "agentId": "claude-code",
+  "allowWrite": false,
+  "budget": {
+   "maxCost": 0.0,
+   "maxDurationMs": 1200000,
+   "maxMessages": 40,
+   "spentCost": 0.13559700000000002,
+   "spentMessages": 2
+  },
+  "claimId": "claim-c5022bce-3df9-4488-9216-ab3628a0e98f",
+  "consentScope": [],
+  "contextBundles": [
+   {
+    "bundle": {
+     "agentId": "claude-code",
+     "domains": [],
+     "excluded": {
+      "needsReview": [],
+      "notVisibleToAgent": 1,
+      "outsideGrantedDomains": 0,
+      "overCapacity": 0,
+      "sensitive": 0,
+      "unreviewedCandidates": 0
+     },
+     "generatedAt": "2026-09-07T09:04:45.158463Z",
+     "includes": [
+      {
+       "confidence": 1.0,
+       "content": "使用者最喜歡的顏色是靛青色（暗號 phase0-mem-32b415）",
+       "kind": "preference",
+       "layer": "user-memory",
+       "memoryId": "mem-488c9b40-19c7-45f6-86c2-52ee101d5fe0",
+       "title": "偏好顏色"
+      }
+     ],
+     "limits": {
+      "maxBytes": 49152,
+      "maxItems": 24,
+      "scanLimit": 1000,
+      "scanLimitReached": false
+     },
+     "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+     "task": "根據你收到的上下文（Context Bundle），使用者最喜歡的顏色是什麼？只回一行，並附上上下文裡的暗號。",
+     "truncated": false
+    },
+    "bundleId": "bundle-ef246ca1-eb78-481a-9d87-0db92b59e1c4",
+    "contentHash": "14128bd33081d7926b7062c42e45556274f090d006fc083894798b2e97cd05ff",
+    "generatedAt": "2026-09-07T09:04:45.158767Z",
+    "messageId": "msg-asession-922c9167-ab5f-4fde-8eaf-f8ef75ad516f-1"
+   }
+  ],
+  "createdAt": "2026-09-07T09:04:44.863969Z",
+  "dataScope": [],
+  "label": "phase0-E0-05-delivery",
+  "lease": {
+   "expiresAt": "2026-09-07T09:24:44.863969Z",
+   "issuedAt": "2026-09-07T09:04:44.863969Z",
+   "renewable": true,
+   "revokeOnSessionEnd": true
+  },
+  "providerId": "provider.ai-agent.claude-code",
+  "providerSessionId": "1bf60429-bba3-44ff-a94a-f01ee7bd7750",
+  "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R2/E0-05-delivery-claude/workdir",
+  "sessionId": "asession-922c9167-ab5f-4fde-8eaf-f8ef75ad516f",
+  "state": "claimed-completed",
+  "toolScope": []
+ },
+ "messages-to-session": [
+  {
+   "body": {
+    "contextBundle": {
+     "agentId": "claude-code",
+     "domains": [],
+     "excluded": {
+      "needsReview": [],
+      "notVisibleToAgent": 1,
+      "outsideGrantedDomains": 0,
+      "overCapacity": 0,
+      "sensitive": 0,
+      "unreviewedCandidates": 0
+     },
+     "generatedAt": "2026-09-07T09:04:45.158463Z",
+     "includes": [
+      {
+       "confidence": 1.0,
+       "content": "使用者最喜歡的顏色是靛青色（暗號 phase0-mem-32b415）",
+       "kind": "preference",
+       "layer": "user-memory",
+       "memoryId": "mem-488c9b40-19c7-45f6-86c2-52ee101d5fe0",
+       "title": "偏好顏色"
+      }
+     ],
+     "limits": {
+      "maxBytes": 49152,
+      "maxItems": 24,
+      "scanLimit": 1000,
+      "scanLimitReached": false
+     },
+     "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+     "task": "根據你收到的上下文（Context Bundle），使用者最喜歡的顏色是什麼？只回一行，並附上上下文裡的暗號。",
+     "truncated": false
+    },
+    "task": "根據你收到的上下文（Context Bundle），使用者最喜歡的顏色是什麼？只回一行，並附上上下文裡的暗號。"
+   },
+   "createdAt": "2026-09-07T09:04:45.158720Z",
+   "deliveredAt": "2026-09-07T09:04:45.159429Z",
+   "direction": "to-session",
+   "kind": "task",
+   "messageId": "msg-asession-922c9167-ab5f-4fde-8eaf-f8ef75ad516f-1",
+   "sessionId": "asession-922c9167-ab5f-4fde-8eaf-f8ef75ad516f"
+  }
+ ],
+ "messages-from-session": [
+  {
+   "body": {
+    "costUsd": 0.13559700000000002,
+    "summary": "使用者最喜歡的顏色是靛青色（暗號：phase0-mem-32b415）。"
+   },
+   "createdAt": "2026-09-07T09:04:51.962111Z",
+   "direction": "from-session",
+   "kind": "result",
+   "messageId": "msg-asession-922c9167-ab5f-4fde-8eaf-f8ef75ad516f-2",
+   "sessionId": "asession-922c9167-ab5f-4fde-8eaf-f8ef75ad516f"
+  }
+ ],
+ "status": {
+  "activeSensors": [],
+  "agentSessions": 1,
+  "capabilityVersion": 56,
+  "characterProtocol": {
+   "activeCharacter": null,
+   "instances": 0,
+   "version": "1.0"
+  },
+  "configErrors": [],
+  "emergencyStop": false,
+  "eventSequence": 108,
+  "hasReceipts": false,
+  "name": "adaptive-interaction",
+  "onboardingCompleted": false,
+  "pendingAiAssists": 0,
+  "presentation": {
+   "behaviorExplanation": null,
+   "behaviorState": null,
+   "character": null,
+   "connected": false,
+   "lastSeenSecondsAgo": null,
+   "packId": null,
+   "pendingCommands": 0,
+   "visible": false
+  },
+  "proactivePause": {
+   "paused": false
+  },
+  "quietHours": false,
+  "recipes": {
+   "errors": 0,
+   "loaded": 1
+  },
+  "schemaVersion": "1.0",
+  "session": null,
+  "startedAt": "2026-09-07T09:04:10.439717Z",
+  "unresolvedStopHealth": {
+   "overflowCount": 0,
+   "parked": false,
+   "recoveryUnknown": false,
+   "storage": "durable"
+  },
+  "uptimeSeconds": 43,
+  "version": "0.8.0"
+ },
+ "auditTail": [
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:04:51.963Z",
+   "detail": {
+    "revision": 4,
+    "truth": "claimed"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:04:51.962Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "claim-completed",
+    "messageId": "rt-0a26650b5f1c4a66aed2ea0640f8458a",
+    "truthState": "claimed"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:04:51.957Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:04:51.916Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:04:45.159Z",
+   "detail": {
+    "revision": 3,
+    "truth": "working"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:04:44.868Z",
+   "detail": {
+    "revision": 2,
+    "truth": "queued"
+   },
+   "kind": "character.session.truth"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:04:44.865Z",
+   "detail": {
+    "agentSessionId": "asession-922c9167-ab5f-4fde-8eaf-f8ef75ad516f",
+    "expiresAt": "2026-09-07T09:24:44.863969Z"
+   },
+   "kind": "agent-session.capability-issued"
+  },
+  {
+   "actor": "runtime",
+   "at": "2026-09-07T09:04:44.865Z",
+   "detail": {
+    "instanceId": null,
+    "intent": "wait",
+    "messageId": "rt-8110251e8a9148fda07758b2d325e6ca",
+    "truthState": "queued"
+   },
+   "kind": "character.system-text"
+  },
+  {
+   "actor": "human",
+   "at": "2026-09-07T09:04:22.191Z",
+   "detail": {
+    "kind": "preference",
+    "layer": "user-memory",
+    "memoryId": "mem-c336fdc1-421d-49fc-b6b5-6eb2317fae80"
+   },
+   "kind": "memory.created"
+  },
+  {
+   "actor": "human",
+   "at": "2026-09-07T09:04:17.561Z",
+   "detail": {
+    "kind": "preference",
+    "layer": "user-memory",
+    "memoryId": "mem-488c9b40-19c7-45f6-86c2-52ee101d5fe0"
+   },
+   "kind": "memory.created"
+  }
+ ],
+ "psAgents": [
+  " 2805   741  1537 02-14:50:26 node /Users/user/Workspace/claude-code-mcp/claude-code-server/build/index.js",
+  "20924 70561 70561    04:46:59 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "21408 70561 70561    04:45:38 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "22402 70561 70561    04:40:56 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "22912 22896 22896    04:32:21 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=utility --utility-sub-type=network.mojom.NetworkService --lang=zh-TW --",
+  "22943 22896 22896    04:32:21 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Renderer) --type=renderer --user-data-dir=/Users/user/Library/Appl",
+  "23035 22896 22896    04:32:21 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Renderer) --type=renderer --user-data-dir=/Users/user/Library/Appl",
+  "23126 22896 22896    04:32:20 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=utility --utility-sub-type=node.mojom.NodeService --lang=zh-TW --servic",
+  "23154 22896 22896    04:32:19 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=utility --utility-sub-type=node.mojom.NodeService --lang=zh-TW --servic",
+  "23156 22896 22896    04:32:19 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Plugin).app/Contents/MacOS/Claude Helper (Plugin) --type=utility --utility-sub-type=node.mojom.NodeService --l",
+  "23270 22896 22896    04:32:18 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=utility --utility-sub-type=node.mojom.NodeService --lang=zh-TW --servic",
+  "23271 22896 22896    04:32:18 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Plugin).app/Contents/MacOS/Claude Helper (Plugin) --type=utility --utility-sub-type=node.mojom.NodeService --l",
+  "23276 22896 22896    04:32:18 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=utility --utility-sub-type=audio.mojom.AudioService --lang=zh-TW --serv",
+  "23277 22896 22896    04:32:18 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=utility --utility-sub-type=video_capture.mojom.VideoCaptureService --la",
+  "24074 24074 70818    04:28:53 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/user/.codex/plugins/cache/openai-bundled/unified-computer-use/26.901.51231/scripts/launch.mjs",
+  "28987 70561 70561    04:03:15 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "30392 70561 70561    03:47:22 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "39583 70561 70561    02:04:04 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "45051 45019 45019    23:49:26 /Users/user/.codex/plugins/cache/openai-bundled/chrome/latest/extension-host/macos/arm64/ChatGPT for Chrome chrome-extension://hehggadaopoacecdllhhajmbjkdcmajg/",
+  "45566 70561 70561    01:13:23 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "48762 70561 70561       45:41 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "48763 70561 70561       45:41 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "51071 51071 51067       19:12 /opt/homebrew/lib/node_modules/@colbymchenry/codegraph/node_modules/@colbymchenry/codegraph-darwin-arm64/node --liftoff-only --disable-warning=ExperimentalWarning /opt/ho",
+  "51074 51071 51071       19:12 /opt/homebrew/lib/node_modules/@colbymchenry/codegraph/node_modules/@colbymchenry/codegraph-darwin-arm64/node -e \\012const fs = require('fs');\\012const parentPid = Number",
+  "70588 70561 70561    16:14:07 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service) --type=utility -",
+  "70590 70561 70561    16:14:07 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service) --type=utility -",
+  "70818 70561 70561    16:14:06 /Applications/ChatGPT.app/Contents/Resources/codex -c features.code_mode_host=true app-server --analytics-default-enabled -c mcp_servers.codex_app={\"command\"=\"/Applicatio",
+  "70826 70561 70561    16:14:06 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "70895 70561 70561    16:14:02 /Users/user/.codex/computer-use/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
+  "71291 70561 70561    16:13:56 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer) --type=rendere",
+  "71333 71333 70818    16:13:51 /Applications/ChatGPT.app/Contents/Resources/codex-code-mode-host",
+  "71650 70561 70561    16:11:07 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service) --type=utility -",
+  "89643 89641     1       01:10 /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai serve",
+  "91037 91037 50953       00:57 /bin/zsh -c source /Users/user/.claude/shell-snapshots/snapshot-zsh-1788770781814-petfrt.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null |",
+  "91040 91037 91037       00:57 /bin/zsh -c source /Users/user/.claude/shell-snapshots/snapshot-zsh-1788770781814-petfrt.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null |",
+  "91041 91037 91040       00:57 /opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/Resources/Python.app/Contents/MacOS/Python harness/agent_smoke.py --agent claude-code -",
+  "91045 91045 91041       00:57 /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai serve",
+  "91453 91453 91045       00:56 claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {\"mcpServers\":{}} --permission-mode plan --tools R",
+  "91850 91847     1       00:55 /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai serve",
+  "93787 93785     1       00:43 /Users/user/Workspace/claude-lab/adaptive-interaction/target/debug/interact-ai serve",
+  "96204 96204 50953       00:09 /bin/zsh -c source /Users/user/.claude/shell-snapshots/snapshot-zsh-1788770781814-petfrt.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null |",
+  "96207 96204 96204       00:09 /opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/Resources/Python.app/Contents/MacOS/Python /private/tmp/claude-501/-Users-user-Workspac",
+  "96341 96341 93787       00:08 claude -p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {\"mcpServers\":{}} --permission-mode plan --tools R",
+  "50953 50953   790       19:16 claude --dangerously-skip-permissions --chrome",
+  " 1486  1486   944    05:11:27 /opt/homebrew/bin/codex --yolo",
+  " 1853  1853  1486    05:11:23 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/user/.codex/plugins/cache/openai-bundled/unified-computer-use/26.901.51231/scripts/launch.mjs",
+  " 7540  7540  1486    05:09:13 /opt/homebrew/Caskroom/codex/0.153.4/bin/codex-code-mode-host"
+ ],
+ "finishedAt": "2026-09-07T09:04:53.842Z",
+ "wallSeconds": 9.5
+}

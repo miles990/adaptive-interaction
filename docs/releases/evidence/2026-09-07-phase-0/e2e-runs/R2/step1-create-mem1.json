@@ -1,0 +1,2 @@
+{"agentDenylist":[],"agentVisibility":["claude-code"],"confidence":1.0,"content":"使用者最喜歡的顏色是靛青色（暗號 phase0-mem-32b415）","createdAt":"2026-09-07T09:04:17.561469Z","createdBy":{"kind":"human"},"kind":"preference","layer":"user-memory","memoryId":"mem-488c9b40-19c7-45f6-86c2-52ee101d5fe0","provenance":[],"retention":{"reviewAfter":"2026-10-07T09:04:17.561380Z"},"schemaVersion":"1.0","tags":["color-preference"],"title":"偏好顏色","updatedAt":"2026-09-07T09:04:17.561469Z"}
+HTTP_STATUS:200

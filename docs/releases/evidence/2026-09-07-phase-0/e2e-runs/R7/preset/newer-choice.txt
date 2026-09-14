@@ -1,0 +1,4 @@
+interact-ai daemon listening on http://127.0.0.1:59803
+human token file: /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/aip-native-preset-z8_pj8ye/state/api-token
+restricted agent token file: /var/folders/5w/dsxpf1xd2836017j8tyggsq40000gn/T/aip-native-preset-z8_pj8ye/state/api-agent-token
+press Ctrl-C to stop

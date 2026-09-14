@@ -1,0 +1,5 @@
+=== POST /v1/onboarding/preview ===
+{"actuators":[],"changed":true,"policyPatch":null,"preferences":{"locale":"en-US"},"receptors":[],"starterRecipes":[]}
+=== POST /v1/onboarding/commit ===
+{"applied":[{"actuators":[],"actuatorsChanged":[],"receptors":[],"receptorsChanged":[],"step":"components"},{"ok":true,"step":"preferences"}],"completed":true}
+HTTP_STATUS:200

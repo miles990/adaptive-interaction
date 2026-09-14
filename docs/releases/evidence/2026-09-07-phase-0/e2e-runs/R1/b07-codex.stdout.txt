@@ -1,0 +1,18 @@
+{"t": "2026-09-07T09:09:31.456Z", "mono": 0.002, "k": "daemon-spawned", "pid": 21898}
+{"t": "2026-09-07T09:09:31.716Z", "mono": 0.262, "k": "daemon-ready"}
+{"t": "2026-09-07T09:09:32.568Z", "mono": 1.113, "k": "create", "status": 200, "state": "created", "id": "asession-d0a324cc-527d-4c08-b298-2766b8b85f73"}
+{"t": "2026-09-07T09:09:32.572Z", "mono": 1.118, "k": "task1-sent", "status": 200}
+{"t": "2026-09-07T09:09:32.574Z", "mono": 1.12, "k": "state", "phase": "p1-await-active", "state": "created"}
+{"t": "2026-09-07T09:09:33.081Z", "mono": 1.627, "k": "state", "phase": "p1-await-active", "state": "active"}
+{"t": "2026-09-07T09:09:33.155Z", "mono": 1.701, "k": "p1-active-observed", "state": "active", "children": ["22282 21898       00:01 SN   codex app-server", "22297 22282       00:01 SNs  /bin/zsh -lc if [[ -n \"$ZDOTDIR\" ]]; then\\012  rc=\"$ZDOTDIR/.zshrc\"\\012else\\012  rc=\"$HOME/.zshrc\"\\012fi\\012[[ -r \"$rc\" ]", "22365 22282       00:01 SN   node /opt/homebrew/bin/codegraph serve --mcp", "22370 22282       00:01 SN   /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/user/.codex/plugins/cache/openai-bundled/unified-co", "22371 22282       00:01 SN   /Applications/C
+{"t": "2026-09-07T09:09:36.163Z", "mono": 4.709, "k": "interrupt-issued", "status": 200, "resp": {"interrupted": true}}
+{"t": "2026-09-07T09:09:36.164Z", "mono": 4.71, "k": "state", "phase": "p1-await-terminal", "state": "active"}
+{"t": "2026-09-07T09:09:36.666Z", "mono": 5.212, "k": "state", "phase": "p1-await-terminal", "state": "cancelled"}
+{"t": "2026-09-07T09:09:36.727Z", "mono": 5.273, "k": "p1-terminal", "state": "cancelled", "children": []}
+{"t": "2026-09-07T09:09:38.782Z", "mono": 7.327, "k": "p1-children-after-2s", "children": []}
+{"t": "2026-09-07T09:09:38.783Z", "mono": 7.329, "k": "p1-from-session", "count": 0}
+{"t": "2026-09-07T09:09:38.785Z", "mono": 7.331, "k": "task2-sent", "status": 409, "resp": {"error": {"code": "conflict", "message": "conflict: agent session asession-d0a324cc-527d-4c08-b298-2766b8b85f73 is Cancelled; mailbox closed"}}}
+{"t": "2026-09-07T09:09:38.852Z", "mono": 7.397, "k": "final", "state": "cancelled", "children": []}
+{"t": "2026-09-07T09:09:38.906Z", "mono": 7.452, "k": "children-final", "children": []}
+{"t": "2026-09-07T09:09:38.910Z", "mono": 7.456, "k": "daemon-stopped"}
+RESULT {"agent": "codex", "p1": "cancelled", "task2Status": 409, "final": "cancelled"}

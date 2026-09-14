@@ -1,0 +1,17 @@
+{"t": "2026-09-07T10:24:45.735Z", "mono": 0.268, "k": "daemon-ready", "pid": 87539}
+{"t": "2026-09-07T10:24:46.100Z", "mono": 0.634, "k": "create", "status": 200, "sid": "asession-0ad09953-9e8b-47a6-ac96-e2da1321a144"}
+{"t": "2026-09-07T10:24:46.103Z", "mono": 0.637, "k": "task-sent", "status": 200}
+{"t": "2026-09-07T10:24:46.414Z", "mono": 0.947, "k": "state-before-kill", "state": "active", "children": ["87670 87670 87539       00:01 S    codex app-server"]}
+{"t": "2026-09-07T10:24:46.418Z", "mono": 0.951, "k": "daemon-killed", "exitcode": -15}
+{"t": "2026-09-07T10:24:48.465Z", "mono": 2.998, "k": "children-after-daemon-death", "children": []}
+{"t": "2026-09-07T10:24:51.519Z", "mono": 6.052, "k": "children-after-daemon-death+5s", "children": []}
+{"t": "2026-09-07T10:24:51.777Z", "mono": 6.311, "k": "daemon-restarted", "pid": 88496}
+{"t": "2026-09-07T10:24:51.779Z", "mono": 6.312, "k": "session-after-restart", "status": 200, "state": "expired", "detail": "runtime restarted", "lease": {"expiresAt": "2026-09-07T10:44:45.738281Z", "issuedAt": "2026-09-07T10:24:45.738281Z", "renewable": true, "revokeOnSessionEnd": true}}
+{"t": "2026-09-07T10:24:51.780Z", "mono": 6.314, "k": "list-after-restart", "n": 1, "states": ["expired"]}
+{"t": "2026-09-07T10:24:51.781Z", "mono": 6.314, "k": "from-session-after-restart", "kinds": []}
+{"t": "2026-09-07T10:24:51.782Z", "mono": 6.315, "k": "send-after-restart", "status": 409, "resp": {"error": {"code": "conflict", "message": "conflict: agent session asession-0ad09953-9e8b-47a6-ac96-e2da1321a144 is Expired; mailbox closed"}}}
+{"t": "2026-09-07T10:24:51.783Z", "mono": 6.316, "k": "interrupt-after-restart", "status": 404, "resp": {"error": {"code": "not_found", "message": "not found: gateway session asession-0ad09953-9e8b-47a6-ac96-e2da1321a144"}}}
+{"t": "2026-09-07T10:24:51.783Z", "mono": 6.317, "k": "renew-after-restart", "status": 409, "resp": {"error": {"code": "conflict", "message": "conflict: agent session asession-0ad09953-9e8b-47a6-ac96-e2da1321a144 is Expired; expired/closed sessions cannot be renewed"}}}
+{"t": "2026-09-07T10:24:51.833Z", "mono": 6.367, "k": "children-final", "children": []}
+RESULT {"agent": "codex", "signal": "TERM", "stateAfterRestart": "expired", "childrenAfterDeath": null}
+EXIT=0

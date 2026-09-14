@@ -1,0 +1,13 @@
+{"t": "2026-09-07T09:06:06.482Z", "mono": 0.002, "k": "daemon-spawned", "pid": 151}
+{"t": "2026-09-07T09:06:06.745Z", "mono": 0.265, "k": "daemon-ready"}
+{"t": "2026-09-07T09:06:07.646Z", "mono": 1.166, "k": "create", "status": 200, "state": "created", "id": "asession-e2321781-ee06-4c8c-8888-70d37ee4ce57", "error": null}
+{"t": "2026-09-07T09:06:07.649Z", "mono": 1.169, "k": "task-sent", "status": 200, "resp": {"id": null, "kind": "task", "direction": "to-session", "contextBundle": null}}
+{"t": "2026-09-07T09:06:07.651Z", "mono": 1.171, "k": "state", "state": "created", "delegation": null}
+{"t": "2026-09-07T09:06:08.157Z", "mono": 1.677, "k": "state", "state": "active", "delegation": null}
+{"t": "2026-09-07T09:06:15.250Z", "mono": 8.77, "k": "state", "state": "waiting-for-consent", "delegation": null}
+{"t": "2026-09-07T09:06:15.254Z", "mono": 8.774, "k": "operator-approval", "decision": "approve", "requestId": "0", "summary": "codex 請求核可：item/commandExecution/requestApproval \"/bin/zsh -lc 'printf hi > hello.txt'\"", "status": 200, "resp": {"approved": true, "by": "human", "deliveredToAgent": true, "resolved": "0", "summary": "codex 請求核可：item/commandExecution/requestApproval \"/bin/zsh -lc 'printf hi > hello.txt'\""}}
+{"t": "2026-09-07T09:06:15.764Z", "mono": 9.284, "k": "state", "state": "active", "delegation": null}
+{"t": "2026-09-07T09:06:19.820Z", "mono": 13.34, "k": "state", "state": "claimed-completed", "delegation": null}
+{"t": "2026-09-07T09:06:21.333Z", "mono": 14.853, "k": "final", "state": "claimed-completed"}
+{"t": "2026-09-07T09:06:21.575Z", "mono": 15.095, "k": "daemon-stopped"}
+RESULT {"agent": "codex", "final": "claimed-completed", "sid": "asession-e2321781-ee06-4c8c-8888-70d37ee4ce57", "wall": 15.09}

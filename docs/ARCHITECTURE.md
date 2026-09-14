@@ -1,4 +1,5 @@
-# 架構總覽（v0.6.0 已發布，tag `v0.6.0`，2026-09-05；v0.3 基線＋v0.4／v0.5／v0.6 增量）
+# 架構總覽（v0.3 基線＋v0.4／v0.5／v0.6 增量詳述；v0.7.0／v0.8.0 增量摘要見文末「v0.7.0 與 v0.8.0 增量」——
+最新已發布版本 v0.8.0，tag `v0.8.0`，2026-09-06；本文分層敘述以 v0.6.0 Foundation 為止）
 
 跨 AI 自適應互動平台的核心是一個 **Rust runtime**。CLI、HTTP API 與 Tauri 桌面
 控制中心都是它的 client，共用同一套 application service 與同一個 deterministic
@@ -310,3 +311,27 @@ iPhone 線協定 v1（`mobile.rs`）新增一種 frame `{"type":"aip","envelope"
 
 > 本節的「已落地／尚未落地」由 `scripts/tests/docs-claims.sh` 釘住：文件若再把一個已存在於
 > HEAD 的模組寫成不存在，該 lint 會在 `release-verify.sh` 的關卡上紅燈。
+
+## v0.7.0 與 v0.8.0 增量
+
+> 這一節只列 v0.6.0 Foundation 之後新增、且已用檔案存在確認過的模組摘要，不重複上面章節
+> 逐 commit 的詳述層級；完整逐項證據以 `CHANGELOG.md` `[0.7.0]`／`[0.8.0]`、
+> `docs/releases/v0.7.0-final-report.md`、`docs/releases/v0.8.0-final-report.md` 為準。
+
+**v0.7.0（tag `v0.7.0` → `630b429`，2026-09-06）**：裝置線 v1.2 分片與成員 `syncProfile`
+（`crates/interaction-adapter-declarative/src/fragment.rs`）、宣告式裝置免重啟 rebind 與未解決停止
+三層 UI（`crates/interaction-adapter-declarative/src/state_applied.rs`；桌面 UI
+`apps/interaction-desktop/src/pages/connect/UnresolvedStops.tsx`）、跨平台接收決策表（`receiveDecisions`／
+`canonicalVectors` fixtures，Rust／TS／Swift 三端共用）、陪伴預設交易化恢復、AI 可維護性入口
+（`AGENTS.md`、`docs/MAINTAINERS-MAP.md`、`docs/aip/deprecation-ledger.md`、`scripts/tests/architecture-checks.sh`）。
+
+**v0.8.0（tag `v0.8.0` → `1fa69b8`，2026-09-06）**：SemanticState 由 `interaction-session` 匯出獨立
+schema＋TS／Swift codegen（`schemas/semantic-state-1.0.schema.json`），production consumer 在原子套用前
+驗證完整 state。可協商 `aip.applied/1`：Serial／Mobile production binding 用有界回執 tracker
+（`crates/interaction-adapter-declarative/src/state_applied.rs`），同步卡分別呈現能力／傳送／對端套用
+自報，**回執不代表畫面或物理效果已驗證**。Runtime 新增跨程序 SQLite sensor journal
+（`crates/interaction-runtime/src/sensor_journal.rs`），保留未知停止摘要、來源世代與連線 scope，
+bounded overflow 可見。陪伴預設恢復改由 Tauri application service 擁有
+（`apps/interaction-desktop/src-tauri/src/preset_service.rs`）。MQTT 既有 broker 模擬器 rebind 測試
+（`crates/interaction-runtime/tests/mqtt_rebind_loop.rs`），MQTT／BLE 專屬 `aip.applied` 閉環仍未驗；
+真 iPhone／ESP32 真板本輪仍未取得驗收，見 `docs/releases/v0.8.0-known-limitations.md`。

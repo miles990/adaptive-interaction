@@ -1,0 +1,166 @@
+[
+  {
+    "event": "paired",
+    "deviceId": "iphone-93855e36"
+  },
+  {
+    "event": "status",
+    "micLevel": false
+  },
+  {
+    "event": "connected"
+  },
+  {
+    "event": "aip-sent",
+    "messageId": "fx-cap-1",
+    "messageType": "capability"
+  },
+  {
+    "envelope": {
+      "messageId": "aip-1-1788774058350-37",
+      "messageType": "capability",
+      "name": "character.session.capability",
+      "occurredAt": "2026-09-07T09:40:58.350084Z",
+      "payload": {
+        "inputs": [
+          "character.interaction.touch"
+        ],
+        "intents": {
+          "celebrate": "exact",
+          "idle": "exact",
+          "react-happily-to-touch": "exact",
+          "settle": "unsupported"
+        },
+        "limits": {
+          "maxMessageBytes": 65536
+        },
+        "newerMinor": false,
+        "role": "remote-renderer",
+        "specVersion": "aip/1.0",
+        "syncClass": "semantic",
+        "unsupportedInputs": []
+      },
+      "sessionId": "session.home",
+      "source": {
+        "id": "runtime",
+        "kind": "runtime"
+      },
+      "specVersion": "aip/1.0",
+      "target": {
+        "id": "iphone-93855e36",
+        "kind": "device"
+      }
+    },
+    "event": "aip"
+  },
+  {
+    "envelope": {
+      "messageId": "aip-1-1788774058350-38",
+      "messageType": "state",
+      "name": "character.session.snapshot",
+      "occurredAt": "2026-09-07T09:40:58.350084Z",
+      "payload": {
+        "hash": "6e2cd298636237e4002565fd197e0e6171b8c8198322e3ea1786adce83aecbd5",
+        "kind": "snapshot",
+        "revision": 11,
+        "sequence": 32,
+        "sessionEpoch": 1,
+        "state": {
+          "activity": "idle",
+          "attention": {
+            "id": "device:iphone-d56dbf97",
+            "kind": "member"
+          },
+          "characterId": "character",
+          "lastInteraction": {
+            "at": "2026-09-07T09:37:22.837656Z",
+            "kind": "tap",
+            "name": "character.interaction.touch",
+            "source": "device:iphone-d56dbf97"
+          },
+          "members": [
+            {
+              "lastSeenAt": "2026-09-07T09:40:58.350084Z",
+              "party": {
+                "id": "iphone-93855e36",
+                "kind": "device"
+              },
+              "presence": "online",
+              "role": "remote-renderer",
+              "unsupportedIntents": [
+                "settle"
+              ]
+            }
+          ],
+          "mood": {
+            "intensity": 0.5,
+            "kind": "happy"
+          },
+          "reducedMotion": false,
+          "truth": {
+            "state": "none"
+          }
+        }
+      },
+      "sequence": 32,
+      "sessionId": "session.home",
+      "source": {
+        "id": "runtime",
+        "kind": "runtime"
+      },
+      "specVersion": "aip/1.0",
+      "target": {
+        "id": "iphone-93855e36",
+        "kind": "device"
+      }
+    },
+    "event": "aip"
+  },
+  {
+    "event": "status",
+    "micLevel": true
+  },
+  {
+    "envelope": {
+      "baseRevision": 11,
+      "messageId": "aip-1-1788774103408-41",
+      "messageType": "state",
+      "name": "character.session.patch",
+      "occurredAt": "2026-09-07T09:41:43.408382Z",
+      "payload": {
+        "hash": "850d8e4fb8754b8c143b54418151b09457eb9bb643fa27aa1f9e90d933fff328",
+        "kind": "patch",
+        "patch": {
+          "members": [
+            {
+              "lastSeenAt": "2026-09-07T09:41:43.408382Z",
+              "party": {
+                "id": "iphone-93855e36",
+                "kind": "device"
+              },
+              "presence": "online",
+              "role": "remote-renderer",
+              "unsupportedIntents": [
+                "settle"
+              ]
+            }
+          ]
+        },
+        "revision": 12,
+        "sessionEpoch": 1
+      },
+      "sequence": 35,
+      "sessionId": "session.home",
+      "source": {
+        "id": "runtime",
+        "kind": "runtime"
+      },
+      "specVersion": "aip/1.0"
+    },
+    "event": "aip"
+  },
+  {
+    "event": "stop-all",
+    "sensors": true
+  }
+]

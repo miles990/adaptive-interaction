@@ -1,0 +1,6 @@
+{"op":"status","micLevel":true}
+{"op":"reconnect"}
+{"op":"reconnect"}
+{"op":"status","micLevel":true}
+{"op":"reconnect"}
+{"op":"quit"}

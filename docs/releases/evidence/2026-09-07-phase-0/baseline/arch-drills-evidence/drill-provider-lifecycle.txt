@@ -1,0 +1,1 @@
+{"status": "completed", "evidence": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/baseline/arch-drills-evidence/provider-lifecycle", "elapsedSeconds": 2.624}

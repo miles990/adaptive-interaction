@@ -90,6 +90,12 @@ bash install.sh --version v0.1.0               # 固定版本
 `interact-ai self update` 在該平台會直接說明沒有預編譯檔並指向從原始碼建置，不會讓你拿到 HTTP 404。
 Linux aarch64 請走「方式 B：從原始碼編譯」（`cargo install --path crates/interaction-cli`）。
 
+**Windows x64 使用者請不要執行 `install.sh`**：這支腳本的平台偵測只認 `uname` 回報的
+`Darwin`／`Linux`（`scripts/get.sh`），沒有 Windows 分支——不管是原生 shell 還是 Git Bash／MSYS，
+`uname -s` 印出的字串都對不上，腳本會直接印 `unsupported platform` 並結束，即使 Windows x64 的
+CLI 壓縮檔與 `.exe`／`.msi` 安裝包確實存在於 Release。請直接到
+[Releases](https://github.com/miles990/adaptive-interaction/releases) 頁面手動下載對應資產。
+
 之後的更新／移除全部用內建自我管理：
 
 ```bash

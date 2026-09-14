@@ -1,0 +1,304 @@
+[
+ {
+  "step": "resume-wider-ttl",
+  "method": "POST",
+  "path": "/v1/agent-sessions",
+  "body": {
+   "agentId": "claude-code",
+   "label": "E0-10-resume-wider-ttl",
+   "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/c-claude-write/workdir",
+   "ttlMinutes": 120,
+   "maxMessages": 40,
+   "allowWrite": true,
+   "toolScope": [
+    "workspace.write"
+   ],
+   "consentScope": [
+    "agent-session:workspace-write"
+   ],
+   "resumeProviderSessionId": "e7b6974f-b93a-4774-80df-d37b6cb59dfd"
+  },
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "policy_blocked",
+    "message": "policy blocked: 接續上次的工作不得放寬使用授權：agent-session:workspace-write 不在上次的授權範圍裡"
+   }
+  },
+  "t": "2026-09-07T09:07:45Z"
+ },
+ {
+  "step": "resume-wider-messages",
+  "method": "POST",
+  "path": "/v1/agent-sessions",
+  "body": {
+   "agentId": "claude-code",
+   "label": "E0-10-resume-wider-msgs",
+   "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/c-claude-write/workdir",
+   "ttlMinutes": 20,
+   "maxMessages": 200,
+   "allowWrite": true,
+   "toolScope": [
+    "workspace.write"
+   ],
+   "consentScope": [
+    "agent-session:workspace-write"
+   ],
+   "resumeProviderSessionId": "e7b6974f-b93a-4774-80df-d37b6cb59dfd"
+  },
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "policy_blocked",
+    "message": "policy blocked: 接續上次的工作不得放寬使用授權：agent-session:workspace-write 不在上次的授權範圍裡"
+   }
+  },
+  "t": "2026-09-07T09:07:45Z"
+ },
+ {
+  "step": "resume-wrong-workdir",
+  "method": "POST",
+  "path": "/v1/agent-sessions",
+  "body": {
+   "agentId": "claude-code",
+   "label": "E0-10-resume-otherdir",
+   "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/b-claude/workdir",
+   "ttlMinutes": 20,
+   "maxMessages": 40,
+   "allowWrite": false,
+   "toolScope": [],
+   "consentScope": [],
+   "resumeProviderSessionId": "e7b6974f-b93a-4774-80df-d37b6cb59dfd"
+  },
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "policy_blocked",
+    "message": "policy blocked: 接續上次的工作不得更換工作目錄（上次是 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/c-claude-write/workdir）；                     要換資料夾請重新建立一個明確授權的工作階段"
+   }
+  },
+  "t": "2026-09-07T09:07:45Z"
+ },
+ {
+  "step": "resume-unknown-psid",
+  "method": "POST",
+  "path": "/v1/agent-sessions",
+  "body": {
+   "agentId": "claude-code",
+   "label": "E0-10-resume-unknown",
+   "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/c-claude-write/workdir",
+   "ttlMinutes": 20,
+   "maxMessages": 40,
+   "allowWrite": false,
+   "toolScope": [],
+   "consentScope": [],
+   "resumeProviderSessionId": "00000000-0000-0000-0000-000000000000"
+  },
+  "status": 403,
+  "resp": {
+   "error": {
+    "code": "policy_blocked",
+    "message": "policy blocked: 找不到上一次的授權紀錄，無法確認接續沒有放寬任何範圍；請重新建立一個明確授權的工作階段"
+   }
+  },
+  "t": "2026-09-07T09:07:45Z"
+ },
+ {
+  "step": "resume-readonly-create",
+  "method": "POST",
+  "path": "/v1/agent-sessions",
+  "body": {
+   "agentId": "claude-code",
+   "label": "E0-10-resume-readonly",
+   "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/c-claude-write/workdir",
+   "ttlMinutes": 20,
+   "maxMessages": 40,
+   "allowWrite": false,
+   "toolScope": [],
+   "consentScope": [],
+   "resumeProviderSessionId": "e7b6974f-b93a-4774-80df-d37b6cb59dfd"
+  },
+  "status": 200,
+  "resp": {
+   "agentId": "claude-code",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.0,
+    "spentMessages": 0
+   },
+   "consentScope": [],
+   "contextBundles": [],
+   "createdAt": "2026-09-07T09:07:45.156639Z",
+   "dataScope": [],
+   "label": "E0-10-resume-readonly",
+   "lease": {
+    "expiresAt": "2026-09-07T09:27:45.156639Z",
+    "issuedAt": "2026-09-07T09:07:45.156639Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/c-claude-write/workdir",
+   "sessionId": "asession-1e51a3d0-474d-46f6-ad78-c3c64a23e7a0",
+   "state": "created",
+   "toolScope": []
+  },
+  "t": "2026-09-07T09:07:45Z"
+ },
+ {
+  "step": "resume-task",
+  "method": "POST",
+  "path": "/v1/agent-sessions/asession-1e51a3d0-474d-46f6-ad78-c3c64a23e7a0/messages",
+  "body": {
+   "kind": "task",
+   "body": {
+    "task": "請在目前工作目錄建立檔案 hello2.txt，內容為 hi2。"
+   }
+  },
+  "status": 200,
+  "resp": {
+   "body": {
+    "contextBundle": {
+     "agentId": "claude-code",
+     "domains": [],
+     "excluded": {
+      "needsReview": [],
+      "notVisibleToAgent": 0,
+      "outsideGrantedDomains": 0,
+      "overCapacity": 0,
+      "sensitive": 0,
+      "unreviewedCandidates": 0
+     },
+     "generatedAt": "2026-09-07T09:07:45.484260Z",
+     "includes": [
+      {
+       "confidence": 1.0,
+       "content": "{\"agentId\":\"claude-code\",\"closedAt\":\"2026-09-07T09:06:59.267131Z\",\"costUsd\":0.1683105,\"goal\":\"E0-10-allowwrite-claude\",\"messages\":2,\"outcome\":\"ClaimedCompleted\",\"providerSessionId\":\"e7b6974f-b93a-4774-80df-d37b6cb59dfd\"}",
+       "kind": "fact",
+       "layer": "task-memory",
+       "memoryId": "mem-55075d9d-d3f1-4d52-82b5-ee65832c8e7f",
+       "title": "任務：E0-10-allowwrite-claude"
+      }
+     ],
+     "limits": {
+      "maxBytes": 49152,
+      "maxItems": 24,
+      "scanLimit": 1000,
+      "scanLimitReached": false
+     },
+     "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+     "task": "請在目前工作目錄建立檔案 hello2.txt，內容為 hi2。",
+     "truncated": false
+    },
+    "task": "請在目前工作目錄建立檔案 hello2.txt，內容為 hi2。"
+   },
+   "createdAt": "2026-09-07T09:07:45.484699Z",
+   "deliveredAt": "2026-09-07T09:07:45.485444Z",
+   "direction": "to-session",
+   "kind": "task",
+   "messageId": "msg-asession-1e51a3d0-474d-46f6-ad78-c3c64a23e7a0-1",
+   "sessionId": "asession-1e51a3d0-474d-46f6-ad78-c3c64a23e7a0"
+  },
+  "t": "2026-09-07T09:07:45Z"
+ },
+ {
+  "step": "resume-final",
+  "method": "GET",
+  "path": "/v1/agent-sessions/asession-1e51a3d0-474d-46f6-ad78-c3c64a23e7a0",
+  "body": null,
+  "status": 200,
+  "resp": {
+   "agentId": "claude-code",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.33158,
+    "spentMessages": 2
+   },
+   "claimId": "claim-2425f661-562d-43c7-9ed8-1b3841a573ac",
+   "consentScope": [],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T09:07:45.484260Z",
+      "includes": [
+       {
+        "confidence": 1.0,
+        "content": "{\"agentId\":\"claude-code\",\"closedAt\":\"2026-09-07T09:06:59.267131Z\",\"costUsd\":0.1683105,\"goal\":\"E0-10-allowwrite-claude\",\"messages\":2,\"outcome\":\"ClaimedCompleted\",\"providerSessionId\":\"e7b6974f-b93a-4774-80df-d37b6cb59dfd\"}",
+        "kind": "fact",
+        "layer": "task-memory",
+        "memoryId": "mem-55075d9d-d3f1-4d52-82b5-ee65832c8e7f",
+        "title": "任務：E0-10-allowwrite-claude"
+       }
+      ],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請在目前工作目錄建立檔案 hello2.txt，內容為 hi2。",
+      "truncated": false
+     },
+     "bundleId": "bundle-4fc4b7e8-6393-48d9-8d7f-52566e163ca5",
+     "contentHash": "e150f5179662dcc5ee9db282a1ad0e7d4493656dbaab76d4eb78eec40c0aa1f7",
+     "generatedAt": "2026-09-07T09:07:45.484768Z",
+     "messageId": "msg-asession-1e51a3d0-474d-46f6-ad78-c3c64a23e7a0-1"
+    }
+   ],
+   "createdAt": "2026-09-07T09:07:45.156639Z",
+   "dataScope": [],
+   "label": "E0-10-resume-readonly",
+   "lease": {
+    "expiresAt": "2026-09-07T09:27:45.156639Z",
+    "issuedAt": "2026-09-07T09:07:45.156639Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "providerSessionId": "e7b6974f-b93a-4774-80df-d37b6cb59dfd",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/95db6375-b13e-4494-9180-4b15da263657/scratchpad/e2e2/runs/R4/c-claude-write/workdir",
+   "sessionId": "asession-1e51a3d0-474d-46f6-ad78-c3c64a23e7a0",
+   "state": "claimed-completed",
+   "toolScope": []
+  },
+  "t": "2026-09-07T09:08:27Z"
+ },
+ {
+  "step": "resume-msgs",
+  "method": "GET",
+  "path": "/v1/agent-sessions/asession-1e51a3d0-474d-46f6-ad78-c3c64a23e7a0/messages?direction=from-session",
+  "body": null,
+  "status": 200,
+  "resp": [
+   {
+    "body": {
+     "costUsd": 0.33158,
+     "summary": "目前無法完成，hello2.txt 尚未建立。這一輪處於 plan mode，且本 session 已停用 Write 與 ExitPlanMode 兩個工具，所以我既不能寫入計畫檔，也不能送出計畫請您核准。\n\n已確認的現況：\n\n- 工作目錄內只有 NOTES.md 與上一輪建立的 hello.txt，尚無 hello2.txt，建立時不會覆寫任何檔案。\n- NOTES.md 只是煙霧測試說明，沒有影響此任務的內容。\n\n待您核准後的執行計畫：\n\n1. 在工作目錄建立 hello2.txt，內容為 hi2，結尾附一個換行符號，與 hello.txt 格式一致。\n2. 不更動 hello.txt 與 NOTES.md。\n3. 建立後以 Glob 與 Read 驗證檔案存在且內容正確。\n\n若要繼續，請關閉 plan mode 並恢復 Write 工具，我便可直接建立檔案。"
+    },
+    "createdAt": "2026-09-07T09:08:26.806960Z",
+    "direction": "from-session",
+    "kind": "result",
+    "messageId": "msg-asession-1e51a3d0-474d-46f6-ad78-c3c64a23e7a0-2",
+    "sessionId": "asession-1e51a3d0-474d-46f6-ad78-c3c64a23e7a0"
+   }
+  ],
+  "t": "2026-09-07T09:08:27Z"
+ }
+]

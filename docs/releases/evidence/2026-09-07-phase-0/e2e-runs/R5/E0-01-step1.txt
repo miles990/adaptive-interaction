@@ -1,0 +1,6 @@
+=== GET /v1/onboarding (initial) ===
+{"completed":false,"completedAt":null,"draft":null,"starterRecipes":[{"id":"starter-task-complete","title":"任務完成時，用最低干擾方式回應"},{"id":"starter-quiet-log","title":"安靜時段只記錄、不打擾"},{"id":"starter-device-warning","title":"裝置或服務異常時通知"}]}
+=== GET /v1/status (onboardingCompleted before) ===
+{
+  "onboardingCompleted": false
+}

@@ -1,0 +1,776 @@
+{
+ "agents": [
+  "claude-code",
+  "codex"
+ ],
+ "port": 18923,
+ "events": [
+  {
+   "t": "2026-09-07T03:57:05.291Z",
+   "mono": 0.26,
+   "k": "daemon-ready",
+   "pid": 12932
+  },
+  {
+   "t": "2026-09-07T03:57:05.953Z",
+   "mono": 0.921,
+   "k": "create",
+   "i": 0,
+   "agent": "claude-code",
+   "status": 200,
+   "sid": "asession-3f281085-96c0-4c4a-ba07-a7c5ce191ded",
+   "error": null
+  },
+  {
+   "t": "2026-09-07T03:57:06.196Z",
+   "mono": 1.165,
+   "k": "create",
+   "i": 1,
+   "agent": "codex",
+   "status": 200,
+   "sid": "asession-95ecab2c-eb36-4dce-8d18-5e131dabc9a9",
+   "error": null
+  },
+  {
+   "t": "2026-09-07T03:57:06.199Z",
+   "mono": 1.168,
+   "k": "task-sent",
+   "i": 0,
+   "status": 200
+  },
+  {
+   "t": "2026-09-07T03:57:06.203Z",
+   "mono": 1.172,
+   "k": "task-sent",
+   "i": 1,
+   "status": 200
+  },
+  {
+   "t": "2026-09-07T03:57:06.207Z",
+   "mono": 1.175,
+   "k": "state",
+   "i": 0,
+   "state": "created"
+  },
+  {
+   "t": "2026-09-07T03:57:06.209Z",
+   "mono": 1.178,
+   "k": "state",
+   "i": 1,
+   "state": "created"
+  },
+  {
+   "t": "2026-09-07T03:57:06.716Z",
+   "mono": 1.685,
+   "k": "state",
+   "i": 1,
+   "state": "active"
+  },
+  {
+   "t": "2026-09-07T03:57:11.283Z",
+   "mono": 6.252,
+   "k": "cancel-issued",
+   "i": 0,
+   "status": 200,
+   "resp": {
+    "interrupted": true
+   }
+  },
+  {
+   "t": "2026-09-07T03:57:11.789Z",
+   "mono": 6.757,
+   "k": "state",
+   "i": 0,
+   "state": "failed"
+  },
+  {
+   "t": "2026-09-07T03:57:14.331Z",
+   "mono": 9.299,
+   "k": "state",
+   "i": 1,
+   "state": "waiting-for-consent"
+  },
+  {
+   "t": "2026-09-07T03:57:14.334Z",
+   "mono": 9.302,
+   "k": "operator-approval",
+   "i": 1,
+   "requestId": "0",
+   "summary": "codex 請求核可：item/commandExecution/requestApproval \"/bin/zsh -lc 'cat NOTES.md'\"",
+   "status": 200
+  },
+  {
+   "t": "2026-09-07T03:57:14.841Z",
+   "mono": 9.81,
+   "k": "state",
+   "i": 1,
+   "state": "active"
+  },
+  {
+   "t": "2026-09-07T03:57:18.909Z",
+   "mono": 13.877,
+   "k": "state",
+   "i": 1,
+   "state": "claimed-completed"
+  },
+  {
+   "t": "2026-09-07T03:57:20.418Z",
+   "mono": 15.386,
+   "k": "final",
+   "i": 0,
+   "agent": "claude-code",
+   "state": "failed",
+   "ownSecret": false,
+   "crossTalk": [],
+   "summary": ""
+  },
+  {
+   "t": "2026-09-07T03:57:20.421Z",
+   "mono": 15.39,
+   "k": "final",
+   "i": 1,
+   "agent": "codex",
+   "state": "claimed-completed",
+   "ownSecret": true,
+   "crossTalk": [],
+   "summary": "識別碼是 TOKEN-1-cd1568"
+  },
+  {
+   "t": "2026-09-07T03:57:20.473Z",
+   "mono": 15.441,
+   "k": "children-before-daemon-stop",
+   "n": 1
+  }
+ ],
+ "sessions": [
+  {
+   "i": 0,
+   "agent": "claude-code",
+   "sid": "asession-3f281085-96c0-4c4a-ba07-a7c5ce191ded",
+   "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/multi-E-claude-codex/work-0",
+   "secret": "TOKEN-0-54146b",
+   "create": {
+    "agentId": "claude-code",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 0.0,
+     "maxDurationMs": 1200000,
+     "maxMessages": 40,
+     "spentCost": 0.0,
+     "spentMessages": 0
+    },
+    "consentScope": [],
+    "contextBundles": [],
+    "createdAt": "2026-09-07T03:57:05.699753Z",
+    "dataScope": [],
+    "label": "phase0-multi-0",
+    "lease": {
+     "expiresAt": "2026-09-07T04:17:05.699753Z",
+     "issuedAt": "2026-09-07T03:57:05.699753Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.claude-code",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/multi-E-claude-codex/work-0",
+    "sessionId": "asession-3f281085-96c0-4c4a-ba07-a7c5ce191ded",
+    "state": "created",
+    "toolScope": []
+   },
+   "approved": [],
+   "states": [
+    [
+     1.175,
+     "created"
+    ],
+    [
+     6.757,
+     "failed"
+    ]
+   ],
+   "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案。",
+   "last": {
+    "agentId": "claude-code",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 0.0,
+     "maxDurationMs": 1200000,
+     "maxMessages": 40,
+     "spentCost": 0.0,
+     "spentMessages": 1
+    },
+    "consentScope": [],
+    "contextBundles": [
+     {
+      "bundle": {
+       "agentId": "claude-code",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T03:57:06.197678Z",
+       "includes": [],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案。",
+       "truncated": false
+      },
+      "bundleId": "bundle-8c1569e8-de80-415a-9b09-b9670042b70f",
+      "contentHash": "4bb08619edde16254f5406bebc23793891a6274873921b115872bd67c73178a9",
+      "generatedAt": "2026-09-07T03:57:06.197858Z",
+      "messageId": "msg-asession-3f281085-96c0-4c4a-ba07-a7c5ce191ded-1"
+     }
+    ],
+    "createdAt": "2026-09-07T03:57:05.699753Z",
+    "dataScope": [],
+    "label": "phase0-multi-0",
+    "lease": {
+     "expiresAt": "2026-09-07T04:17:05.699753Z",
+     "issuedAt": "2026-09-07T03:57:05.699753Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.claude-code",
+    "providerSessionId": "276c9883-389b-4627-9ac3-a577ef79ad17",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/multi-E-claude-codex/work-0",
+    "sessionId": "asession-3f281085-96c0-4c4a-ba07-a7c5ce191ded",
+    "state": "failed",
+    "toolScope": []
+   },
+   "final": {
+    "agentId": "claude-code",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 0.0,
+     "maxDurationMs": 1200000,
+     "maxMessages": 40,
+     "spentCost": 0.0,
+     "spentMessages": 1
+    },
+    "consentScope": [],
+    "contextBundles": [
+     {
+      "bundle": {
+       "agentId": "claude-code",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T03:57:06.197678Z",
+       "includes": [],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案。",
+       "truncated": false
+      },
+      "bundleId": "bundle-8c1569e8-de80-415a-9b09-b9670042b70f",
+      "contentHash": "4bb08619edde16254f5406bebc23793891a6274873921b115872bd67c73178a9",
+      "generatedAt": "2026-09-07T03:57:06.197858Z",
+      "messageId": "msg-asession-3f281085-96c0-4c4a-ba07-a7c5ce191ded-1"
+     }
+    ],
+    "createdAt": "2026-09-07T03:57:05.699753Z",
+    "dataScope": [],
+    "label": "phase0-multi-0",
+    "lease": {
+     "expiresAt": "2026-09-07T04:17:05.699753Z",
+     "issuedAt": "2026-09-07T03:57:05.699753Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.claude-code",
+    "providerSessionId": "276c9883-389b-4627-9ac3-a577ef79ad17",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/multi-E-claude-codex/work-0",
+    "sessionId": "asession-3f281085-96c0-4c4a-ba07-a7c5ce191ded",
+    "state": "failed",
+    "toolScope": []
+   },
+   "from": [],
+   "to": [
+    {
+     "body": {
+      "contextBundle": {
+       "agentId": "claude-code",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T03:57:06.197678Z",
+       "includes": [],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案。",
+       "truncated": false
+      },
+      "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案。"
+     },
+     "createdAt": "2026-09-07T03:57:06.197821Z",
+     "deliveredAt": "2026-09-07T03:57:06.198579Z",
+     "direction": "to-session",
+     "kind": "task",
+     "messageId": "msg-asession-3f281085-96c0-4c4a-ba07-a7c5ce191ded-1",
+     "sessionId": "asession-3f281085-96c0-4c4a-ba07-a7c5ce191ded"
+    }
+   ],
+   "summary": null,
+   "ownSecretInSummary": false,
+   "otherSecretInSummary": []
+  },
+  {
+   "i": 1,
+   "agent": "codex",
+   "sid": "asession-95ecab2c-eb36-4dce-8d18-5e131dabc9a9",
+   "workdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/multi-E-claude-codex/work-1",
+   "secret": "TOKEN-1-cd1568",
+   "create": {
+    "agentId": "codex",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 0.0,
+     "maxDurationMs": 1200000,
+     "maxMessages": 40,
+     "spentCost": 0.0,
+     "spentMessages": 0
+    },
+    "consentScope": [],
+    "contextBundles": [],
+    "createdAt": "2026-09-07T03:57:05.954353Z",
+    "dataScope": [],
+    "label": "phase0-multi-1",
+    "lease": {
+     "expiresAt": "2026-09-07T04:17:05.954353Z",
+     "issuedAt": "2026-09-07T03:57:05.954353Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.codex",
+    "providerSessionId": "01a07a03-368c-72e0-9990-fe5919d6546c",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/multi-E-claude-codex/work-1",
+    "sessionId": "asession-95ecab2c-eb36-4dce-8d18-5e131dabc9a9",
+    "state": "created",
+    "toolScope": []
+   },
+   "approved": [
+    "0"
+   ],
+   "states": [
+    [
+     1.178,
+     "created"
+    ],
+    [
+     1.685,
+     "active"
+    ],
+    [
+     9.299,
+     "waiting-for-consent"
+    ],
+    [
+     9.81,
+     "active"
+    ],
+    [
+     13.877,
+     "claimed-completed"
+    ]
+   ],
+   "task": "請讀取目前工作目錄裡的 NOTES.md，只回覆一行：『識別碼是 <檔案裡的識別碼>』。不要修改任何檔案。",
+   "last": {
+    "agentId": "codex",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 0.0,
+     "maxDurationMs": 1200000,
+     "maxMessages": 40,
+     "spentCost": 0.0,
+     "spentMessages": 4
+    },
+    "claimId": "claim-c24b6538-4d24-433d-9891-18675586767b",
+    "consentScope": [],
+    "contextBundles": [
+     {
+      "bundle": {
+       "agentId": "codex",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T03:57:06.200542Z",
+       "includes": [],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "請讀取目前工作目錄裡的 NOTES.md，只回覆一行：『識別碼是 <檔案裡的識別碼>』。不要修改任何檔案。",
+       "truncated": false
+      },
+      "bundleId": "bundle-49f8b093-8430-4b1c-b326-3b5f78c49a7a",
+      "contentHash": "14e6d8ad190516c807ed73ab954f67f088857156976abff1600665afe8cd6457",
+      "generatedAt": "2026-09-07T03:57:06.200695Z",
+      "messageId": "msg-asession-95ecab2c-eb36-4dce-8d18-5e131dabc9a9-1"
+     }
+    ],
+    "createdAt": "2026-09-07T03:57:05.954353Z",
+    "dataScope": [],
+    "label": "phase0-multi-1",
+    "lease": {
+     "expiresAt": "2026-09-07T04:17:05.954353Z",
+     "issuedAt": "2026-09-07T03:57:05.954353Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.codex",
+    "providerSessionId": "01a07a03-368c-72e0-9990-fe5919d6546c",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/multi-E-claude-codex/work-1",
+    "sessionId": "asession-95ecab2c-eb36-4dce-8d18-5e131dabc9a9",
+    "state": "claimed-completed",
+    "toolScope": []
+   },
+   "final": {
+    "agentId": "codex",
+    "allowWrite": false,
+    "budget": {
+     "maxCost": 0.0,
+     "maxDurationMs": 1200000,
+     "maxMessages": 40,
+     "spentCost": 0.0,
+     "spentMessages": 4
+    },
+    "claimId": "claim-c24b6538-4d24-433d-9891-18675586767b",
+    "consentScope": [],
+    "contextBundles": [
+     {
+      "bundle": {
+       "agentId": "codex",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T03:57:06.200542Z",
+       "includes": [],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "請讀取目前工作目錄裡的 NOTES.md，只回覆一行：『識別碼是 <檔案裡的識別碼>』。不要修改任何檔案。",
+       "truncated": false
+      },
+      "bundleId": "bundle-49f8b093-8430-4b1c-b326-3b5f78c49a7a",
+      "contentHash": "14e6d8ad190516c807ed73ab954f67f088857156976abff1600665afe8cd6457",
+      "generatedAt": "2026-09-07T03:57:06.200695Z",
+      "messageId": "msg-asession-95ecab2c-eb36-4dce-8d18-5e131dabc9a9-1"
+     }
+    ],
+    "createdAt": "2026-09-07T03:57:05.954353Z",
+    "dataScope": [],
+    "label": "phase0-multi-1",
+    "lease": {
+     "expiresAt": "2026-09-07T04:17:05.954353Z",
+     "issuedAt": "2026-09-07T03:57:05.954353Z",
+     "renewable": true,
+     "revokeOnSessionEnd": true
+    },
+    "providerId": "provider.ai-agent.codex",
+    "providerSessionId": "01a07a03-368c-72e0-9990-fe5919d6546c",
+    "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/multi-E-claude-codex/work-1",
+    "sessionId": "asession-95ecab2c-eb36-4dce-8d18-5e131dabc9a9",
+    "state": "claimed-completed",
+    "toolScope": []
+   },
+   "from": [
+    {
+     "body": {
+      "requestId": "0",
+      "summary": "codex 請求核可：item/commandExecution/requestApproval \"/bin/zsh -lc 'cat NOTES.md'\""
+     },
+     "createdAt": "2026-09-07T03:57:13.844134Z",
+     "direction": "from-session",
+     "kind": "approval-request",
+     "messageId": "msg-asession-95ecab2c-eb36-4dce-8d18-5e131dabc9a9-2",
+     "sessionId": "asession-95ecab2c-eb36-4dce-8d18-5e131dabc9a9"
+    },
+    {
+     "body": {
+      "approved": true,
+      "by": "human",
+      "decision": "approved",
+      "deliveredToAgent": true,
+      "requestId": "0",
+      "stillPending": false,
+      "summary": "codex 請求核可：item/commandExecution/requestApproval \"/bin/zsh -lc 'cat NOTES.md'\""
+     },
+     "createdAt": "2026-09-07T03:57:14.333007Z",
+     "direction": "from-session",
+     "kind": "approval-resolved",
+     "messageId": "msg-asession-95ecab2c-eb36-4dce-8d18-5e131dabc9a9-3",
+     "sessionId": "asession-95ecab2c-eb36-4dce-8d18-5e131dabc9a9"
+    },
+    {
+     "body": {
+      "summary": "識別碼是 TOKEN-1-cd1568"
+     },
+     "createdAt": "2026-09-07T03:57:18.429551Z",
+     "direction": "from-session",
+     "kind": "result",
+     "messageId": "msg-asession-95ecab2c-eb36-4dce-8d18-5e131dabc9a9-4",
+     "sessionId": "asession-95ecab2c-eb36-4dce-8d18-5e131dabc9a9"
+    }
+   ],
+   "to": [
+    {
+     "body": {
+      "contextBundle": {
+       "agentId": "codex",
+       "domains": [],
+       "excluded": {
+        "needsReview": [],
+        "notVisibleToAgent": 0,
+        "outsideGrantedDomains": 0,
+        "overCapacity": 0,
+        "sensitive": 0,
+        "unreviewedCandidates": 0
+       },
+       "generatedAt": "2026-09-07T03:57:06.200542Z",
+       "includes": [],
+       "limits": {
+        "maxBytes": 49152,
+        "maxItems": 24,
+        "scanLimit": 1000,
+        "scanLimitReached": false
+       },
+       "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+       "task": "請讀取目前工作目錄裡的 NOTES.md，只回覆一行：『識別碼是 <檔案裡的識別碼>』。不要修改任何檔案。",
+       "truncated": false
+      },
+      "task": "請讀取目前工作目錄裡的 NOTES.md，只回覆一行：『識別碼是 <檔案裡的識別碼>』。不要修改任何檔案。"
+     },
+     "createdAt": "2026-09-07T03:57:06.200661Z",
+     "deliveredAt": "2026-09-07T03:57:06.201295Z",
+     "direction": "to-session",
+     "kind": "task",
+     "messageId": "msg-asession-95ecab2c-eb36-4dce-8d18-5e131dabc9a9-1",
+     "sessionId": "asession-95ecab2c-eb36-4dce-8d18-5e131dabc9a9"
+    }
+   ],
+   "summary": "識別碼是 TOKEN-1-cd1568",
+   "ownSecretInSummary": true,
+   "otherSecretInSummary": []
+  }
+ ],
+ "list": [
+  {
+   "agentId": "claude-code",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.0,
+    "spentMessages": 1
+   },
+   "consentScope": [],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "claude-code",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T03:57:06.197678Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請用繁體中文寫一篇約 1500 字、分成十段的短文，主題是「隔離工作目錄」。不要讀取、建立或修改任何檔案。",
+      "truncated": false
+     },
+     "bundleId": "bundle-8c1569e8-de80-415a-9b09-b9670042b70f",
+     "contentHash": "4bb08619edde16254f5406bebc23793891a6274873921b115872bd67c73178a9",
+     "generatedAt": "2026-09-07T03:57:06.197858Z",
+     "messageId": "msg-asession-3f281085-96c0-4c4a-ba07-a7c5ce191ded-1"
+    }
+   ],
+   "createdAt": "2026-09-07T03:57:05.699753Z",
+   "dataScope": [],
+   "label": "phase0-multi-0",
+   "lease": {
+    "expiresAt": "2026-09-07T04:17:05.699753Z",
+    "issuedAt": "2026-09-07T03:57:05.699753Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.claude-code",
+   "providerSessionId": "276c9883-389b-4627-9ac3-a577ef79ad17",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/multi-E-claude-codex/work-0",
+   "sessionId": "asession-3f281085-96c0-4c4a-ba07-a7c5ce191ded",
+   "state": "failed",
+   "toolScope": []
+  },
+  {
+   "agentId": "codex",
+   "allowWrite": false,
+   "budget": {
+    "maxCost": 0.0,
+    "maxDurationMs": 1200000,
+    "maxMessages": 40,
+    "spentCost": 0.0,
+    "spentMessages": 4
+   },
+   "claimId": "claim-c24b6538-4d24-433d-9891-18675586767b",
+   "consentScope": [],
+   "contextBundles": [
+    {
+     "bundle": {
+      "agentId": "codex",
+      "domains": [],
+      "excluded": {
+       "needsReview": [],
+       "notVisibleToAgent": 0,
+       "outsideGrantedDomains": 0,
+       "overCapacity": 0,
+       "sensitive": 0,
+       "unreviewedCandidates": 0
+      },
+      "generatedAt": "2026-09-07T03:57:06.200542Z",
+      "includes": [],
+      "limits": {
+       "maxBytes": 49152,
+       "maxItems": 24,
+       "scanLimit": 1000,
+       "scanLimitReached": false
+      },
+      "note": "確定性選擇；stale 需重新確認、candidate 未經複審不提供、敏感標籤排除、知識類只給 Session 明確授權的 domain。",
+      "task": "請讀取目前工作目錄裡的 NOTES.md，只回覆一行：『識別碼是 <檔案裡的識別碼>』。不要修改任何檔案。",
+      "truncated": false
+     },
+     "bundleId": "bundle-49f8b093-8430-4b1c-b326-3b5f78c49a7a",
+     "contentHash": "14e6d8ad190516c807ed73ab954f67f088857156976abff1600665afe8cd6457",
+     "generatedAt": "2026-09-07T03:57:06.200695Z",
+     "messageId": "msg-asession-95ecab2c-eb36-4dce-8d18-5e131dabc9a9-1"
+    }
+   ],
+   "createdAt": "2026-09-07T03:57:05.954353Z",
+   "dataScope": [],
+   "label": "phase0-multi-1",
+   "lease": {
+    "expiresAt": "2026-09-07T04:17:05.954353Z",
+    "issuedAt": "2026-09-07T03:57:05.954353Z",
+    "renewable": true,
+    "revokeOnSessionEnd": true
+   },
+   "providerId": "provider.ai-agent.codex",
+   "providerSessionId": "01a07a03-368c-72e0-9990-fe5919d6546c",
+   "resolvedWorkdir": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/e2e/multi-E-claude-codex/work-1",
+   "sessionId": "asession-95ecab2c-eb36-4dce-8d18-5e131dabc9a9",
+   "state": "claimed-completed",
+   "toolScope": []
+  }
+ ],
+ "status": {
+  "activeSensors": [],
+  "agentSessions": 1,
+  "capabilityVersion": 56,
+  "characterProtocol": {
+   "activeCharacter": null,
+   "instances": 0,
+   "version": "1.0"
+  },
+  "configErrors": [],
+  "emergencyStop": false,
+  "eventSequence": 137,
+  "hasReceipts": false,
+  "name": "adaptive-interaction",
+  "onboardingCompleted": false,
+  "pendingAiAssists": 0,
+  "presentation": {
+   "behaviorExplanation": null,
+   "behaviorState": null,
+   "character": null,
+   "connected": false,
+   "lastSeenSecondsAgo": null,
+   "packId": null,
+   "pendingCommands": 0,
+   "visible": false
+  },
+  "proactivePause": {
+   "paused": false
+  },
+  "quietHours": false,
+  "recipes": {
+   "errors": 0,
+   "loaded": 1
+  },
+  "schemaVersion": "1.0",
+  "session": null,
+  "startedAt": "2026-09-07T03:57:05.117148Z",
+  "unresolvedStopHealth": {
+   "overflowCount": 0,
+   "parked": false,
+   "recoveryUnknown": false,
+   "storage": "durable"
+  },
+  "uptimeSeconds": 15,
+  "version": "0.8.0"
+ },
+ "children": [
+  "13216 13216 12932       00:14 codex app-server"
+ ],
+ "childrenAfterStop": [],
+ "wallSeconds": 17.53
+}

@@ -1,0 +1,523 @@
+{
+ "key": "K",
+ "found": {
+  "dimension": "K",
+  "rows": [
+   {
+    "id": "K-01",
+    "need": "API／CLI／Tauri／UI 的 agent session create payload 能否指定模型（model），並真的傳到 connector 的 SessionSpec.model",
+    "status": "absent",
+    "evidenceLevel": [
+     "static-inspection"
+    ],
+    "owner": "crates/interaction-agent-gateway ＋ crates/interaction-runtime/src/{agents,gateway}.rs（docs/MAINTAINERS-MAP.md:94-103 §7 Agent）",
+    "entryPath": "POST /v1/agent-sessions（crates/interaction-api/src/routes.rs:1389-1395）／`interact-ai agents create`（crates/interaction-cli/src/main.rs:377-405 → commands.rs:915-940）／Tauri `agent_session_create`（apps/interaction-desktop/src-tauri/src/lib.rs:1573-1577）／TaskComposer.buildSessionCreateInput（apps/interaction-desktop/src/pages/work/TaskComposer.tsx:166-179）→ Runtime::create_agent_session（agents.rs:387）→ gateway_attach（gateway.rs:285-339）→ connector.start_session(SessionSpec)",
+    "contract": "CreateAgentSession（agents.rs:245-278）欄位：providerId/agentId/label/ttlMinutes/dataScope/toolScope/consentScope/allowWrite/maxCost/maxMessages/delegation/workdir/resumeProviderSessionId——**沒有 model**，且未加 deny_unknown_fields，payload 帶 `model` 會被 serde 靜默丟棄。SessionSpec.model（gateway lib.rs:166）只有 connector 端消費：claude.rs:103-105 `--model`、codex_exec.rs:87-89,105-107 `--model`；codex.rs app-server 的 thread/start（:333-338）／thread/resume（:322-327）／turn/start（:613-618）完全不送 model（0.153.4 schema 的 ThreadStartParams／ThreadResumeParams／TurnStartParams 都有 `model` 欄位可用）。",
+    "stateOwner": "無（沒有任何地方保存 requested model）；SessionSpec 只在 gateway_attach 內存活到 start_session 為止",
+    "existingTests": [
+     "crates/interaction-agent-gateway/src/claude.rs:480-508 session_args_keep_read_and_write_scopes_bounded（unit；不涉及 --model）",
+     "crates/interaction-runtime/tests/gateway_loop.rs 全檔 grep `--model` 0 命中（fixture 測試從未斷言 model 旗標）",
+     "scripts/v03-cli-e2e.sh:263 `agents create --agent claude-code ...`（無 --model）"
+    ],
+    "evidence": [
+     "crates/interaction-runtime/src/agents.rs:245-278 CreateAgentSession 沒有 model 欄位；:245-246 只有 `#[derive(Deserialize)] #[serde(rename_all=\"camelCase\")]`，無 deny_unknown_fields",
+     "crates/interaction-runtime/src/gateway.rs:325-339 gateway_attach 只設 disable_tools／resume_provider_session／max_cost_usd／session_capability_token／runtime_api_base；`spec.model` 與 `spec.max_turns` 從未被賦值（全 crates grep `spec.model|.model =` 只命中 connector 讀取端）",
+     "crates/interaction-agent-gateway/src/lib.rs:166 `pub model: Option<String>`；:189 read_only_in 預設 None",
+     "crates/interaction-agent-gateway/src/claude.rs:103-105 有 model 才加 `--model`；codex_exec.rs:87-89,105-107 同",
+     "crates/interaction-agent-gateway/src/codex.rs:321-343 thread/start／thread/resume params 只有 cwd/approvalPolicy/ephemeral/sandbox；:613-618 turn/start 只有 threadId/input",
+     "crates/interaction-cli/src/main.rs:377-405 AgentsAction::Create 沒有 --model；commands.rs:926-939 payload 無 model",
+     "apps/interaction-desktop/src/pages/work/TaskComposer.tsx:155-179 SessionCreateDraft／buildSessionCreateInput 無 model；apps/interaction-desktop/src/pages/AiPage.tsx:120-135 續開 payload 無 model",
+     "crates/interaction-runtime/src/proactive.rs:717-731 主動對話 session 亦未指定 model",
+     "0.153.4 schema（scratchpad/matrix/codex-schema-0.153.4/codex_app_server_protocol.v2.schemas.json）ThreadStartParams props 含 model/modelProvider；TurnStartParams 含 model/effort——協定支援但 connector 不送",
+     "docs/USER-GUIDE.md、docs/FEATURES.md、docs/DESKTOP-GUIDE.md、CHANGELOG.md grep `--model|模型選擇|指定模型` 0 命中——文件沒有宣稱可選模型（無文件／程式不一致）"
+    ],
+    "limitation": "缺口位置：CreateAgentSession（agents.rs:247）沒有 model 欄位 → gateway_attach（gateway.rs:325-339）沒有把它寫進 spec.model → 兩個 connector 永遠用各自 CLI／app-server 的預設模型。`--model` 旗標（claude.rs:103-105、codex_exec.rs:87/105）是 defined-only 的死碼；codex app-server 路徑連死碼都沒有。",
+    "nextAction": "若要支援：在 CreateAgentSession 加 `model: Option<String>`（並考慮 deny_unknown_fields 或至少回報忽略欄位），gateway_attach 寫入 spec.model；codex.rs thread/start／thread/resume 加 `model`（schema 已支援）；CLI 加 `--model`；TaskComposer 加選單；並用 fixture argv／fake-thread-start 檔斷言旗標真的送出。同時把「不可選模型」寫進 known-limitations。",
+    "confidence": "high"
+   },
+   {
+    "id": "K-02",
+    "need": "實際使用的模型能否被辨認並記錄（claude stream-json system/init 的 model；codex thread/start 回應或 turn 事件的 model）到 session record／事件",
+    "status": "absent",
+    "evidenceLevel": [
+     "static-inspection",
+     "unit"
+    ],
+    "owner": "crates/interaction-agent-gateway（parse_claude_line／normalize_codex_notification／parse_exec_line）＋ crates/interaction-core/src/agent.rs（AgentSessionRecord）",
+    "entryPath": "connector stdout → parse_claude_line（claude.rs:378-473）／reader task（codex.rs:223-289）／parse_exec_line（codex_exec.rs:358-417）→ GatewayEvent（lib.rs:79-152）→ spawn_gateway_pump（gateway.rs:386-630）→ AgentSessionRecord／report_agent_session",
+    "contract": "GatewayEvent 沒有任何 model 欄位（lib.rs:79-152）；AgentSessionRecord（core/agent.rs:183-244）沒有 model 欄位；桌面型別 api.ts:713-743 亦無。",
+    "stateOwner": "無（沒有任何 model 落地點）",
+    "existingTests": [
+     "crates/interaction-agent-gateway/src/claude.rs:510-521 parses_the_recorded_live_sample_shape（unit）：樣本 init 行含 `\"model\":\"claude-haiku-4-5\"`，但只斷言 SessionStarted{provider_session_id}",
+     "crates/interaction-runtime/tests/fixtures/fake_claude.sh:44 fixture 也送 `\"model\":\"fake-model\"`，runtime 測試沒有任何斷言讀它"
+    ],
+    "evidence": [
+     "crates/interaction-agent-gateway/src/claude.rs:391-409 `(\"system\",\"init\")` 只取 session_id，`model` 欄位被丟棄；:442-466 `result` 只取 is_error/total_cost_usd/num_turns/result，未讀 usage/modelUsage",
+     "crates/interaction-agent-gateway/src/codex.rs:344-348 thread/start／thread/resume 回應只讀 `/thread/id` 或 `threadId`；0.153.4 ThreadStartResponse required=[approvalPolicy, approvalsReviewer, cwd, model, modelProvider, sandbox, thread]（實際 model 就在回應裡，被丟棄）；:583 `thread/started` 通知（含 Thread.model）靜默丟棄",
+     "crates/interaction-agent-gateway/src/codex_exec.rs:358-417 parse_exec_line 沒有 model 分支",
+     "crates/interaction-agent-gateway/src/lib.rs:79-152 GatewayEvent 無 model；crates/interaction-core/src/agent.rs:183-244 AgentSessionRecord 無 model；apps/interaction-desktop/src/api.ts:713-743 無 model",
+     "crates/interaction-runtime/src/gateway.rs:395-399 SessionStarted 只落 provider_session_id（set_provider_session_id :640-646）"
+    ],
+    "limitation": "requested 無（見 K-01）、actual unknown：session record／mailbox／事件／UI 都沒有「這次是哪個模型跑的」；連 connector 已經拿到手的資訊（claude init.model、codex ThreadStartResponse.model／modelProvider／reasoningEffort）也丟掉。誠實階梯上這屬於「結果來源未知」而非隱瞞，但無法對帳費用／模型。",
+    "nextAction": "在 GatewayEvent::SessionStarted 加 `model: Option<String>`（claude 取 init.model；codex 取 ThreadStartResponse.model＋modelProvider），AgentSessionRecord 加 `provider_model: Option<String>` 並持久化、投影到 api.ts 與 AiPage 進階詳情；fixture（fake_claude.sh:44 已送 model）補斷言。",
+    "confidence": "high"
+   },
+   {
+    "id": "K-03",
+    "need": "推理設定（effort／reasoning）能否透過 create payload 傳到 connector（claude --effort；codex turn/start.effort 或 -c model_reasoning_effort）",
+    "status": "absent",
+    "evidenceLevel": [
+     "static-inspection"
+    ],
+    "owner": "crates/interaction-agent-gateway ＋ crates/interaction-runtime/src/{agents,gateway}.rs",
+    "entryPath": "同 K-01（create payload → CreateAgentSession → gateway_attach → SessionSpec → claude_session_args／codex thread/start／exec_args）",
+    "contract": "SessionSpec（lib.rs:156-180）與 CreateAgentSession（agents.rs:245-278）都沒有 effort／reasoning 欄位；claude_session_args（claude.rs:74-116）不產生 `--effort`；codex.rs thread/start／turn/start 不送 `effort`；codex_exec.rs exec_args 不送 `-c model_reasoning_effort`。",
+    "stateOwner": "無",
+    "existingTests": [],
+    "evidence": [
+     "全 crates grep `effort|reasoning_effort|model_reasoning|thinking`（排除 item/reasoning 通知名）：0 個與模型推理設定有關的命中",
+     "crates/interaction-agent-gateway/src/claude.rs:74-116 claude_session_args 旗標清單固定，無 --effort",
+     "crates/interaction-agent-gateway/src/codex.rs:333-338（thread/start）、:613-618（turn/start）無 effort；codex_exec.rs:69-111 無 reasoning 設定",
+     "已安裝 Claude Code 2.1.263 `claude --help`（本次唯讀執行）第 77-78 行有 `--effort <level>`（low/medium/high/xhigh/max）——CLI 支援但 connector 不用",
+     "0.153.4 schema TurnStartParams props 含 `effort`（ReasoningEffort，非空字串）與 ThreadStartResponse.reasoningEffort——協定支援但 connector 不用",
+     "crates/interaction-agent-gateway/src/codex.rs:579-581 只把 item/reasoning/textDelta、summaryTextDelta 當高頻雜訊丟棄；codex_exec.rs:463 `\"reasoning\" => vec![]`——推理輸出也不投影"
+    ],
+    "limitation": "無任何入口可設定推理強度；兩個 provider 各自吃使用者本機設定（claude settings／~/.codex/config.toml——但 codex exec fallback 帶 `--ignore-user-config`，app-server 未帶 --strict-config，兩條路徑對使用者設定的繼承不一致，見 K-06）。",
+    "nextAction": "若要支援：CreateAgentSession 加 `effort: Option<String>` → SessionSpec.effort → claude `--effort`、codex turn/start `effort`／exec `-c model_reasoning_effort=\"..\"`；並決定是否把實際 reasoningEffort（ThreadStartResponse）記回 record（與 K-02 一併）。",
+    "confidence": "high"
+   },
+   {
+    "id": "K-04",
+    "need": "Session 續接（resume）與原生授權保持：claude --resume、codex thread/resume、exec resume；續開不繼承寫入權，且沙箱／權限旗標重新上鎖",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "unit",
+     "fixture",
+     "integration"
+    ],
+    "owner": "crates/interaction-runtime/src/agents.rs（check_resume_not_wider／resumed_session_record）＋ gateway.rs（gateway_attach）＋ interaction-agent-gateway 三個 connector",
+    "entryPath": "HTTP `POST /v1/agent-sessions` 帶 `resumeProviderSessionId`（routes.rs:1389-1395）／CLI `agents create --resume <PROVIDER_SESSION_ID>`（main.rs:399-404 → commands.rs:938）與 `agents resume <id>`（main.rs:409-431 → commands.rs:943-1000）／桌面 AiPage「接續上次」（AiPage.tsx:116-135, :692）→ create_agent_session（agents.rs:441-468）→ gateway_attach（gateway.rs:335-337 spec.resume_provider_session）→ claude.rs:106-108 `--resume <id>`／codex.rs:321-331 `thread/resume{threadId,cwd,approvalPolicy,sandbox}`／codex_exec.rs:76-90 `exec resume --json --skip-git-repo-check --ignore-user-config -c sandbox_mode -c approval_policy [--model] <thread> <prompt>`",
+    "contract": "agents.rs:441-468：resume 必須找得到本 runtime 授權過的舊紀錄（找不到且是 gateway agent → PolicyBlocked），並經 check_resume_not_wider（agents.rs:105-177：ttl／maxCost／maxMessages／toolScope／workdir 不得比原 session 寬；:204+ 同 resolved_workdir）；allow_write 仍要再走 :412-438 的 workdir＋toolScope＋consentScope 三重檢查；connector 端 codex.rs:309-319 註解＋:321-343 於 resume 重送 cwd/approvalPolicy/sandbox，claude 續開仍走 :87-102 的 plan／acceptEdits 決定；CLI `agents resume` 固定 allowWrite:false、consentScope:[]（commands.rs:995-997），桌面 AiPage.tsx:130 同。",
+    "stateOwner": "AgentSessionRecord.provider_session_id（core/agent.rs:218；由 SessionStarted 事件回填 gateway.rs:395-399／640-646）與 resolved_workdir（:227；agents.rs:624-626）持久化於 SQLite agent_sessions 文件表（storage lib.rs:173,418-427）",
+    "existingTests": [
+     "crates/interaction-runtime/tests/gateway_loop.rs:842-890 resume_passes_the_provider_thread_and_relocks_permission_flags（fixture：argv 含 `--resume fake-123` 且 `--permission-mode plan`）",
+     "crates/interaction-runtime/tests/gateway_loop.rs:1007-1095 codex_resume_resends_cwd_and_sandbox_instead_of_inheriting_them（fixture：fake-thread-resume 檔斷言 threadId/sandbox=read-only/approvalPolicy=untrusted/cwd 正規化；寫入型續開送 workspace-write）",
+     "crates/interaction-runtime/tests/gateway_loop.rs:2172-2212、:2699-2745（resume argv／plan 重鎖的其他情境）",
+     "crates/interaction-runtime/src/agents.rs:1892-2030 resume_workdir_tests（unit：同資料夾／traversal／缺 workdir 拒絕）",
+     "crates/interaction-agent-gateway/src/codex.rs:907-988 connector_uses_exec_fallback_and_resumes_the_same_thread（unit，fake script：argv 含 `exec resume`、`fallback-thread second`、無 danger）",
+     "crates/interaction-cli/src/commands.rs:1616-1680 resume_defaults_tests（unit：省略旗標沿用原限額／resolvedWorkdir）",
+     "scripts/v03-cli-e2e.sh：無 resume 案例；apps/interaction-desktop/e2e：grep resume 無 agent-session 續開案例"
+    ],
+    "evidence": [
+     "crates/interaction-runtime/src/agents.rs:273-278 resume_provider_session_id 欄位；:441-468 找不到授權紀錄即拒絕；:105-177 check_resume_not_wider",
+     "crates/interaction-runtime/src/gateway.rs:333-337 `spec.resume_provider_session = resume_provider_session`",
+     "crates/interaction-agent-gateway/src/claude.rs:106-108 `--resume`；codex.rs:315-343 thread/resume 重送 sandbox；codex_exec.rs:65-90 exec resume 重寫 sandbox_mode／approval_policy",
+     "已安裝版本相容（本次唯讀 `--help`）：Claude 2.1.263 有 `-r, --resume [value]`（help:203-205）；Codex 0.153.4 `codex exec resume [SESSION_ID] [PROMPT]` 接受 `-m/--model`（:41）、`--skip-git-repo-check`（:55）、`--ignore-user-config`（:61）、`--json`（:70）；0.153.4 schema ThreadResumeParams required=[threadId]，可選 cwd/approvalPolicy/sandbox/model",
+     "apps/interaction-desktop/src/pages/AiPage.tsx:116-135 buildResumeInput（allowWrite:false、resumeProviderSessionId）；:557-561 顯示 provider session；:692 只有終局且有 providerSessionId 才可接續",
+     "docs/acceptance-evidence.md 與 docs/releases/*：沒有任何一列「真 claude／codex 續開」的實測證據（v0.7.0-known-limitations.md:158 明列真二進位未跑）"
+    ],
+    "limitation": "全部證據為 fixture（fake_claude.sh／fake_codex.sh／unit 內 fake script）；真 Claude Code 2.1.263 `-p --resume <id>` 與真 Codex 0.153.4 `thread/resume` 的實際行為未驗（help:36-39 提到 --resume 對「已在執行中的 session」會另起副本——非互動 -p 情境下語意未確認）。純對話 session 的 resumeProviderSessionId 不會被任何 connector 使用（agents.rs:449-452 註解誠實揭露）。CLI E2E／Playwright 無 resume 覆蓋。",
+    "nextAction": "維持現狀；補一支 CLI E2E（fixture）走 `agents resume`；若要真 agent 證據，需用隔離 home 與真 CLI 跑一次 resume 並逐列記到 docs/releases。",
+    "confidence": "high"
+   },
+   {
+    "id": "K-05",
+    "need": "工具限制：claude --tools／--permission-mode；codex sandbox／approvalPolicy；intent-only（零工具）；絕不 bypass",
+    "status": "implemented-and-connected",
+    "evidenceLevel": [
+     "unit",
+     "fixture",
+     "integration"
+    ],
+    "owner": "crates/interaction-agent-gateway（claude_session_args／codex thread params／exec_args）＋ crates/interaction-runtime/src/gateway.rs（gateway_attach 守門、tools_disabled）",
+    "entryPath": "create payload `allowWrite`＋`toolScope`＋`consentScope`（agents.rs:412-438 三重檢查）→ record.allow_write／tool_scope → gateway_attach（gateway.rs:297-334：codex maxCost 拒絕、codex intent-only 拒絕、write_enabled_in／read_only_in、disable_tools=tools_disabled(tool_scope)）→ claude.rs:87-102／codex.rs:315-343／codex_exec.rs:69-111",
+    "contract": "claude：唯讀＝`--permission-mode plan --tools Read,Glob,Grep`；寫入＝`--permission-mode acceptEdits --tools Read,Glob,Grep,Edit,Write`（無 Bash/WebFetch/WebSearch）；intent-only＝`plan` ＋ `--tools \"\"`；一律 `--safe-mode --strict-mcp-config --mcp-config {\"mcpServers\":{}}`；永不 `--dangerously-skip-permissions`（claude.rs:69-116）。codex app-server：`sandbox` read-only／workspace-write ＋ `approvalPolicy: untrusted`（codex.rs:315-343），approval 由人類裁決、逾時自動拒絕（gateway.rs sweep）。codex exec fallback：`--sandbox`＋`approval_policy=\"never\"`＋`--ignore-user-config`（codex_exec.rs:69-111）。codex 無法確定性停用全部工具 → intent-only 拒絕建立（gateway.rs:304-313；codex.rs:145-149；codex_exec.rs:28-32）。",
+    "stateOwner": "AgentSessionRecord.allow_write／tool_scope／consent_scope（core/agent.rs:196-204）；effective 旗標只在子程序 argv／JSON-RPC params",
+    "existingTests": [
+     "crates/interaction-agent-gateway/src/claude.rs:480-508 session_args_keep_read_and_write_scopes_bounded（unit）",
+     "crates/interaction-runtime/tests/gateway_loop.rs:2650-2682 codex_refuses_intent_only_sessions_it_cannot_enforce（fixture：codex 拒絕且不起子程序；claude argv 含 `--tools` 且不含 Read,Glob,Grep）",
+     "crates/interaction-runtime/tests/gateway_loop.rs:842-890、:1007-1095（續開重鎖 plan／sandbox）",
+     "crates/interaction-agent-gateway/src/codex.rs:907-988（exec fallback argv 無 danger）",
+     "crates/interaction-runtime/tests/gateway_loop.rs:1160-1215（approval 逾時 → 拒絕真的寫進子程序 stdin；fixture）"
+    ],
+    "evidence": [
+     "crates/interaction-agent-gateway/src/claude.rs:74-116 claude_session_args",
+     "crates/interaction-agent-gateway/src/codex.rs:315-343 sandbox／approvalPolicy；codex_exec.rs:65-111 exec_args",
+     "crates/interaction-runtime/src/gateway.rs:69-71 tools_disabled；:297-313 codex maxCost／intent-only 拒絕；:325-334 spec 建構",
+     "已安裝版本相容（唯讀 `claude --help`）：`--permission-mode` choices 含 acceptEdits／plan（help:145-148）；`--tools` 說明「Use \"\" to disable all tools」（help:250-252）；`--safe-mode`（:206）、`--strict-mcp-config`（:223）存在",
+     "0.153.4 schema：SandboxMode enum=[read-only, workspace-write, danger-full-access]；AskForApproval enum 含 untrusted/on-request/never——connector 送的值合法",
+     "docs/releases/v0.6.0-recovery-matrix.md:34、v0.7.0-known-limitations.md:158：真 codex／claude 二進位未跑（fixture 等級）"
+    ],
+    "limitation": "（1）codex sandbox 擋寫不擋讀檔／shell，唯讀 session 仍可讀整個 workdir 與執行命令（app-server 每次命令走人類 approval；exec fallback 是 approval_policy=never 直接跑），程式註解誠實揭露（gateway.rs:304-311）。（2）app-server 路徑不帶 `--strict-config`／`-c`，會繼承使用者 ~/.codex/config.toml 的 MCP／hook 設定，與 exec fallback 的 `--ignore-user-config` 不一致（未見測試）。（3）codex 拒絕（Deny）送出的值在 0.153.4 不合法——見 K-06，這直接削弱 approvalPolicy=untrusted 的實效。（4）證據全為 fixture，真二進位對 `--tools \"\"`／plan 模式的實際行為未驗。",
+    "nextAction": "K-06 修正 decision 值；評估 app-server 啟動加 `--strict-config`／`-c mcp_servers={}` 與 exec 路徑對齊；補 known-limitation 條目說明 codex 唯讀≠不可讀。",
+    "confidence": "high"
+   },
+   {
+    "id": "K-06",
+    "need": "connector 參數與目前已安裝版本（Claude Code 2.1.263、Codex 0.153.4）的相容性：CLI 旗標、app-server JSON-RPC 方法／欄位／enum",
+    "status": "confirmed-defect",
+    "evidenceLevel": [
+     "static-inspection"
+    ],
+    "owner": "crates/interaction-agent-gateway（claude.rs／codex.rs／codex_exec.rs）",
+    "entryPath": "connector.discover()（claude.rs:124-154：`claude --version`＋`claude auth status`；codex.rs:84-133：`codex --version`＋`codex login status`＋`app-server --help`＋`exec --help`）→ refresh_agent_providers（gateway.rs:189-225，version／detail 投影到 /v1/agents 與 providers）→ start_session（claude.rs:156-303／codex.rs:135-374／codex_exec.rs:22-63）",
+    "contract": "claude 旗標：-p --input-format stream-json --output-format stream-json --verbose --safe-mode --strict-mcp-config --mcp-config {} --permission-mode {plan|acceptEdits} --tools ... [--model] [--resume] [--max-turns] [--max-budget-usd]（claude.rs:74-116）。codex app-server：initialize{clientInfo{name,version}} → initialized → thread/start{cwd,approvalPolicy:\"untrusted\",ephemeral:false,sandbox}｜thread/resume{threadId,cwd,approvalPolicy,sandbox} → turn/start{threadId,input:[{type:text,text}]} → turn/interrupt{threadId,turnId}；ServerRequest（任何帶 id 的 method）一律回 `{\"decision\":\"accept\"|\"reject\"}`（codex.rs:250-266, 623-660）；通知：turn/started、item/started、item/completed、turn/completed（turn.status）、error、thread/tokenUsage/updated、thread/status/changed、account/rateLimits/updated（codex.rs:449-589）。exec：`exec --json --color never --sandbox X --cd D --skip-git-repo-check --ignore-user-config -c approval_policy=\"never\" [--model] <prompt>`／`exec resume --json ... <thread> <prompt>`（codex_exec.rs:69-111）。",
+    "stateOwner": "gateway.discoveries（gateway.rs:225）暫存版本／登入；無版本相容性檢查邏輯",
+    "existingTests": [
+     "crates/interaction-agent-gateway/src/claude.rs:480-508（旗標 unit，不對照真 CLI）",
+     "crates/interaction-agent-gateway/src/codex.rs:715-903（通知正規化 unit；:860-892 tokenUsage 形狀）",
+     "crates/interaction-runtime/tests/gateway_loop.rs:1195-1209 斷言 fixture 收到的 decision 行 contains(\"reject\")——測試把不合法的值當成正確答案固化",
+     "crates/interaction-runtime/tests/fixtures/fake_codex.sh:74-76 對任何含 `decision` 的行都照單全收，無 enum 檢查"
+    ],
+    "evidence": [
+     "【相容 OK】本次唯讀執行 `claude --help`（2.1.263）：-p/--print、--input-format、--output-format、--verbose、--safe-mode（:206）、--strict-mcp-config（:223）、--mcp-config（:126）、--permission-mode 含 plan/acceptEdits（:145-148）、--tools 含 \"\" 語意（:250-252）、--model（:128）、--resume（:203）、--max-budget-usd（:124）全部存在；`claude auth status` 存在且 `--json` 為預設（`claude auth status --help`）",
+     "【風險】`claude --help` 2.1.263 **沒有** `--max-turns`（grep 'turn' 只命中 :33,:92,:176,:232 的說明文字）——claude.rs:109-111 會在 spec.max_turns 有值時送出；runtime 從不設 max_turns（gateway.rs:325-339），故目前為死碼，但一旦接線就可能是未知旗標",
+     "【相容 OK】`codex --version`=codex-cli 0.153.4；`codex exec --help` 有 -m/--model、-s/--sandbox、-C/--cd、--skip-git-repo-check、--ignore-user-config、--color、--json、-c；`codex exec resume --help` 有 --model(:41)/--skip-git-repo-check(:55)/--ignore-user-config(:61)/--json(:70)；`codex app-server --help` 有 daemon/proxy/generate-ts/generate-json-schema 子命令（app-server 仍標 experimental）",
+     "【相容 OK，以 0.153.4 `codex app-server generate-json-schema` 產出核對（scratchpad/matrix/codex-schema-0.153.4/）】InitializeParams.clientInfo required=[name,version]；ThreadStartParams 可選 cwd/approvalPolicy/ephemeral/sandbox；ThreadResumeParams required=[threadId]；TurnStartParams required=[input,threadId]，UserInput text 型 required=[text,type]；TurnInterruptParams required=[threadId,turnId]；AskForApproval enum 含 untrusted；SandboxMode enum 含 read-only/workspace-write；TurnStatus enum=[completed,interrupted,failed,inProgress]、Turn required=[id,items,status]、TurnError.message；ThreadTokenUsageUpdatedNotification.tokenUsage.{total,last}.totalTokens；ServerNotification 含 turn/started、turn/completed、item/started、item/completed、error、thread/status/changed、thread/tokenUsage/updated、account/rateLimits/updated",
+     "【確認缺陷】codex.rs:642-645 `ApprovalDecision::Deny => \"reject\"`；0.153.4 CommandExecutionRequestApprovalResponse.decision（CommandExecutionApprovalDecision）oneOf = \"accept\" | \"acceptForSession\" | {acceptWithExecpolicyAmendment} | {applyNetworkPolicyAmendment} | \"decline\" | \"cancel\"；FileChangeRequestApprovalResponse.decision = accept | acceptForSession | decline | cancel。**\"reject\" 不在任一 enum**。錯誤路徑：人類拒絕或 gateway_sweep 逾時自動拒絕 → resolve_approval_as（gateway.rs:844-919）→ handle.resolve_approval 寫入 stdin 並 flush 即 Ok（codex.rs:646-659 send_line_acked 只證明寫入）→ runtime 移除 pending（gateway.rs:903-904）、mailbox `approval-resolved{deliveredToAgent:true,decision:\"denied\"}`（:921-942）、report task-started（:945-956）、audit `agent.approval`（:957+）——但 app-server 端收到的是 schema 不合法的回應；實際效果（回 JSON-RPC error 後請求仍掛著／turn 卡住／被當成其他決策）需真 codex 0.153.4 實測",
+     "【需調查】0.153.4 ServerRequest 方法：account/chatgptAuthTokens/refresh、applyPatchApproval、attestation/generate、execCommandApproval、item/commandExecution/requestApproval、item/fileChange/requestApproval、item/permissions/requestApproval、item/tool/call、item/tool/requestUserInput、mcpServer/elicitation/request——codex.rs:250-266 把**任何**帶 id 的 method 都登記成 approval 並用 `{\"decision\":…}` 形狀回覆；permissions（decision 為 read/write/deny 物件）、tool/requestUserInput、mcpServer/elicitation 的回應形狀都不同，且 attestation/generate、chatgptAuthTokens/refresh 會被投影成「等人類核可」的假請求",
+     "【需調查】codex.rs:470,502 處理的 item type `toolCall` 不在 0.153.4 ThreadItem 型別清單（有 dynamicToolCall／collabAgentToolCall／webSearch／imageGeneration 等）：這些工具事件不會產生 ToolStarted/ToolCompleted，工作中訊號可能缺席（靜默降級，不影響誠實階梯）",
+     "【需調查】codex_exec.rs:358-417 假設 `codex exec --json` 事件名 thread.started／turn.started／item.started／item.completed／turn.completed（含 usage）；本機 0.153.4 有 app-server，fallback 永遠不會被選到（codex.rs:150-165），事件名未對 0.153.4 驗證",
+     "【需調查】codex.rs:91-103 以 `codex login status` 文字含 \"logged in\" 判登入；claude.rs:134-140 以 `auth status` JSON 的 `loggedIn` 判登入——欄位／文字對 2.1.263／0.153.4 未實跑核對（本次只確認子命令存在）",
+     "【文件 vs 程式】codex.rs:8 註解「協定形狀 0.149.1 鎖定」；CHANGELOG.md:1479 說以 0.150.1 schema 核對；docs/reviews/adversarial/2e02284-*.md 用 0.151.0；repo 內沒有任何 schema 副本，也沒有版本門檻檢查——不同版本的 schema 差異不可追溯"
+    ],
+    "limitation": "以上皆為靜態對照（本次唯讀執行 `--help` 與 `generate-json-schema` 到 scratchpad），沒有建立真 session；因此「reject 不合法」是 schema 層級的確認缺陷，其 runtime 後果（拒絕是否真的生效、UI 是否誤報 deliveredToAgent:true）仍待實測。0.149.1 當時是否接受 \"reject\" 無法回溯（repo 無舊 schema）。",
+    "nextAction": "（1）codex.rs:644 改為 \"decline\"（若要同時中斷 turn 則 \"cancel\"），並依 ServerRequest method 分派回應形狀，非 approval 類 request 不得投影成 waiting-for-consent；gateway_loop.rs:1199 的斷言同步改為 decline。（2）把 0.153.4 schema 摘要（方法／enum）落成 repo 內 golden 並加 unit 對照測試。（3）刪除或守住 `--max-turns` 死碼。（4）用隔離 home 真跑一次 codex approval deny 與 claude plan session，逐列記入 docs/releases。",
+    "confidence": "high"
+   },
+   {
+    "id": "K-07",
+    "need": "token／費用回報：TokenUsage、cost_usd 的來源、落地位置、預算強制與 UI 顯示",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "unit",
+     "fixture",
+     "integration"
+    ],
+    "owner": "crates/interaction-agent-gateway（parse_claude_line／normalize_codex_notification／parse_exec_line）＋ crates/interaction-runtime/src/gateway.rs（pump、add_agent_session_cost、gateway_deliver 預算）＋ apps/interaction-desktop/src/pages/AiPage.tsx",
+    "entryPath": "claude `result.total_cost_usd`／`num_turns`（claude.rs:442-466）→ TaskClaimedCompleted{cost_usd,num_turns} → gateway.rs:511-556：add_agent_session_cost（:650-656 record.budget.spent_cost += cost，persist）＋ mailbox `result{summary,costUsd}`（:525-535）＋ report claimed-completed{costUsd,numTurns}（:539-546）＋ proactive note_proactive_generation_cost（:553-556 → proactive.rs:685；狀態 generativeToday.costUsd proactive.rs:308）。codex `thread/tokenUsage/updated`（codex.rs:564-577）／exec `turn.completed.usage`（codex_exec.rs:381-395）→ TokenUsage{total_tokens,last_turn_tokens} → gateway.rs:486-509：本輪未結局 → report progress{tokenUsage}；已結局 → 只 ingest 觀察（confidence 0.5）。UI：AiPage.tsx:562-572（advanced 模式顯示 `費用 $spent/$max`；非 advanced 只顯示上限）；CompanionPage.tsx:896 generativeToday.costUsd。",
+    "contract": "SessionBudget{max_cost,spent_cost,max_messages,spent_messages,max_duration_ms}（core/agent.rs:86-94）；預算強制：claude `--max-budget-usd`（claude.rs:112-114，僅 max_cost>0）＋ gateway_deliver 超出即拒開新 turn（gateway.rs:700-713）；codex maxCost>0 直接拒絕建立（gateway.rs:297-302），TaskComposer 對 codex 送 maxCost:null（TaskComposer.tsx:172）。",
+    "stateOwner": "record.budget.spent_cost（SQLite agent_sessions 文件，storage lib.rs:418）；token 數**不落 record**，只存在 report payload → observation（agent.session receptor）與 SSE 事件",
+    "existingTests": [
+     "crates/interaction-agent-gateway/src/claude.rs:530-543（unit：result → cost_usd 0.02 / num_turns 1）",
+     "crates/interaction-agent-gateway/src/codex.rs:860-892 token_usage_notifications_normalize_without_pretending_usd（unit）",
+     "crates/interaction-runtime/tests/gateway_loop.rs:294-297（fixture：spent_cost==0.01 入預算）",
+     "crates/interaction-runtime/tests/proactive_loop.rs:430（fixture：generativeToday.costUsd==0.01）",
+     "apps/interaction-desktop/src grep tokenUsage/totalTokens：0 命中（無 UI 測試、無顯示）；e2e grep spentCost/costUsd：0 命中",
+     "scripts/v03-cli-e2e.sh:263-281 fake claude 段：不斷言 spentCost"
+    ],
+    "evidence": [
+     "crates/interaction-agent-gateway/src/lib.rs:114-130 TaskClaimedCompleted{cost_usd,num_turns}／TokenUsage{total_tokens,last_turn_tokens}，註解明言 codex 只有 token 無 USD，不換算",
+     "crates/interaction-agent-gateway/src/claude.rs:444-445 只讀 total_cost_usd／num_turns；`usage`／`modelUsage` 不讀，故 claude 無 token 數",
+     "crates/interaction-agent-gateway/src/codex.rs:524-528 turn/completed 的 cost_usd/num_turns 固定 None；:564-577 tokenUsage",
+     "crates/interaction-runtime/src/gateway.rs:486-509（TokenUsage 分流）、:511-556（cost 落地）、:650-656（add_agent_session_cost）、:700-713（over_budget 拒送）",
+     "apps/interaction-desktop/src/api.ts:723 budget 型別；AiPage.tsx:562-572 費用顯示；CompanionPage.tsx:896",
+     "docs/acceptance-evidence.md:317-320 記 2026-08-27 真 Claude 2.1.247 session spentCost=$0.42094（歷史文件，不在 docs/releases 逐列證據內，本列不計為 real-agent）"
+    ],
+    "limitation": "（1）claude 只有 USD 沒有 token 數；codex 只有 token 數沒有 USD，兩者無法對帳同一口徑。（2）token 數不持久化到 record，只在 progress 報告／observation 事件裡；UI 與 CLI `agents show` 都看不到 token 用量。（3）cost 只在 claude `result` 出現時累加，中途被 kill／unknown 收場的 turn 費用不會入帳（誠實但低估）。（4）exec fallback 的 total_tokens 是 input+cached_input+output 三項相加（codex_exec.rs:383-388），與 app-server 的 totalTokens 定義是否一致未驗。（5）真 agent 費用證據只在歷史 acceptance-evidence（2.1.247），對 2.1.263 未重跑。",
+    "nextAction": "把 TokenUsage 累加進 SessionBudget（新增 spent_tokens）並持久化；AiPage 進階詳情顯示 token；claude 加解析 result.usage（若 2.1.263 提供）；決定 codex 是否以 token 上限（maxTokens）替代 maxCost 作為可強制的預算。",
+    "confidence": "high"
+   },
+   {
+    "id": "K-08",
+    "need": "執行時間記錄：session record 是否有 started／finished 時戳、turn 時長；能否從事件重建",
+    "status": "implemented-partial",
+    "evidenceLevel": [
+     "static-inspection",
+     "fixture"
+    ],
+    "owner": "crates/interaction-core/src/agent.rs（AgentSessionRecord）＋ crates/interaction-runtime/src/agents.rs（create／close／report）＋ crates/interaction-events",
+    "entryPath": "create_agent_session（agents.rs:503-544：created_at=now、lease.issued_at/expires_at）→ report_agent_session（agents.rs:1174-1261：只改 state，不寫時戳）→ close／expire（agents.rs:679,1312：closed_at=now）；事件：events.rs:85-86 emit() 以 Utc::now() 蓋章 → EventType::AgentSessionState（agents.rs:1098-1102）→ SSE /v1/events／Timeline",
+    "contract": "AgentSessionRecord 只有 created_at／closed_at（core/agent.rs:207-209）＋ lease.issued_at／expires_at（:64-70）＋ budget.max_duration_ms（:88）；**沒有** task started_at／finished_at、turn 時長、累計工作時間。MailboxMessage 有 created_at／delivered_at（:356-359）。api.ts:719,740-741 同（issuedAt/expiresAt/createdAt/closedAt）。",
+    "stateOwner": "record.created_at／closed_at（SQLite agent_sessions 文件）；狀態轉換時刻只在事件日誌（interaction-events）與 observation（ingest agent.session）裡",
+    "existingTests": [
+     "crates/interaction-runtime/tests/agents_loop.rs／gateway_loop.rs 以 wait_for 觀察狀態轉換（fixture），未見對 closed_at／created_at 值的直接斷言（grep created_at/closed_at 只命中 agents.rs 內部與 resume_workdir_tests:1922-1923 的建構）",
+     "無任何測試斷言 turn 時長或工作耗時"
+    ],
+    "evidence": [
+     "crates/interaction-core/src/agent.rs:183-244 AgentSessionRecord 欄位清單（created_at:207、closed_at:209；無 started_at/finished_at）",
+     "crates/interaction-runtime/src/agents.rs:543-544 建立時 created_at/closed_at；:1209-1218 report 只改 state／claim_id／human_verified；:1312 close 設 closed_at",
+     "crates/interaction-events/src/lib.rs:85-86 `RuntimeEvent::new(event_type, chrono::Utc::now(), payload)`——每個 agent-session-state 事件有時間，可事後重建 working→claimed 的時間軸，但 payload（agents.rs:1101）只含 agentSessionId/agentId/state",
+     "crates/interaction-runtime/src/activity.rs:130 活動流以 session.created_at 當 occurred_at；ActivityPage.tsx:360 顯示 occurredAt",
+     "connector 端丟棄可用的時長：0.153.4 schema Turn 有 startedAt/completedAt/durationMs，codex.rs:510-553 只讀 status/error；claude.rs:442-466 `result` 不讀任何 duration 欄位",
+     "apps/interaction-desktop/src/pages/AiPage.tsx:573 只顯示「有效至 lease.expiresAt」；WorkPage／workState.ts grep startedAt/duration 0 命中"
+    ],
+    "limitation": "無法從 record 直接回答「這個任務跑了多久／何時開始工作／何時聲稱完成」；只能從事件日誌（有界、可能被截斷）或 observation 推算。budget.max_duration_ms 只用於 lease TTL，不是實際耗時。connector 已收到的 turn 時長（codex Turn.durationMs）被丟棄。",
+    "nextAction": "AgentSessionRecord 加 `first_working_at`／`last_report_at`／`settled_at`（report 時寫入）並持久化；GatewayEvent::TaskClaimedCompleted 加 duration_ms（codex 取 Turn.durationMs、claude 取 result.duration_ms 若存在）；AiPage 進階詳情顯示；補 fixture 斷言時戳單調。",
+    "confidence": "high"
+   }
+  ],
+  "openQuestions": [
+   "K-06：codex 0.153.4 app-server 收到 `{\"decision\":\"reject\"}` 的實際反應（JSON-RPC error 後請求是否仍掛著、turn 是否卡住）——需用隔離 home 真跑一次 approval deny；目前只有 schema 層級證據。0.149.1 當時是否接受 \"reject\" 無法回溯（repo 無舊 schema）。",
+   "K-06：`claude --help`（2.1.263，本次唯讀執行）沒有列出 `--max-turns`，與任務給的已知事實不符——可能是隱藏旗標或已移除；runtime 從不設 max_turns 故目前無影響，但 claude.rs:109-111 是否為未知旗標需 `claude -p --max-turns 1` 實測。",
+   "K-06：`claude auth status --json` 的欄位名是否仍為 `loggedIn`、`codex login status` 輸出是否仍含 \"logged in\"（claude.rs:134-140、codex.rs:91-103）——本次只確認子命令存在，未跑。",
+   "K-06：codex 0.153.4 的 ServerRequest 還有 item/permissions/requestApproval、item/tool/requestUserInput、item/tool/call、mcpServer/elicitation/request、attestation/generate、account/chatgptAuthTokens/refresh；codex.rs:250-266 一律當 approval 並用 decision 形狀回覆——哪些會在 approvalPolicy=untrusted＋read-only 情境下實際出現、後果為何，需實測。",
+   "K-06／K-04：`codex exec --json` 在 0.153.4 的 JSONL 事件名（thread.started／turn.completed…）未驗證；本機永遠走 app-server，fallback 只有 fixture 證據。",
+   "K-04：Claude 2.1.263 `-p --resume <id>` 對「該 session 仍在執行中」的行為（help:36-39 說會另起副本）在非互動情境的語意未確認。",
+   "K-07：Claude 2.1.263 stream-json `result` 是否含 usage／modelUsage／duration_ms（可補 token 與時長）——需錄一份真樣本；claude.rs 現有樣本（:513,:530）只含 total_cost_usd/num_turns。"
+  ],
+  "notes": "方法：只讀 repo 程式與文件；唯一的外部動作是唯讀執行 `claude --help`／`claude auth status --help`／`codex --version`／`codex exec --help`／`codex exec resume --help`／`codex app-server --help`，以及 `codex app-server generate-json-schema --out <scratchpad>/matrix/codex-schema-0.153.4`（輸出只寫到 scratchpad，未建立任何 agent session，未跑 cargo/pnpm）。因此所有 evidenceLevel 最高只到 fixture／integration（runtime 測試用 fake_claude.sh／fake_codex.sh 子程序），沒有任何一列可標 real-agent——docs/releases 內也沒有本維度的真 agent 逐列證據（v0.7.0-known-limitations.md:158、v0.6.0-recovery-matrix.md:34 明列真二進位未跑；docs/acceptance-evidence.md:313-330 的 2026-08-27 真連線是 2.1.247／0.150.1 的歷史紀錄，且不在 docs/releases）。總結：模型選擇（K-01）、實際模型辨認（K-02）、推理設定（K-03）三項在正式入口完全缺席，SessionSpec.model／--model 是 defined-only 死碼；resume（K-04）與工具限制（K-05）接線完整且有 fixture 覆蓋；K-06 發現一個對已安裝 codex 0.153.4 的確認缺陷（deny 送 \"reject\"，schema 只接受 decline/cancel），並列出多個需實測的相容風險；K-07 費用只有 claude USD 落地、codex token 不持久化也不顯示；K-08 record 只有 created_at/closed_at，沒有工作起訖與時長。原始 JSON 已寫到 /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/matrix/find-K.json；0.153.4 schema 產出在同目錄 codex-schema-0.153.4/。"
+ },
+ "verdicts": [
+  {
+   "id": "K-01",
+   "refuted": false,
+   "correctedStatus": "absent",
+   "reason": "全部引用逐一核對，完全準確。CreateAgentSession（agents.rs:247-278，親自讀取）確無 model 欄位、也無 deny_unknown_fields。gateway_attach（gateway.rs:285-366）只賦值 spec.disable_tools/resume_provider_session/max_cost_usd/session_capability_token/runtime_api_base（第334,337,338,340,342行）；spec.model 從未被賦值（gateway.rs 內 grep 'spec.model' 0 命中）。SessionSpec.model（lib.rs:166）存在且確實被 claude.rs:103-105、codex_exec.rs（resume／非 resume 兩分支皆有 --model）消費，但 codex.rs app-server 的 thread/start／thread/resume params 完全不含 model（親自讀取確認）。CLI `agents create`（main.rs:377-403）無 --model。TaskComposer.tsx／AiPage.tsx／api.ts grep 'model' 皆 0 命中。proactive.rs:713-731 建構 CreateAgentSession 也未帶 model。文件 grep（USER-GUIDE/FEATURES/DESKTOP-GUIDE/CHANGELOG）0 命中確認。獨立重新產生 codex 0.153.4 app-server JSON schema，確認 ThreadStartParams／ThreadResumeParams 皆有 model 屬性、TurnStartParams 有 effort 屬性——與宣稱的 schema 證據完全吻合。claude --help 確認有 --effort <level>。這是真實且證據紮實的缺口；分類「absent」正確（不是 defined-only）——因為從入口到 connector 沒有任何完整貫通路徑，SessionSpec.model／claude.rs／codex_exec.rs 端的支援目前確實是死碼（沒有任何東西餵給它）。",
+   "correctedEvidenceLevel": [
+    "static-inspection"
+   ],
+   "evidence": [
+    "crates/interaction-runtime/src/agents.rs:247-278（親自讀取，完全吻合）",
+    "crates/interaction-runtime/src/gateway.rs:285-366，spec 賦值只在第334,337,338,340,342行——無 spec.model／spec.max_turns",
+    "crates/interaction-agent-gateway/src/lib.rs:156-196 SessionSpec 與 read_only_in()，model 預設 None",
+    "crates/interaction-agent-gateway/src/claude.rs:103-105 --model 旗標組裝（逐字核對）",
+    "crates/interaction-agent-gateway/src/codex_exec.rs:87-90 與約105-108，resume／非 resume 兩分支皆有 --model",
+    "crates/interaction-agent-gateway/src/codex.rs:315-343 thread/start／thread/resume params（確認無 model key）",
+    "crates/interaction-cli/src/main.rs:377-403 Create variant 無 --model",
+    "TaskComposer.tsx／AiPage.tsx／api.ts grep 'model'：0 命中",
+    "crates/interaction-runtime/src/proactive.rs:713-731 CreateAgentSession 字面量無 model 欄位",
+    "文件 grep 0 命中親自確認",
+    "獨立重新產生 codex 0.153.4 schema（scratchpad/.../codex-schema-0.153.4/{ThreadStartParams,ThreadResumeParams,TurnStartParams,ThreadStartResponse}.json）——確認 model/modelProvider/effort 屬性存在於協定 schema，codex.rs 未使用",
+    "已安裝 claude --help（2.1.263）確認第 77 行有 --effort <level>"
+   ]
+  },
+  {
+   "id": "K-02",
+   "refuted": false,
+   "correctedStatus": "absent",
+   "reason": "逐項核對準確。parse_claude_line 的 (\"system\",\"init\") 分支（親自讀取）只用 v.get(\"session_id\") 取值，即使樣本行含 model 欄位也從未讀取。GatewayEvent enum（lib.rs:79-152，全文讀取）沒有任何 model 欄位。AgentSessionRecord（core/agent.rs:183-244，全文讀取）沒有 model/provider_model 欄位。unit test parses_the_recorded_live_sample_shape（claude.rs:511行起）樣本確實含 \"model\":\"claude-haiku-4-5\"，且只斷言 SessionStarted{provider_session_id}，與宣稱完全一致——這是誠實證據（欄位存在於真實 payload 但被丟棄），非杜撰。fake_claude.sh:44 逐字核對相符。獨立重新產生 codex 0.153.4 schema 確認 ThreadStartResponse required=[approvalPolicy,approvalsReviewer,cwd,model,modelProvider,sandbox,thread] 且含 reasoningEffort——與宣稱完全吻合，而 codex.rs 的 thread/start 回應解析只讀 /thread/id 或 threadId，其餘全部丟棄。codex.rs:583 'thread/started' 通知確認被丟棄（vec![] 分支，行號吻合）。",
+   "correctedEvidenceLevel": [
+    "static-inspection",
+    "unit"
+   ],
+   "evidence": [
+    "crates/interaction-agent-gateway/src/claude.rs (system,init) 分支只讀 session_id",
+    "crates/interaction-agent-gateway/src/lib.rs:79-152 GatewayEvent enum，全部無 model 欄位",
+    "crates/interaction-core/src/agent.rs:183-244 AgentSessionRecord，無 model 欄位",
+    "crates/interaction-agent-gateway/src/claude.rs:511-521 unit test 樣本含 model，只斷言 provider_session_id",
+    "crates/interaction-runtime/tests/fixtures/fake_claude.sh:44 逐字相符",
+    "獨立重新產生 codex 0.153.4 ThreadStartResponse schema：required 含 model+modelProvider，選填 reasoningEffort——與宣稱完全吻合",
+    "crates/interaction-agent-gateway/src/codex.rs:583 'thread/started' => vec![] 親自讀取確認"
+   ]
+  },
+  {
+   "id": "K-03",
+   "refuted": false,
+   "correctedStatus": "absent",
+   "reason": "已核實。全 repo grep effort/reasoning_effort/model_reasoning/thinking（限定模型設定語意）0 個相關命中——僅有的 'reasoning'/'effort' 命中是 codex.rs 的 item/reasoning/textDelta 與 summaryTextDelta 被當雜訊丟棄（與宣稱相符）、codex_exec.rs:463 'reasoning' => vec![]（與宣稱相符），以及與模型推理設定完全無關的 UI／角色「thinking」狀態與「best-effort」驗證策略字串。SessionSpec 與 CreateAgentSession（於 K-01 驗證時已全文讀取）皆無 effort 欄位。claude_session_args 與 codex.rs/codex_exec.rs 的參數組裝皆無 --effort／-c model_reasoning_effort。獨立確認已安裝 claude --help 有 --effort 旗標（未被 claude.rs 使用）；獨立重新產生的 codex 0.153.4 schema 確認 TurnStartParams 有 effort 屬性、ThreadStartResponse 有 reasoningEffort——皆未被 codex.rs 的 turn/start／thread/start 組裝使用。這是真實且證據精確的缺口。",
+   "correctedEvidenceLevel": [
+    "static-inspection"
+   ],
+   "evidence": [
+    "全 repo grep effort/reasoning_effort/model_reasoning/thinking：僅有無關命中（角色 UI thinking 狀態、best-effort 驗證策略、被丟棄的 codex reasoning-delta 事件）",
+    "crates/interaction-agent-gateway/src/codex.rs item/reasoning/textDelta,summaryTextDelta 被當雜訊丟棄，確認",
+    "crates/interaction-agent-gateway/src/codex_exec.rs:463 'reasoning' => vec![] 親自讀取確認",
+    "SessionSpec（lib.rs:156-180）與 CreateAgentSession（agents.rs:247-278）皆無 effort 欄位，於 K-01 驗證時已確認",
+    "claude --help 確認有 --effort <level>，但 claude_session_args 未使用",
+    "codex 0.153.4 schema TurnStartParams 有 effort 屬性（獨立重新產生並檢視），但 codex.rs turn/start params（約613-618行）未包含"
+   ]
+  },
+  {
+   "id": "K-04",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "全程端到端驗證通過。check_resume_not_wider（agents.rs:105）與 resumed_session_record（agents.rs:352-355）確認存在且行號吻合。gateway_attach 只在 gateway agent 時被呼叫（agents.rs:597，以 crate::gateway::agent_kind_for(...).is_some() 為條件），證實純對話 session 確實從不使用 resume_provider_session_id——與 agents.rs:449-452 的程式內註解逐字相符。兩支被引用的 fixture/integration 測試在宣稱的函式名與行號確實存在（resume_passes_the_provider_thread_and_relocks_permission_flags 於 gateway_loop.rs:842、codex_resume_resends_cwd_and_sandbox_instead_of_inheriting_them 於 gateway_loop.rs:1007），皆為普通 #[tokio::test]、無 #[ignore]，且測試內容確實斷言：claude 端 argv 含 '--resume fake-123' ＋ '--permission-mode plan'（非 acceptEdits／dangerously）；codex 端 JSON-RPC thread/resume params 重送 sandbox=read-only／approvalPolicy=untrusted／cwd（且當續開對象本身是寫入型 session 時重送 workspace-write）——與宣稱完全一致，非弱化斷言。CLI Resume 指令（main.rs:409-431）與其 commands.rs 處理常式（938-1000）逐字核對相符，包含精確的 995/997 行 allowWrite:false／consentScope:[]。AiPage.tsx 的 buildResumeInput（118-135）逐字核對相符，含 allowWrite:false、consentScope:[]、resumeProviderSessionId。docs/releases/v0.7.0-known-limitations.md 第158行確認寫明真 codex/claude 二進位從未跑過（僅 fixture），與 evidenceLevel 不含 real-agent 一致。evidenceLevel unit+fixture+integration 恰當：這些測試確實是啟動真 Runtime＋真 SQLite＋真 fixture 子程序的 runtime 整合測試，符合任務本身對 crates/interaction-runtime/tests/*.rs 的定性（「runtime 整合測試（fixture 子程序）」），標成 fixture 與 integration 並存準確，未浮報成 real-agent。",
+   "correctedEvidenceLevel": [
+    "unit",
+    "fixture",
+    "integration"
+   ],
+   "evidence": [
+    "crates/interaction-runtime/src/agents.rs:105 check_resume_not_wider、:352-355 resumed_session_record——完全吻合",
+    "crates/interaction-runtime/src/agents.rs:597 gateway_attach 只在 agent_kind_for(...).is_some() 時被呼叫",
+    "crates/interaction-runtime/src/agents.rs:449-452 註解逐字確認：純對話 session 的 resumeProviderSessionId 不被任何 connector 使用",
+    "crates/interaction-runtime/tests/gateway_loop.rs:842 與 :1007 測試函式全文讀取；斷言內容與宣稱完全相符（argv --resume／--permission-mode plan；JSON-RPC thread/resume params sandbox／approvalPolicy／cwd 重新上鎖）",
+    "兩支測試皆為 #[tokio::test]，無 #[ignore]",
+    "crates/interaction-cli/src/main.rs:409-431 Resume variant 逐字確認",
+    "crates/interaction-cli/src/commands.rs:938-1000，995/997 行 allowWrite:false／consentScope:[] 行號精確確認",
+    "apps/interaction-desktop/src/pages/AiPage.tsx:118-135 buildResumeInput 逐字確認",
+    "docs/releases/v0.7.0-known-limitations.md:158 確認：真 codex/claude 二進位從未跑過"
+   ]
+  },
+  {
+   "id": "K-05",
+   "refuted": false,
+   "correctedStatus": "implemented-and-connected",
+   "reason": "All cited code verified exactly as described. agents.rs:412-438 triple-check (workspace.write toolScope + agent-session:workspace-write consentScope + non-empty workdir) confirmed verbatim. gateway.rs:68-70 tools_disabled(), gateway.rs:297-313 codex maxCost/intent-only rejection, gateway.rs:334 spec.disable_tools wiring all confirmed at cited lines. claude.rs:74-116 claude_session_args confirmed producing exactly the claimed flag sets for write/intent-only/read-only, including --safe-mode/--strict-mcp-config/--mcp-config {} and never --dangerously-skip-permissions. codex.rs:315-343 sandbox/approvalPolicy=untrusted confirmed. codex_exec.rs:69-111 exec_args confirmed (--sandbox, --ignore-user-config, approval_policy=never). Independently ran `claude --help` (2.1.263) and confirmed --permission-mode has plan/acceptEdits, --tools documents empty-string-disables-all, --safe-mode and --strict-mcp-config both exist. The cited unit test claude.rs:480-508 (session_args_keep_read_and_write_scopes_bounded) exists at exactly that location and asserts exactly what's claimed. Also independently confirmed the claimed gap: codex.rs:169 (`cmd.current_dir(&spec.workdir).arg(\"app-server\")`) starts app-server with no --strict-config or -c mcp_servers={} flag, unlike the exec fallback's --ignore-user-config — supporting limitation (2) as accurate, not overstated.",
+   "evidence": [
+    "crates/interaction-runtime/src/agents.rs:410-437 (allow_write triple gate)",
+    "crates/interaction-runtime/src/gateway.rs:68-70 tools_disabled; :297-313 codex maxCost/intent-only rejection; :334 spec.disable_tools",
+    "crates/interaction-agent-gateway/src/claude.rs:74-116 claude_session_args; :480-508 unit test",
+    "crates/interaction-agent-gateway/src/codex.rs:169 app-server spawn with no --strict-config/-c mcp override",
+    "crates/interaction-agent-gateway/src/codex_exec.rs:69-111 exec_args",
+    "independently ran `claude --help` (2.1.263) confirming --permission-mode/--tools/--safe-mode/--strict-mcp-config exist"
+   ]
+  },
+  {
+   "id": "K-06",
+   "refuted": false,
+   "correctedStatus": "confirmed-defect",
+   "reason": "Independently reproduced the core defect claim by regenerating the codex 0.153.4 schema myself (not merely trusting the cited scratchpad copy): ran `codex app-server generate-json-schema --out .` fresh, diffed my CommandExecutionRequestApprovalResponse.json against the cited one and got zero diff (byte-identical). The schema's CommandExecutionApprovalDecision oneOf is exactly {accept, acceptForSession, acceptWithExecpolicyAmendment(object), applyNetworkPolicyAmendment(object), decline, cancel} — \"reject\" is confirmed absent from every variant. codex.rs:644 `ApprovalDecision::Deny => \"reject\"` confirmed verbatim at that exact line. The regression test gateway_loop.rs:1195-1209 confirmed to literally assert `body.contains(\"reject\")` and `!decision.contains(\"accept\")` — i.e. it fossilizes the schema-invalid value as the expected/correct behavior, exactly as claimed. fake_codex.sh's `*'\"decision\"'*)` case (confirmed present, no enum validation) writes any decision line verbatim with zero schema checking, matching the claim. Also confirmed: claude --help (2.1.263) has no --max-turns flag (grep for 'turn' hits only unrelated help text at lines 33/92/176/232); claude.rs:109-111 confirmed to conditionally emit --max-turns; grep across the whole runtime confirms spec.max_turns is never set anywhere outside the struct default (dead code), matching the claim precisely. Also confirmed via `codex --version`=codex-cli 0.153.4, `codex app-server --help` lists daemon/proxy/generate-ts/generate-json-schema/--strict-config as claimed, and `codex exec --help`/`exec resume --help` flags match. Ran `claude auth status` and `codex login status` live: claude returns JSON with loggedIn:true (matches claude.rs parse logic); codex returns 'Logged in using ChatGPT' which the .to_lowercase().contains(\"logged in\") check in codex.rs:91-95 correctly parses as true — so that particular 'needs-investigation' item is not itself a defect (correctly filed as needs-investigation, not overclaimed as confirmed-defect). Confirmed Turn schema (ServerNotification.json) has startedAt/completedAt/durationMs with required=[id,items,status] exactly as cited, supporting the K-08 cross-reference. The finding's evidenceLevel is honestly limited to static-inspection only and does not overclaim real-agent evidence, which is correct given no live app-server session was exercised.",
+   "evidence": [
+    "independently regenerated codex 0.153.4 schema via `codex app-server generate-json-schema --out .`; diff against cited copy = 0 bytes difference",
+    "CommandExecutionApprovalDecision oneOf confirmed: accept/acceptForSession/acceptWithExecpolicyAmendment/applyNetworkPolicyAmendment/decline/cancel — 'reject' absent",
+    "crates/interaction-agent-gateway/src/codex.rs:644 ApprovalDecision::Deny => \"reject\"",
+    "crates/interaction-runtime/tests/gateway_loop.rs:1195-1209 asserts body.contains(\"reject\") as the expected deny signal",
+    "crates/interaction-runtime/tests/fixtures/fake_codex.sh: `*'\"decision\"'*)` case has no enum validation",
+    "claude --help (2.1.263) has no --max-turns flag; claude.rs:109-111 confirmed conditional emission; grep confirms max_turns never set at runtime (dead code)",
+    "live-ran `claude auth status` (JSON loggedIn:true) and `codex login status` ('Logged in using ChatGPT') confirming both connectors' login-detection logic parses correctly against real 2.1.263/0.153.4 output"
+   ]
+  },
+  {
+   "id": "K-07",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "reason": "All citations confirmed exact. claude.rs:442-466 confirmed to read only total_cost_usd and num_turns from the `result` event, with zero references to `usage`/`modelUsage` anywhere in claude.rs (grep returned no hits). codex.rs TokenUsage handling and gateway.rs:486-509 TokenUsage routing (settled vs unsettled branching) confirmed verbatim. gateway.rs add_agent_session_cost (confirmed at the cited body, though at lines 648-656 rather than exactly 650-656 — trivial one-line offset, not a substantive discrepancy) confirmed to add cost_usd into record.budget.spent_cost and persist. gateway.rs:700-713 over_budget check confirmed verbatim, blocking new turns once spent_cost >= max_cost. SessionBudget (core/agent.rs:86-95) confirmed to have max_cost/spent_cost/max_messages/spent_messages/max_duration_ms and explicitly no token fields — token counts are indeed never persisted to the record, matching the claim. AiPage.tsx cost display block confirmed at the cited region (555-572), showing spentCost/maxCost only in advanced mode, no token display anywhere — grep for tokenUsage/totalTokens across the entire apps/interaction-desktop/src tree returned zero hits, and the e2e directory also returned zero hits for spentCost/costUsd, matching the claim that there is no UI/e2e coverage of token usage or cost. TaskComposer.tsx:172 confirmed to send maxCost:null when draft.agent==='codex'. This is an accurate, appropriately conservative implemented-partial finding with correctly scoped evidenceLevel (no real-agent overclaim beyond the flagged historical acceptance-evidence citation, which the finding itself correctly excludes from real-agent credit).",
+   "evidence": [
+    "crates/interaction-agent-gateway/src/claude.rs:442-466 (only total_cost_usd/num_turns read; zero 'usage'/'modelUsage' references in file)",
+    "crates/interaction-runtime/src/gateway.rs:486-509 TokenUsage routing; :648-656 add_agent_session_cost; :700-713 over_budget gate",
+    "crates/interaction-core/src/agent.rs:86-95 SessionBudget has no token fields",
+    "apps/interaction-desktop/src/pages/AiPage.tsx:555-572 cost display; grep tokenUsage/totalTokens across apps/interaction-desktop/src = 0 hits; e2e grep spentCost/costUsd = 0 hits",
+    "TaskComposer.tsx:172 maxCost:null for codex confirmed"
+   ]
+  },
+  {
+   "id": "K-08",
+   "refuted": false,
+   "correctedStatus": "implemented-partial",
+   "reason": "All core claims confirmed exact. crates/interaction-core/src/agent.rs:183-244 AgentSessionRecord confirmed to have only created_at (line 207) and closed_at (line 209) as timestamp fields — no started_at/finished_at/turn-duration fields exist anywhere in the struct. crates/interaction-runtime/src/agents.rs report_agent_session (confirmed at line 1174, body through 1261) confirmed to write only state/claim_id/human_verified on every report — zero timestamp writes on any report path, exactly as claimed. interaction-events/src/lib.rs confirmed: `RuntimeEvent::new(event_type, chrono::Utc::now(), payload)` is on line 86 (single line, not literally spanning 85-86, a trivial citation imprecision) inside EventBus::emit — each event is timestamped in the bus itself, supporting the 'can reconstruct via event log, not via record' framing. emit_agent_session_state payload (agents.rs:1098-1102) confirmed to carry only agentSessionId/agentId/state, no timing data, matching the claim. Independently pulled the real codex 0.153.4 schema (regenerated myself, matching the cited copy) and confirmed the Turn object DOES have startedAt/completedAt/durationMs fields (required=[id,items,status], matching cited required list) reachable via TurnCompletedNotification.turn — and independently confirmed via grep that codex.rs's turn/completed handler (lines 510-553) reads only /turn/status and /turn/error/message via pointer lookups, with zero references anywhere in codex.rs, codex_exec.rs, claude.rs, or lib.rs to durationMs/startedAt/completedAt — confirming the claimed 'connector already receives turn duration but discards it' limitation is real and precisely as described, not overstated. activity.rs:130 (session.created_at as occurred_at) and ActivityPage.tsx occurredAt usage both confirmed. This is an accurate implemented-partial finding with correctly conservative evidenceLevel (static-inspection/fixture only, no overclaimed real-agent evidence).",
+   "evidence": [
+    "crates/interaction-core/src/agent.rs:183-244 (created_at:207, closed_at:209, no started_at/finished_at fields)",
+    "crates/interaction-runtime/src/agents.rs:1174-1261 report_agent_session writes only state/claim_id/human_verified, never a timestamp",
+    "crates/interaction-events/src/lib.rs:86 RuntimeEvent::new(..., chrono::Utc::now(), ...) inside EventBus::emit",
+    "independently regenerated codex 0.153.4 schema: Turn definition confirmed to have startedAt/completedAt/durationMs, required=[id,items,status]",
+    "grep across codex.rs/codex_exec.rs/claude.rs/lib.rs for durationMs/startedAt/completedAt = 0 hits, confirming these fields are received in the protocol but never parsed/propagated",
+    "crates/interaction-runtime/src/activity.rs:130 session.created_at as occurred_at"
+   ]
+  }
+ ],
+ "critic": {
+  "missingRows": [
+   {
+    "need": "K-09 模型清單發現（model catalog）：入口要能知道「這台機器上這個 provider 現在可用哪些模型、預設是哪個、預設推理強度、支援哪些輸入模態」，否則 K-01 的 model 欄位只能是自由文字",
+    "whyItMatters": "K-01/K-03 的補救若沒有清單來源，使用者只能手打模型字串；打錯時 claude 端只在 stderr tail 露出、codex app-server 端 stderr 全被丟棄（K-17），等於把「選錯模型」變成不可診斷的啟動失敗。產品方向的『電腦主核心＋多 Agent』要能替使用者比較 provider，前提是知道各自有什麼模型與能力。",
+    "whereToLook": "codex 0.153.4 ClientRequest 有 model/list 與 modelProvider/capabilities/read（schema v2/ModelListParams.json、v2/ModelListResponse.json：Model.defaultReasoningEffort／serviceTiers／InputModality）；crates/interaction-agent-gateway/src/codex.rs:315-343,613-618 只送 initialize／thread/start｜resume／turn/start，從不呼叫 model/list；crates/interaction-agent-gateway/src/claude.rs:124-154 discover 只跑 --version 與 auth status，沒有任何模型探測；crates/interaction-runtime/src/gateway.rs:189-225 refresh_agent_providers 只投影 version／loggedIn／detail；crates/interaction-api/src/routes.rs:2008,2012 /v1/agents 回的就是這份 discovery；apps/interaction-desktop/src/api.ts 無 models 欄位",
+    "likelyStatus": "absent"
+   },
+   {
+    "need": "K-10 執行中的模型改道／降級／驗證通知（model/rerouted、model/safetyBuffering/updated、model/verification、modelProvider/authRecovery*）要被記錄並讓使用者看見",
+    "whyItMatters": "K-02 說的是『actual unknown』，這一列更嚴重：codex 0.153.4 會在執行中改路由到別的模型（model/rerouted）或啟動安全緩衝，runtime 完全收不到 → 使用者以為在跑 A、實際跑 B，事後也無從得知。誠實階梯上這是『把未知當已知』的來源，而且常與額度降級同時發生（K-11）。",
+    "whereToLook": "crates/interaction-agent-gateway/src/codex.rs:587 `_ => vec![]` catch-all 吞掉所有未列舉通知（0.153.4 ServerNotification 含 model/rerouted、model/safetyBuffering/updated、model/verification、modelProvider/authRecoveryStarted｜Completed、thread/compacted、turn/moderationMetadata）；crates/interaction-agent-gateway/src/claude.rs:468 `(\"system\", _)` 一律丟棄（init 以外的 system 訊息含 fallback／降級提示）；GatewayEvent（lib.rs:79-152）沒有任何 provider-notice 類事件可承載這些訊息",
+    "likelyStatus": "absent"
+   },
+   {
+    "need": "K-11 額度／配額（rate limit、usage）狀態回報與耗盡處置：長跑任務撞到 provider 額度時，狀態列／Timeline／CLI 要說得出『卡住是因為額度』",
+    "whyItMatters": "使用者自己的歷史紀錄（v0.5 Phase 7、v0.5.1 session）就有 workflow 撞額度導致大量重跑的教訓。目前額度訊號被明確當成雜訊丟棄，turn 停住只會表現成『沒有進度』，最後由 lease TTL／watchdog 收成 unknown；使用者無法區分 agent 在想、卡住、還是沒額度了。",
+    "whereToLook": "crates/interaction-agent-gateway/src/codex.rs:584 `\"account/rateLimits/updated\"` 與 thread/status/changed 同列被丟成 vec![]（註解寫『高頻／重複資訊』）；crates/interaction-agent-gateway/src/claude.rs:468 `(\"rate_limit_event\", _)` 丟棄；0.153.4 ClientRequest 另有 account/rateLimits/read、account/usage/read、account/rateLimitResetCredit/consume 從未被呼叫；crates/interaction-runtime/src/gateway.rs:386-630 pump 沒有對應分支；apps/interaction-desktop/src/pages/AiPage.tsx 無額度欄位",
+    "likelyStatus": "absent"
+   },
+   {
+    "need": "K-12 每個 session 的 provider 溯源：實際用的二進位路徑／版本／transport（app-server vs exec fallback）要寫進 session record 與稽核，才能事後回答『這份結果是誰、哪個版本、哪條路徑跑出來的』",
+    "whyItMatters": "產品方向的『可追溯』與誠實階梯：human_verified 綁的是 claim_id，不綁 provider 版本或 transport；升級 codex／claude 後舊紀錄無法分辨。更嚴重的是 INTERACT_AI_CLAUDE_BIN／INTERACT_AI_CODEX_BIN 可以把 provider 換成任意腳本（fixture 就是這樣跑的），record 與 UI 仍然寫『Claude Code（本機 CLI）』——真 agent 與 fixture agent 在資料上不可區分。",
+    "whereToLook": "crates/interaction-runtime/src/gateway.rs:319-326 gateway_attach 在 attach 當下呼叫 connector.discover()，只用 discovery.usable()，version／binary_path 立刻丟棄；crates/interaction-core/src/agent.rs:183-244 AgentSessionRecord 無 provider_version／binary／transport 欄位；crates/interaction-runtime/src/agents.rs 的 audit 只有 agent-session.capability-issued(:314)／history-pruned(:782)／verified(:1150)／closed(:1363)／emergency-stop(:1464)——**沒有 agent-session.created**；gateway.rs:75-76 env 覆寫；gateway.rs:207-211 display_name 固定字串",
+    "likelyStatus": "absent（record／稽核層）；live /v1/agents 只有當下版本 → 整體 implemented-partial"
+   },
+   {
+    "need": "K-13 相容性自檢與升級告警：對已安裝 connector 版本做最低版本／協定形狀檢查，並在不相容時降級告知，而不是等 session 失敗",
+    "whyItMatters": "K-06 已證明程式對協定版本的認知（codex.rs:8 註解鎖 0.149.1）與實機（0.153.4）差四個版本，且 repo 內沒有任何 schema 副本可比對。這是使用者需求（『升級後系統要能告訴我壞了』），K-06 只把它放在 nextAction，沒有獨立成需求列，因此矩陣上沒有人負責。",
+    "whereToLook": "crates/interaction-agent-gateway/src/codex.rs:8 註解『協定形狀 0.149.1 鎖定』；CHANGELOG.md:1479 說 0.150.1；docs/reviews/adversarial/2e02284-*.md 用 0.151.0；crates/interaction-runtime/tests/fixtures/fake_codex.sh:10 自稱 `fake-codex 0.149.1`；實機 `codex --version`=0.153.4；schemas/ 內沒有任何 codex／claude 協定 golden；crates/interaction-runtime/src/gateway.rs:189-225 discover 結果沒有任何版本比對邏輯",
+    "likelyStatus": "absent"
+   },
+   {
+    "need": "K-14 使用者偏好層的模型／推理預設（含主動說話等背景 session）：偏好鏈上要有 model／effort，才符合『有效值＝min(AI 請求, 使用者偏好, session 限制, …)』",
+    "whyItMatters": "不變量寫明使用者偏好是有效值的一環，但模型與推理強度整條鏈都不存在；背景自動觸發的主動說話 session 也用 provider 預設模型花錢（proactive 有 daily cost 上限，卻無法選便宜模型）。這是『使用者對成本與品質的主權』缺口，不是單純缺欄位。",
+    "whereToLook": "crates/interaction-runtime/src/human.rs:107-133 UiPreferences 只有 disabled_agents／agent_routes／custom_names 等，無 model／effort；crates/interaction-runtime/src/gateway.rs:1144-1194 agent_route_suggestion 只在 provider 粒度建議；crates/interaction-runtime/src/proactive.rs:713-731 主動 session 的 CreateAgentSession 無 model；apps/interaction-desktop/src/pages/SettingsPage.tsx（agent 路由設定處）無模型欄位",
+    "likelyStatus": "absent"
+   },
+   {
+    "need": "K-15 turn 級的模型／推理覆寫（同一 session 內不同任務用不同模型或強度）",
+    "whyItMatters": "codex 協定本身把 model／effort 放在 TurnStartParams（不是只有 thread 級），代表『同一條 thread 中途換強度』是 provider 支援的正常用法；本系統的 mailbox 一條 session 會送多個 task，卻只能全程一個預設。使用者需求：便宜模型跑例行、貴模型跑難題，不必開新 session（開新 session 會失去續接與 context）。",
+    "whereToLook": "0.153.4 schema v2/TurnStartParams.json（model、effort、serviceTier 屬性）；crates/interaction-agent-gateway/src/codex.rs:613-618 turn/start 只送 threadId／input；crates/interaction-agent-gateway/src/lib.rs 的 AgentSessionHandle 介面沒有 per-turn 參數；crates/interaction-runtime/src/gateway.rs:700-713 gateway_deliver 只做預算檢查後送純文字",
+    "likelyStatus": "absent"
+   },
+   {
+    "need": "K-16 對 codex 也有效的可強制用量上限（token 或 turn 上限），而不是只有『拒絕 maxCost』",
+    "whyItMatters": "目前 codex session 沒有任何成本或用量上限：maxCost>0 被直接拒絕建立，token 用量不入 budget、不持久化，只剩 maxMessages 與 ttlMinutes 兩個代理上限。一則訊息可以觸發任意長的 turn，所以『訊息數』不是花費的上界。使用者需求（花費可控、可取消）在 codex 這條路上是空的，而 UI 送 maxCost:null 讓這件事對使用者不可見。",
+    "whereToLook": "crates/interaction-runtime/src/gateway.rs:297-302 codex maxCost>0 → Validation 拒絕；apps/interaction-desktop/src/pages/work/TaskComposer.tsx:172 codex 送 maxCost:null；crates/interaction-core/src/agent.rs:86-95 SessionBudget 無 token 欄位；crates/interaction-runtime/src/gateway.rs:486-509 TokenUsage 只轉成 progress／observation；0.153.4 thread/tokenUsage/updated 已提供可用來做上限的數字",
+    "likelyStatus": "implemented-partial（只有 maxMessages／ttl 代理上限）；token 上限 absent"
+   },
+   {
+    "need": "K-17 模型／旗標不相容時的診斷可得性：codex app-server 的 stderr 必須至少保留 tail 並落到 session detail，和 claude 對齊",
+    "whyItMatters": "這是 K-01／K-03 補救的前置條件：一旦開始送 --model／effort／新旗標，錯誤幾乎只會出現在子程序 stderr。claude 有 tail 並寫進 detail，codex app-server 完全丟棄 → 同一個錯誤在兩個 provider 上一個看得到、一個永遠看不到，使用者只會拿到『session 失敗（無細節）』。",
+    "whereToLook": "crates/interaction-agent-gateway/src/codex.rs:175-179 `// stderr：診斷輸出，吞掉避免管線塞住` ＋ `while let Ok(Some(_)) = lines.next_line().await {}`（無 tail）；對照 crates/interaction-agent-gateway/src/claude.rs:179-186 stderr_tail 與 :241-266 把 tail 併進 detail／error；crates/interaction-agent-gateway/src/codex_exec.rs:167-219 fallback 有 tail（三條路徑兩種行為）",
+    "likelyStatus": "implemented-partial（claude／exec 有；codex app-server absent）"
+   },
+   {
+    "need": "K-18 模型／推理設定的公開契約：跨 AI Skill、tool manifest 與 API 文件要描述 create payload 的完整欄位（含未來的 model／effort），且未知欄位不得靜默吞掉",
+    "whyItMatters": "本系統的主要呼叫者之一是 AI 自己（skills/orchestrate-adaptive-interaction）。目前 CreateAgentSession 沒有 deny_unknown_fields，AI 送 model 會被靜默丟棄且 HTTP 回 200 → AI 會誠實地以為自己指定了模型（K-01 的缺口在 AI 端變成『被騙的成功』）。這是誠實階梯問題，不只是缺功能。",
+    "whereToLook": "crates/interaction-runtime/src/agents.rs:245-278 CreateAgentSession 無 deny_unknown_fields；crates/interaction-api/src/routes.rs:1388-1394 直接 Json(input) 反序列化，無未知欄位回報；skills/orchestrate-adaptive-interaction/ grep `model` 只命中 references/safety.md:1 的『Safety model』標題；schemas/ 內沒有 agent-session create 的 schema（grep agent-session 0 命中）；docs/USER-GUIDE.md／docs/aip/* 沒有 create payload 欄位表",
+    "likelyStatus": "absent"
+   },
+   {
+    "need": "K-19 iPhone／跨裝置入口的 agent session 面（含模型選擇）完全不存在",
+    "whyItMatters": "產品方向明寫『電腦主核心＋桌面／iPhone 入口＋多 Agent』。K-01 只盤點了 CLI／HTTP／Tauri／React 四個入口；iOS app 連 agent session 的建立／續接／核准都沒有，所以『在手機上派工、核准、看進度、選模型』整段是空的——這個缺口比『不能選模型』更大，卻不在任何 K 列裡。",
+    "whereToLook": "apps/interaction-ios 全樹 grep `agent-sessions|agentSession|agent_session` 0 命中；對照 crates/interaction-runtime/src/mobile.rs（手機只有 provider／sensor／character 面）；docs/aip/iphone-companion.md 的能力範圍",
+    "likelyStatus": "absent（iOS 端；桌面／CLI 端另見 K-01）"
+   }
+  ],
+  "contradictions": [
+   "同一維度內證據等級標法不一致：K-04／K-05／K-07 把 crates/interaction-runtime/tests/*.rs（fake_claude.sh／fake_codex.sh 子程序）同時標成 fixture＋integration，K-08 對同一套測試只標 fixture，K-02 只標 unit（雖然 fake_claude.sh:44 同樣覆蓋）。同一份證據在三列有三種等級 → 矩陣不可橫向比較，聚合時會高估或低估。建議統一：runtime tests = fixture＋integration，connector 內 #[test] = unit。",
+   "K-05 判 implemented-and-connected，但它的強制鏈（approvalPolicy=untrusted → 人類裁決／逾時自動拒絕）其中的『拒絕』腿被 K-06 判 confirmed-defect（codex.rs:644 送 \"reject\"，不在 0.153.4 CommandExecutionApprovalDecision／FileChangeApprovalDecision 任一 enum）。依任務給的分類定義『接線但缺關鍵環＝implemented-partial』，K-05 的 codex 部分不應是 implemented-and-connected；K-05 自己在 limitation(3) 承認這點，卻沒有反映到 status。兩列對同一條路徑給了不同結論。",
+   "K-06 把『codex.rs:250-266 把任何帶 id 的 method 都登記成 approval、且一律回 {\"decision\":…}』標成 needs-investigation，但同一列已列出 0.153.4 的 ServerRequest 清單（item/permissions/requestApproval 的 decision 是物件、item/tool/requestUserInput、mcpServer/elicitation/request、attestation/generate、account/chatgptAuthTokens/refresh 的回應形狀都不同）。既有 schema 已足以判定『對非 approval 類 request 的回應形狀必然不合法』，證據強度與 needs-investigation 標籤不匹配（應與 \"reject\" 同列為 confirmed-defect，只有 runtime 後果待實測）。它同時與 K-05『approval 由人類裁決』的實效宣稱衝突：attestation／token refresh 這類非人類決策的請求會被投影成待核可項目。",
+   "K-06 的 evidence 寫 `codex app-server --help` 有 daemon/proxy/generate-ts/generate-json-schema 四個子命令，與任務簡報列的既知事實（『app-server 子命令 daemon/proxy/generate-ts』）不一致。懷疑者實際跑 generate-json-schema 成功並比對 byte-identical，應以實跑為準、簡報那條既知事實過時；但矩陣若照抄簡報會產生自相矛盾的兩處記載。",
+   "K-01 判 SessionSpec.model 是死碼，K-04 的 contract 卻把 codex_exec 的 `[--model]` 與 claude 的 `--model` 寫進『已接線的續開契約』字串。兩者事實上相容（旗標存在但永不觸發），但 K-04 的寫法會被讀成續開時可指定模型 → 需在 K-04 contract 明標『該旗標在目前任何入口都不會被觸發（見 K-01）』。",
+   "K-07 的 need 同時包含『來源／落地位置』與『UI 顯示否』兩個需求，status 卻只給一個 implemented-partial：cost 的落地與強制（claude）確實接線，但『token／費用對使用者可見』實際上是 absent（apps/interaction-desktop/src grep tokenUsage/totalTokens 0 命中、e2e grep spentCost/costUsd 0 命中，AiPage 只在 advanced 模式顯示 spent/max）。一列混兩個需求會讓後續處置遺漏顯示端。",
+   "文件與程式的揭露落差：docs/releases/v0.8.0-known-limitations.md（全檔 31 行）沒有任何 agent connector 條目，只以『其餘 v0.7.0 限制仍保留』概括；真正寫著『真 codex／claude 二進位未跑（沿用 fixture agent）』的是 docs/releases/v0.7.0-known-limitations.md:158（§1.8）。K-01（不能選模型）、K-02（實際模型未知）、K-03（無推理設定）、K-06（decline 值不合法）至今沒有出現在任何已發布的限制清單——不是文件謊稱有功能，而是已知缺口未揭露，與『已知限制記錄在 CHANGELOG 與 acceptance-evidence』的工作規則衝突。",
+   "runtime 對使用者輸出的文案 gateway.rs:1192 寫『建立 session 前會顯示資料範圍與成本預覽』，但 TaskComposer.tsx／AiPage.tsx grep『成本／預估』只命中 AiPage.tsx:859 的註解（Consent Sheet 語意描述），實際 UI 只有 maxCost 上限輸入與 spentCost 事後顯示；且在模型未知（K-01/K-02）前提下本來就估不出成本。此為 runtime 文案 vs UI 實作的潛在過度宣稱，建議整合者以真跑 UI 確認後定案（我只做了 grep，confidence 低）。",
+   "K-07 說 claude 的成本強制靠 `--max-budget-usd`（claude.rs:112-114，僅 max_cost>0 才送），但 CLI `agents create --max-cost` 省略時 payload 送 null → agents.rs:528 `input.max_cost.unwrap_or(0.0)`，即預設 0＝完全不送預算旗標。『claude 有可強制預算』在預設路徑上不成立（需使用者主動指定）；K-07 的 contract 沒點出這個預設值，讀起來像預設就有防護。"
+  ],
+  "reproCandidates": [
+   {
+    "what": "K-01：API create payload 帶 model 會被靜默丟棄，且子程序 argv 沒有 --model（fixture agent，不動用真額度）",
+    "command": "ROOT=/Users/user/Workspace/claude-lab/adaptive-interaction; H=$(mktemp -d /tmp/k01-home.XXXX); W=$(mktemp -d /tmp/k01-work.XXXX); echo capture > \"$W/fake-mode\"; INTERACT_AI_HOME=$H INTERACT_AI_CLAUDE_BIN=$ROOT/crates/interaction-runtime/tests/fixtures/fake_claude.sh $ROOT/target/debug/interact-ai serve --port 18831 & sleep 3; T=$(cat $H/state/api-token); curl -s -X POST localhost:18831/v1/agent-sessions -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -d '{\"agentId\":\"claude-code\",\"workdir\":\"'$W'\",\"ttlMinutes\":5,\"model\":\"claude-opus-4-1\"}' | tee /tmp/k01-create.json; grep -c 'model' /tmp/k01-create.json; cat \"$W/fake-argv\"",
+    "expected": "HTTP 200 且回傳 record 完全沒有 model 欄位（grep -c 為 0）；$W/fake-argv 有 --permission-mode plan --tools Read,Glob,Grep 等旗標但沒有 --model。證明未知欄位被 serde 靜默吞掉（agents.rs:245-278 無 deny_unknown_fields）且 spec.model 從未被賦值。用 target/debug/interact-ai（基線建置產物），不要用 ~/.local/bin/interact-ai（實測 0.1.3，遠舊於 workspace 0.8.0）。"
+   },
+   {
+    "what": "K-02：fixture 已送出 model 欄位（fake_claude.sh:44 \"model\":\"fake-model\"），但 session record／mailbox 沒有任何模型資訊",
+    "command": "（承上，同一 daemon）SID=$(python3 -c \"import json;print(json.load(open('/tmp/k01-create.json'))['sessionId'])\"); curl -s -X POST localhost:18831/v1/agent-sessions/$SID/messages -H \"Authorization: Bearer $T\" -H 'content-type: application/json' -d '{\"kind\":\"task\",\"body\":{\"task\":\"do the thing\"}}' >/dev/null; sleep 3; curl -s localhost:18831/v1/agent-sessions/$SID -H \"Authorization: Bearer $T\" | tee /tmp/k02-show.json | grep -ci 'model'; curl -s localhost:18831/v1/agent-sessions/$SID/messages -H \"Authorization: Bearer $T\" | grep -ci 'model'",
+    "expected": "兩個 grep -ci 都是 0，同時 state 走到 claimed-completed 且 providerSessionId=fake-123（證明 SessionStarted 有被解析，只是 model 被丟棄，claude.rs:391-409）。這是 requested 無／actual unknown 的可執行證據。"
+   },
+   {
+    "what": "K-06：\"reject\" 不在 0.153.4 approval decision enum，且回歸測試把它固化成期望值",
+    "command": "D=$(mktemp -d /tmp/codex-schema.XXXX); (cd $D && codex app-server generate-json-schema --out .) >/dev/null 2>&1; python3 -c \"import json;d=json.load(open('$D/CommandExecutionRequestApprovalResponse.json'));s=json.dumps(d);print('reject present:', '\\\"reject\\\"' in s);print(s[:1200])\"; grep -n '\\\"reject\\\"' /Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-agent-gateway/src/codex.rs /Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-runtime/tests/gateway_loop.rs",
+    "expected": "decision oneOf = accept / acceptForSession / acceptWithExecpolicyAmendment / applyNetworkPolicyAmendment / decline / cancel，`reject present: False`；grep 命中 codex.rs:644 `ApprovalDecision::Deny => \"reject\"` 與 gateway_loop.rs:1195-1209 `contains(\"reject\")`。純本機、不用額度。"
+   },
+   {
+    "what": "K-06 後果（需使用者授權，會用到真 codex 額度）：真 app-server 收到 \"reject\" 時的行為 vs \"decline\"",
+    "command": "手動 JSON-RPC 對真 codex：準備兩份 jsonl（initialize → initialized → thread/start{cwd,approvalPolicy:\"untrusted\",sandbox:\"read-only\"} → turn/start 觸發需核可命令），其一對 ServerRequest 回 {\"decision\":\"reject\"}、其一回 {\"decision\":\"decline\"}；分別 `codex app-server < /tmp/k06-reject.jsonl > /tmp/k06-reject.out` 與 `codex app-server < /tmp/k06-decline.jsonl > /tmp/k06-decline.out` 後比對",
+    "expected": "預期 reject 會拿到 JSON-RPC error（invalid params）或請求持續掛著、turn 不前進；decline 正常結束。這是把 K-06 從 schema 層 confirmed-defect 升級成 runtime 後果實證的唯一途徑，須先取得使用者對真額度的授權，結果只能記成 real-agent 一列。"
+   },
+   {
+    "what": "K-09／K-11：協定其實提供得到模型清單與額度，只是沒人呼叫（純唯讀，不建 session）",
+    "command": "D=/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79983209-6a38-4bdc-894b-1b32e1b2de38/scratchpad/matrix/codex-schema-0.153.4; python3 -c \"import re;s=open('$D/ClientRequest.json').read();print([m for m in sorted(set(re.findall(r'\\\"([a-z][a-zA-Z]*(?:/[a-zA-Z]+)+)\\\"',s))) if 'model' in m or 'account' in m])\"; grep -n 'model/list\\|account/rateLimits\\|account/usage' /Users/user/Workspace/claude-lab/adaptive-interaction/crates/interaction-agent-gateway/src/codex.rs | wc -l",
+    "expected": "第一段列出 model/list、modelProvider/capabilities/read、account/rateLimits/read、account/usage/read 等；第二段 grep 命中數為 0，證明 connector 一個都沒呼叫。搭配 codex.rs:584（rateLimits 通知被丟）與 claude.rs:468（rate_limit_event 被丟）。"
+   },
+   {
+    "what": "K-17：codex app-server 路徑的 stderr 不會出現在 session detail，claude 路徑會（假二進位對照，不動真額度）",
+    "command": "寫兩個一次性腳本：/tmp/k17-claude.sh（--version/auth 正常回應，之後往 stderr 印 'boom: unknown model' 後 exit 3）與 /tmp/k17-codex.sh（--version/login/app-server --help 正常，之後往 stderr 印同句後 exit 3）；分別以 INTERACT_AI_CLAUDE_BIN／INTERACT_AI_CODEX_BIN 指向它們、在隔離 INTERACT_AI_HOME 起 daemon，各建立一個 session，再 curl /v1/agent-sessions/<id> 與 /messages 看是否含 'boom'",
+    "expected": "claude 那條的 detail 會帶 stderr tail（claude.rs:241-266），codex 那條不會有任何 'boom'（codex.rs:175-179 只讀不留）。這是 K-01/K-03 補救前必須先修的診斷缺口的可執行證據。"
+   },
+   {
+    "what": "K-13：協定版本認知漂移（註解 0.149.1 / CHANGELOG 0.150.1 / 審查 0.151.0 / 實機 0.153.4），且 repo 內無 golden 可比對",
+    "command": "cd /Users/user/Workspace/claude-lab/adaptive-interaction; codex --version; claude --version; grep -rn '0\\.149\\.1\\|0\\.150\\.1\\|0\\.151\\.0' crates/interaction-agent-gateway/src/codex.rs crates/interaction-runtime/tests/fixtures/fake_codex.sh CHANGELOG.md | head; ls schemas/ | grep -i 'codex\\|claude\\|app-server' | wc -l",
+    "expected": "codex-cli 0.153.4、claude 2.1.263；grep 命中三個互相不一致的版本宣告（含 fake_codex.sh:10 自稱 0.149.1）；schemas/ 內與 connector 協定相關的 golden 數量為 0 → 下次升級沒有任何自動守門會變紅。"
+   },
+   {
+    "what": "既有基線回歸（供整合者對照，不是新證據；target/ 被基線建置佔用時請排隊）",
+    "command": "cargo test -p interaction-agent-gateway && cargo test -p interaction-runtime --test gateway_loop && ./scripts/v03-cli-e2e.sh",
+    "expected": "全綠。重點是這三套目前都不會因 K-01/K-02/K-03 的缺口變紅（gateway_loop.rs 全檔 grep `--model` 0 命中、v03-cli-e2e.sh:263 的 agents create 無 --model、fake_claude.sh:44 的 model 沒有任何斷言），所以『測試全過』不能被當成模型選擇已支援的證據——這點本身該寫進矩陣。"
+   }
+  ]
+ }
+}

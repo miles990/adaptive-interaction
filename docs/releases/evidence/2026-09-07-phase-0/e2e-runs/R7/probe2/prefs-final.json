@@ -1,0 +1,46 @@
+{
+  "closeBehavior": null,
+  "askOnClose": true,
+  "launchAtLogin": false,
+  "showCompanionOnStart": true,
+  "openControlCenterOnStart": true,
+  "companionVisible": true,
+  "companionPosition": null,
+  "companionSize": [
+    200.0,
+    210.0
+  ],
+  "companionOpacity": 0.67,
+  "companionPack": "plain-text",
+  "companionPersona": "persona-shu",
+  "storyProgress": {
+    "meet": true
+  },
+  "companionExpressiveness": "natural",
+  "companionAlwaysOnTop": false,
+  "companionName": "",
+  "companionScene": "none",
+  "companionPlay": true,
+  "companionCursorPlay": true,
+  "companionApproach": true,
+  "companionDeskMove": true,
+  "companionFamiliars": [],
+  "companionDoNotDisturb": false,
+  "companionBubbles": true,
+  "companionSound": false,
+  "companionDragEnabled": true,
+  "companionProactiveQuietUntil": 0.0,
+  "companionInteractionMemory": {
+    "toys": [],
+    "disabledReactions": [],
+    "events": [],
+    "daysSeen": 1,
+    "lastDay": 20703,
+    "lastSeenAt": 1788772852501.0
+  },
+  "companionPreferences": {},
+  "companionPendingPresetOp": null,
+  "companionPresetRevision": "4",
+  "companionLastPresetOp": null,
+  "schemaVersion": 3
+}

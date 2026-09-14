@@ -1,0 +1,4 @@
+{"deviceId":"iphone-8842a4be","deviceToken":"a75a51ec7f39c085aa1a3f1ab3132341160f9b16cd172f5324b77fcefe0a82bc"}
+{"event":"status","micLevel":false}
+{"event":"connected"}
+{"event":"disconnected","reason":"IO error: peer closed connection without sending TLS close_notify: https://docs.rs/rustls/latest/rustls/manual/_03_howto/index.html#unexpected-eof"}
