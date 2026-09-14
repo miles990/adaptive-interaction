@@ -220,10 +220,14 @@ class Journey:
         wait("native primary navigation", lambda: self.ax("navclick", "1"))
 
     def ax(self, *args):
+        # The AX walk costs more as the page accumulates rows; the helper now
+        # fetches one `properties` record per element instead of two or three
+        # attributes, but a late-journey dump still needs more than the 55 s
+        # that used to end this walkthrough before its four sensor journeys.
         started = time.monotonic()
         result = subprocess.run(
             ["osascript", str(AX), f"pid:{self.app.pid}", *args],
-            capture_output=True, text=True, timeout=55)
+            capture_output=True, text=True, timeout=150)
         self.ax_attempts.append({"command": list(args), "exit": result.returncode,
                                  "seconds": round(time.monotonic() - started, 3)})
         if result.returncode:
@@ -239,6 +243,16 @@ class Journey:
         # turn retries into duplicate pairing or confirmation actions.
         self.visible(text)
         return self.ax("click", role, text)
+
+    def confirm(self, arm, confirm_label):
+        # ConfirmButton disarms itself five seconds after the first click
+        # (apps/interaction-desktop/src/components/Dialog.tsx), and one AX walk of
+        # the device page can take longer than that on a loaded machine. Arming and
+        # confirming therefore travel in a single helper call instead of two. The
+        # confirmation control must still appear and be clicked for real: the helper
+        # raises when it does not, so a missed confirmation cannot read as done.
+        self.visible(arm)
+        return self.ax("clickconfirm", "AXButton", arm, "AXButton", confirm_label)
 
     def connect_page(self, pairing=False):
         self.ax("navclick", "4")
@@ -336,8 +350,7 @@ class Journey:
         self.note("mobile-reconnect", deviceId=phone.device_id)
 
         start = phone.mark()
-        self.click("移除此手機")
-        self.click("確定移除？（立即斷線，要再用必須重新配對）")
+        self.confirm("移除此手機", "確定移除？（立即斷線，要再用必須重新配對）")
         wait("revocation persisted in production device list", lambda: self.device(phone) is None)
         phone.event(lambda row: row.get("event") == "disconnected", start)
         rejected_before = self.api("/v1/mobile/status")["heartbeat"]["failedAuths"]
@@ -371,8 +384,7 @@ class Journey:
                   setup="simulated self-report; no receptor enable or consent grant")
         # Direct PhoneDeviceCard removal must preserve this unknown by itself.
         # An extra global stop here would mask a missing journal binding.
-        self.click("移除此手機")
-        self.click("確定移除？（立即斷線，要再用必須重新配對）")
+        self.confirm("移除此手機", "確定移除？（立即斷線，要再用必須重新配對）")
         wait("streaming fixture removed", lambda: self.device(phone) is None)
         before_restart = wait("direct removal retains unconfirmed mic stop",
                               lambda: [entry for entry in self.status().get("unresolvedStops", [])

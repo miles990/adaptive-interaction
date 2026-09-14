@@ -149,9 +149,11 @@ class WorkJourney:
             return json.load(response)
 
     def ax(self, *args):
+        # The helper now retries and reads back what it typed, and an AX walk of
+        # a busy page is not fast; 55 s cut legitimate calls off mid-check.
         started = time.monotonic()
         result = subprocess.run(["osascript", str(AX), f"pid:{self.app.pid}", *args],
-                                capture_output=True, text=True, timeout=55)
+                                capture_output=True, text=True, timeout=150)
         self.ax_attempts.append({"command": list(args), "exit": result.returncode,
                                  "seconds": round(time.monotonic() - started, 3)})
         if result.returncode:
@@ -167,10 +169,22 @@ class WorkJourney:
         self.ax("click", "AXButton", label)
 
     def fill(self, role, label, value):
-        # ASCII fixture text/path needs no clipboard or keyboard-layout changes.
+        # ASCII fixture text/path only. The helper pastes from the clipboard and
+        # reads the field back, because character-by-character keystrokes into
+        # the WebView drop characters under load ('Native fixture codex can'
+        # instead of '... cancel'). A rejected paste raises, so retry the whole
+        # attempt a bounded number of times and keep the readback below.
         assert value.isascii()
         self.visible(label)
-        self.ax("fill", role, label, value)
+        last = None
+        for _ in range(3):
+            try:
+                self.ax("fill", role, label, value)
+                break
+            except AssertionError as error:
+                last = error
+        else:
+            raise AssertionError(f"fill never took for {label}: {last}")
         wait("AX input readback: " + label,
              lambda: self.ax("value", role, label) == value)
 
