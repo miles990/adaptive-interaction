@@ -18,7 +18,7 @@ use interaction_agent_gateway::{
 use interaction_core::{
     AgentSessionRecord, DomainError, DomainResult, MailboxDirection, MailboxMessage,
     ProviderDescriptor, ProviderId, ProviderIdentity, ProviderKind, ProviderState, Timestamp,
-    TrustLevel,
+    TraceRecord, TrustLevel,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
@@ -38,6 +38,12 @@ const AUTO_DENY_RETRY_BASE_SECS: i64 = 30;
 /// 呼叫（下一則任務、interrupt、approval 裁決）跟著卡死。緊急停止不走這條
 /// 路：它從不對 agent 送訊，直接關閉 session 並在鎖外終止程序樹。
 const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// 診斷紀錄裡保留的 stderr tail 字元上限（連接器已先收過界，這是第二道）。
+const STDERR_TAIL_CHARS: usize = 600;
+
+/// Provider 自報模型名的字元上限：那是外部輸入，不得無界寫進紀錄。
+const MODEL_NAME_CHARS: usize = 200;
 
 /// `gateway_attach` 的結果：provider 端 thread id（可能還沒到，claude 是
 /// None）＋**實際**掛上子程序的工作目錄（正規化後的絕對路徑）。
@@ -394,9 +400,14 @@ impl Runtime {
                 match ev {
                     GatewayEvent::SessionStarted {
                         provider_session_id,
+                        model,
                     } => {
-                        rt.set_provider_session_id(&session_id, &provider_session_id)
-                            .await;
+                        rt.set_provider_session_id(
+                            &session_id,
+                            &provider_session_id,
+                            model.as_deref(),
+                        )
+                        .await;
                     }
                     GatewayEvent::TaskAccepted => {
                         working(&turn_settled);
@@ -604,6 +615,32 @@ impl Runtime {
                             )
                             .await;
                     }
+                    GatewayEvent::StderrCaptured {
+                        tail,
+                        lines_seen,
+                        bytes_seen,
+                        lines_dropped,
+                        truncated,
+                    } => {
+                        // 診斷類紀錄：子程序在標準錯誤上說過什麼。**不**動
+                        // `turn_settled`、**不**觸發 failed／unknown——stderr
+                        // 不是業務結局的證據（誠實階梯）。tail 已由連接器脫敏，
+                        // 這裡再按字元數收一次界（紀錄不得無界成長）。
+                        let tail: String = tail.chars().take(STDERR_TAIL_CHARS).collect();
+                        rt.record_trace(
+                            TraceRecord::diagnostic("agent-session.subprocess-stderr")
+                                .actor("runtime")
+                                .trace_id(&session_id)
+                                .session(&session_id)
+                                .detail(json!({
+                                    "tail": tail,
+                                    "linesSeen": lines_seen,
+                                    "bytesSeen": bytes_seen,
+                                    "linesDropped": lines_dropped,
+                                    "truncated": truncated,
+                                })),
+                        );
+                    }
                     GatewayEvent::SessionClosed { resumable, detail } => {
                         // 程序結束而**本輪**沒有任何結局 ⇒ 結果未知。
                         // 誠實階梯：沒觀察到成功不能說成功，沒觀察到錯誤也
@@ -637,11 +674,41 @@ impl Runtime {
         });
     }
 
-    async fn set_provider_session_id(&self, session_id: &str, provider_sid: &str) {
-        let mut map = self.agent_sessions.write().await;
-        if let Some(entry) = map.get_mut(session_id) {
+    /// Provider 回報了自己的 session／thread id（以及**它自報的**模型）。
+    ///
+    /// `model` 是 provider 說的，不是我們請求的——這條 gateway 路徑根本沒有
+    /// 指定模型的地方。讀不到（`None`）就什麼都不寫、不猜、不用請求值回填。
+    async fn set_provider_session_id(
+        &self,
+        session_id: &str,
+        provider_sid: &str,
+        model: Option<&str>,
+    ) {
+        let announced = {
+            let mut map = self.agent_sessions.write().await;
+            let Some(entry) = map.get_mut(session_id) else {
+                return;
+            };
             entry.record.provider_session_id = Some(provider_sid.to_string());
+            let announced = model
+                .map(str::trim)
+                .filter(|m| !m.is_empty())
+                .map(|m| m.chars().take(MODEL_NAME_CHARS).collect::<String>());
+            if let Some(model) = &announced {
+                entry.record.actual_model = Some(model.clone());
+            }
             self.persist_agent_session(&entry.record);
+            announced
+        };
+        if let Some(actual_model) = announced {
+            self.record_trace(
+                TraceRecord::trace("agent-session.provider-model")
+                    .actor("runtime")
+                    .trace_id(session_id)
+                    .session(session_id)
+                    .caused_by(provider_sid)
+                    .detail(json!({ "actualModel": actual_model })),
+            );
         }
     }
 

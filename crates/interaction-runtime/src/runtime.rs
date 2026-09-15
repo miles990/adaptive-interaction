@@ -15,7 +15,8 @@ use interaction_core::{
     ActionId, ActionReceipt, ActionStatus, CapabilityConstraint, CapabilitySnapshot, ConsentScope,
     DiscoveryContext, DomainError, DomainResult, EventType, MessageStrategy, Observation,
     ObservationQuery, Plan, PlanId, PlanStatus, PolicyConfig, ReceptorId, RuntimeEvent,
-    SemanticIntent, Session, SessionId, Timestamp, VerificationEvidence, VerificationVerdict,
+    SemanticIntent, Session, SessionId, Timestamp, TraceRecord, VerificationEvidence,
+    VerificationVerdict,
 };
 use interaction_events::EventBus;
 use interaction_policy::ActionSource;
@@ -26,7 +27,7 @@ use rand::Rng;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -83,6 +84,12 @@ pub struct RuntimeInner {
     pub outbox: Outbox,
     pub texts: TextSelector,
     estop: AtomicBool,
+    /// 非關鍵路徑的追蹤紀錄寫入失敗次數（`Runtime::record_trace`／
+    /// `persist_agent_session`）。誠實揭露在 `/v1/status.traceWriteFailures`：
+    /// 紀錄寫不進去就是「這段歷史有缺口」，不能只留在 log 裡。
+    ///
+    /// 寫入失敗**不得**再往同一個儲存層寫一筆 log（不遞迴）。
+    trace_write_failures: AtomicU64,
     pub push_receptors: BTreeMap<String, Arc<PushReceptor>>,
     dynamic_push: RwLock<BTreeMap<String, Arc<PushReceptor>>>,
     pub mock_actuator: Arc<MockActuator>,
@@ -429,6 +436,7 @@ impl Runtime {
                 outbox,
                 texts: TextSelector::default(),
                 estop: AtomicBool::new(estop_engaged),
+                trace_write_failures: AtomicU64::new(0),
                 push_receptors,
                 dynamic_push: RwLock::new(BTreeMap::new()),
                 mobile: crate::mobile::MobileBridge::new(),
@@ -586,6 +594,32 @@ impl Runtime {
 
     pub fn is_estopped(&self) -> bool {
         self.estop.load(Ordering::SeqCst)
+    }
+
+    /// 寫一筆**非關鍵路徑**的追蹤紀錄（trace／diagnostic／非關鍵 audit）。
+    ///
+    /// 誠實階梯與不遞迴：寫不進去就記一次 `tracing::error!` 並把
+    /// `trace_write_failures` 加一（`/v1/status` 讀得到），**絕不**再往同一個
+    /// 儲存層補寫一筆「剛剛寫失敗了」——那只會在儲存層真的壞掉時無限遞迴。
+    ///
+    /// 關鍵轉移（verify／close／resume 接受）**不**走這裡：那些必須與狀態
+    /// 同一個 transaction 提交，寫不進去就整筆回滾、操作回 `Err`。
+    pub(crate) fn record_trace(&self, record: TraceRecord) {
+        if let Err(error) = self.store.record(&record) {
+            self.trace_write_failures.fetch_add(1, Ordering::SeqCst);
+            tracing::error!(
+                target: "interaction.trace",
+                kind = %record.kind,
+                class = record.class.as_str(),
+                error = %error,
+                "追蹤紀錄寫入失敗（這段歷史有缺口）"
+            );
+        }
+    }
+
+    /// 非關鍵寫入失敗的累計次數（狀態與測試用）。
+    pub fn trace_write_failures(&self) -> u64 {
+        self.trace_write_failures.load(Ordering::SeqCst)
     }
 
     pub async fn status(&self) -> Value {
