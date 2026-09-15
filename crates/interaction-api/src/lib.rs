@@ -217,6 +217,10 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/agent-sessions", post(routes::agent_session_create))
         .route("/v1/agent-sessions/{id}", get(routes::agent_session_get))
         .route(
+            "/v1/agent-sessions/{id}/activity",
+            get(routes::agent_session_activity),
+        )
+        .route(
             "/v1/agent-sessions/{id}/report",
             post(routes::agent_session_report),
         )
@@ -314,6 +318,9 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/stop-all", post(routes::stop_all))
         .route("/v1/outbox", get(routes::outbox))
         .route("/v1/audit", get(routes::audit))
+        // 追蹤紀錄（audit／trace／diagnostic 三個 class 的統一查詢面）。
+        // 只有人類：見 `agent_request_allowed` 的明確排除。
+        .route("/v1/trace", get(routes::trace_query))
         .route("/v1/events", get(sse::events))
         .route("/v1/openapi.json", get(routes::openapi))
         .route_layer(middleware::from_fn_with_state(
@@ -494,6 +501,9 @@ fn agent_request_allowed(method: &axum::http::Method, path: &str) -> bool {
             && !path.starts_with("/v1/agent-sessions")
             && !path.starts_with("/v1/activity")
             && path != "/v1/audit"
+            // 追蹤紀錄＝完整的授權史（誰被擋在哪一項、為什麼）。AI 讀得到
+            // 它，就讀得到一份現成的規避指南。`/v1/audit` 同理，兩支一起排除。
+            && path != "/v1/trace"
             && path != "/v1/outbox"
             && !path.starts_with("/v1/ui/preferences")
             && !path.starts_with("/v1/onboarding")

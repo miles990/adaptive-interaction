@@ -3065,3 +3065,269 @@ async fn the_status_an_agent_reads_carries_no_human_layer_records() {
         "interaction.status 必須走同一條投影：{tool_status}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 追蹤紀錄查詢面（`/v1/trace`、`/v1/agent-sessions/{id}/activity`）
+// ---------------------------------------------------------------------------
+
+fn probe_session(agent: &'static str) -> interaction_runtime::agents::CreateAgentSession {
+    interaction_runtime::agents::CreateAgentSession {
+        provider_id: Some(format!("provider.ai-agent.{agent}")),
+        agent_id: agent.into(),
+        label: Some("trace query probe".into()),
+        ttl_minutes: Some(5),
+        data_scope: vec![],
+        tool_scope: vec!["status".into()],
+        consent_scope: vec![],
+        allow_write: false,
+        max_cost: None,
+        max_messages: Some(5),
+        delegation: None,
+        workdir: None,
+        resume_provider_session_id: None,
+    }
+}
+
+/// 追蹤紀錄是「誰被允許做了什麼、哪裡被擋下來」的完整歷史：只有人類讀得到。
+/// AI 讀得到它就等於讀得到一份現成的規避指南。
+#[tokio::test]
+async fn trace_and_activity_are_human_only() {
+    let server = TestServer::spawn().await;
+    let session = server
+        .runtime
+        .create_agent_session(probe_session("codex"))
+        .await
+        .unwrap();
+    let id = session.session_id.as_str().to_string();
+    let session_token = server
+        .runtime
+        .issue_agent_session_capability(&id)
+        .await
+        .unwrap();
+
+    // 人類：兩支都讀得到。
+    let (status, body) = server.get("/v1/trace").await;
+    assert_eq!(status, 200);
+    assert!(body["items"].is_array());
+    let (status, _) = server
+        .get(&format!("/v1/agent-sessions/{id}/activity"))
+        .await;
+    assert_eq!(status, 200);
+
+    // legacy agent token 與 session-scoped capability token：一律 403。
+    // 連「自己的」session activity 也不行——那是人類的裁決面。
+    for token in [server.agent_token.clone(), session_token.clone()] {
+        for path in [
+            "/v1/trace".to_string(),
+            format!("/v1/trace?sessionId={id}"),
+            format!("/v1/agent-sessions/{id}/activity"),
+        ] {
+            let response = server
+                .client
+                .get(format!("{}{path}", server.base))
+                .bearer_auth(&token)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 403, "{path} must stay human-only");
+            let error: Value = response.json().await.unwrap();
+            assert_eq!(error["error"]["code"], "token_scope_forbidden");
+        }
+    }
+}
+
+/// 分頁：limit 被 clamp、cursor 不重不漏、`sessionId` 篩選不跨 session。
+#[tokio::test]
+async fn trace_query_clamps_pages_and_never_crosses_sessions() {
+    let server = TestServer::spawn().await;
+    let a = server
+        .runtime
+        .create_agent_session(probe_session("codex"))
+        .await
+        .unwrap();
+    let b = server
+        .runtime
+        .create_agent_session(probe_session("claude-code"))
+        .await
+        .unwrap();
+    let (a_id, b_id) = (
+        a.session_id.as_str().to_string(),
+        b.session_id.as_str().to_string(),
+    );
+
+    // 兩個 session 各寫幾筆可辨識的紀錄（直接走 store，不假造業務事件）。
+    for (id, count) in [(&a_id, 7usize), (&b_id, 3usize)] {
+        for n in 0..count {
+            server
+                .runtime
+                .store
+                .record(
+                    &interaction_core::TraceRecord::trace("agent-session.task-delivered")
+                        .actor("runtime")
+                        .trace_id(id.as_str())
+                        .session(id.as_str())
+                        .detail(json!({"seq": n})),
+                )
+                .unwrap();
+        }
+    }
+
+    // limit > 500 → clamp 到 500（呼叫端不得把整段歷史載進記憶體）。
+    let (status, body) = server.get("/v1/trace?limit=9999").await;
+    assert_eq!(status, 200);
+    assert_eq!(body["limit"], 500);
+
+    // sessionId 篩選：只回該 session，一筆都不跨。
+    let (status, body) = server.get(&format!("/v1/trace?sessionId={b_id}")).await;
+    assert_eq!(status, 200);
+    let items = body["items"].as_array().unwrap();
+    assert!(!items.is_empty());
+    assert!(
+        items.iter().all(|row| row["sessionId"] == json!(b_id)),
+        "sessionId 篩選漏出了別的 session"
+    );
+
+    // cursor 分頁：每頁 3 筆走完 A 的紀錄，id 嚴格遞減、不重不漏。
+    let mut seen: Vec<i64> = Vec::new();
+    let mut cursor: Option<i64> = None;
+    for _ in 0..10 {
+        let path = match cursor {
+            Some(before) => format!("/v1/trace?sessionId={a_id}&limit=3&before={before}"),
+            None => format!("/v1/trace?sessionId={a_id}&limit=3"),
+        };
+        let (status, body) = server.get(&path).await;
+        assert_eq!(status, 200);
+        assert_eq!(body["limit"], 3);
+        let items = body["items"].as_array().unwrap().clone();
+        for row in &items {
+            seen.push(row["id"].as_i64().unwrap());
+        }
+        match body["nextCursor"].as_i64() {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    let mut sorted = seen.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted.len(), seen.len(), "分頁回了重複的紀錄");
+    assert!(
+        seen.windows(2).all(|w| w[0] > w[1]),
+        "排序必須是 id DESC（核心接收序）"
+    );
+    // 一次抓完（limit 大於總數）應該剛好等於分頁看到的那一組。
+    let (_, all) = server
+        .get(&format!("/v1/trace?sessionId={a_id}&limit=100"))
+        .await;
+    let expected: Vec<i64> = all["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["id"].as_i64().unwrap())
+        .collect();
+    assert_eq!(seen, expected, "分頁漏了紀錄");
+
+    // 打錯字的篩選條件回 400，不是悄悄忽略（忽略會讓查詢者以為「沒有這種紀錄」）。
+    for path in [
+        "/v1/trace?class=not-a-class",
+        "/v1/trace?outcome=not-an-outcome",
+        "/v1/trace?since=yesterday",
+    ] {
+        let (status, _) = server.get(path).await;
+        assert_eq!(status, 400, "{path} 應該回 400");
+    }
+}
+
+/// 「這件工作的經過」：人話投影，而且 kind／code 字串不會變成標籤。
+#[tokio::test]
+async fn activity_projects_records_into_plain_language() {
+    let server = TestServer::spawn().await;
+    let session = server
+        .runtime
+        .create_agent_session(probe_session("codex"))
+        .await
+        .unwrap();
+    let id = session.session_id.as_str().to_string();
+
+    server
+        .runtime
+        .store
+        .record(
+            &interaction_core::TraceRecord::trace("agent-session.dispatched")
+                .actor("runtime")
+                .trace_id(id.as_str())
+                .session(id.as_str())
+                .detail(json!({"providerKind": "codex"})),
+        )
+        .unwrap();
+    server
+        .runtime
+        .store
+        .record(
+            &interaction_core::TraceRecord::diagnostic("agent-session.subprocess-stderr")
+                .actor("runtime")
+                .trace_id(id.as_str())
+                .session(id.as_str())
+                .detail(json!({
+                    "tail": "warn: retrying",
+                    "truncated": true,
+                    "linesDropped": 2,
+                    "bytesSeen": 4096,
+                })),
+        )
+        .unwrap();
+    server
+        .runtime
+        .store
+        .record(
+            &interaction_core::TraceRecord::audit("agent-session.outcome")
+                .actor("runtime")
+                .outcome(interaction_core::TraceOutcome::Failed)
+                .code("outcome.connector-error")
+                .trace_id(id.as_str())
+                .session(id.as_str())
+                .detail(json!({"reason": "連接器沒有回應"})),
+        )
+        .unwrap();
+
+    let (status, body) = server
+        .get(&format!("/v1/agent-sessions/{id}/activity"))
+        .await;
+    assert_eq!(status, 200);
+    assert_eq!(body["sessionId"], json!(id));
+    assert_eq!(body["headline"], "失敗：連接器沒有回應");
+    assert_eq!(body["failureReason"], "連接器沒有回應");
+    assert_eq!(body["lifecycle"], "open");
+
+    let labels: Vec<String> = body["timeline"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|step| step["label"].as_str().unwrap().to_string())
+        .collect();
+    assert!(labels.contains(&"已交給 Codex".to_string()));
+    assert!(labels.contains(&"工作助手有診斷輸出（可展開）".to_string()));
+    assert!(labels.contains(&"失敗：連接器沒有回應".to_string()));
+    // 標籤絕不是 kind 字串。
+    assert!(
+        labels.iter().all(|label| !label.contains("agent-session.")),
+        "人話標籤裡混進了 kind 字串：{labels:?}"
+    );
+
+    // diagnostic 類在 records 裡只留脫敏後的 tail 與兩個界限標記。
+    let stderr_row = body["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["kind"] == "agent-session.subprocess-stderr")
+        .expect("stderr record missing");
+    assert_eq!(stderr_row["detail"]["tail"], "warn: retrying");
+    assert_eq!(stderr_row["detail"]["truncated"], true);
+    assert!(stderr_row["detail"].get("bytesSeen").is_none());
+
+    // 沒有這個 session 就是 404，不回一份空殼假裝有這件工作。
+    let (status, _) = server
+        .get("/v1/agent-sessions/no-such-session/activity")
+        .await;
+    assert_eq!(status, 404);
+}

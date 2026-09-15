@@ -2531,3 +2531,136 @@ mod character_session_tests {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// 追蹤紀錄查詢（human-only）
+//
+// 為什麼只有人類：這是「誰在什麼時候被允許做了什麼、哪裡被擋下來」的完整
+// 歷史。AI 讀得到自己的授權史，就等於讀得到「哪一項限制是怎麼被觸發的」，
+// 那是一份現成的規避指南。`agent_request_allowed` 明確排除 `/v1/trace`，
+// `/v1/agent-sessions` 前綴本來就整段排除。
+// ---------------------------------------------------------------------------
+
+/// `GET /v1/trace` 的查詢字串。全部可選；每一項都是 AND 條件。
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceQueryParams {
+    #[serde(default)]
+    pub trace_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub class: Option<String>,
+    #[serde(default)]
+    pub actor: Option<String>,
+    #[serde(default)]
+    pub outcome: Option<String>,
+    #[serde(default)]
+    pub since: Option<String>,
+    #[serde(default)]
+    pub until: Option<String>,
+    /// 往回翻頁的 cursor：只回 `id < before`。
+    #[serde(default)]
+    pub before: Option<i64>,
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+/// 把不認得的 class／outcome／時間字串當成使用者打錯字，回 400——
+/// 悄悄忽略一個篩選條件比報錯危險得多（查詢者會以為「沒有這種紀錄」）。
+fn parse_filter<T>(
+    raw: Option<&str>,
+    parse: impl Fn(&str) -> Option<T>,
+    what: &str,
+) -> ApiResult<Option<T>> {
+    match raw {
+        None => Ok(None),
+        Some(value) => parse(value).map(Some).ok_or_else(|| {
+            ApiError::from(DomainError::Validation(format!("unknown {what}: {value}")))
+        }),
+    }
+}
+
+fn parse_time(raw: Option<&str>, what: &str) -> ApiResult<Option<interaction_core::Timestamp>> {
+    parse_filter(
+        raw,
+        |value| {
+            chrono::DateTime::parse_from_rfc3339(value)
+                .ok()
+                .map(|t| t.with_timezone(&chrono::Utc))
+        },
+        what,
+    )
+}
+
+pub async fn trace_query(
+    State(state): State<ApiState>,
+    Query(q): Query<TraceQueryParams>,
+) -> ApiResult<Json<Value>> {
+    let query = interaction_core::TraceQuery {
+        trace_id: q.trace_id,
+        session_id: q.session_id,
+        kind: q.kind,
+        class: parse_filter(
+            q.class.as_deref(),
+            interaction_core::TraceClass::parse,
+            "class",
+        )?,
+        actor: q.actor,
+        outcome: parse_filter(
+            q.outcome.as_deref(),
+            interaction_core::TraceOutcome::parse,
+            "outcome",
+        )?,
+        since: parse_time(q.since.as_deref(), "since")?,
+        until: parse_time(q.until.as_deref(), "until")?,
+        before_id: q.before,
+        // 儲存層自己 clamp 到 1..=500；這裡只是把 `limit` 原樣交下去，
+        // 讓「上限是多少」只有一個地方說了算。
+        limit: q
+            .limit
+            .unwrap_or(interaction_core::TRACE_QUERY_DEFAULT_LIMIT),
+    };
+    let limit = query.effective_limit();
+    let items = state.runtime.store.query_trace(&query)?;
+    // 還有更早的紀錄時才給 cursor：回滿一頁就可能還有，沒回滿就是到底了。
+    let next_cursor = (items.len() as u32 == limit)
+        .then(|| items.last().map(|row| row.id))
+        .flatten();
+    Ok(Json(json!({
+        "items": items,
+        "nextCursor": next_cursor,
+        "limit": limit,
+    })))
+}
+
+/// `GET /v1/agent-sessions/{id}/activity`：一件工作的「經過」（人話投影）。
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityQueryParams {
+    #[serde(default)]
+    pub before: Option<i64>,
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+pub async fn agent_session_activity(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    Query(q): Query<ActivityQueryParams>,
+) -> ApiResult<Json<Value>> {
+    let activity = state
+        .runtime
+        .agent_session_activity(
+            &id,
+            q.before,
+            q.limit
+                .unwrap_or(interaction_core::TRACE_QUERY_DEFAULT_LIMIT),
+        )
+        .await?;
+    Ok(Json(
+        serde_json::to_value(activity).map_err(|e| DomainError::Internal(e.to_string()))?,
+    ))
+}
