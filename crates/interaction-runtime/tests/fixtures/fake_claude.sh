@@ -62,11 +62,32 @@ case "$MODE" in
     ;;
 esac
 
+# 真 Claude Code 2.1.272 在 `-p --input-format stream-json --output-format
+# stream-json` 之下被 SIGINT 中斷時的輸出形狀（階段 1 的 real-agent trace
+# harness 實測）：它先吐一行 result，`is_error` 為真、`subtype` 是
+# `error_during_execution`，而且**沒有** `result` 字串欄位（所以連接器讀到的
+# 錯誤摘要就只是 "error_during_execution"），然後才收場。階段 0 的 D1 就是
+# 照字面把這一行翻成「失敗」。
+emit_interrupted_result() {
+  echo '{"type":"result","subtype":"error_during_execution","is_error":true,"duration_ms":1200,"num_turns":1,"session_id":"fake-123"}'
+  exit 0
+}
+
 TURN=0
 while IFS= read -r _line; do
   if [ -n "$INPUT_FILE" ]; then printf '%s\n' "$_line" >> "$INPUT_FILE"; fi
   TURN=$((TURN + 1))
   case "$MODE" in
+    # 長任務＋真機形狀的中斷：先回報進度（session 因此進入 working／Active），
+    # 再等很久；收到訊號時照真 Claude Code 的樣子先印 result 行才退出。
+    # 不改 `hang`：那個分支被 estop／shutdown／「中斷只是請求」等測試當成
+    # 「永遠不回話、只能被殺掉」的子程序，加上 trap 會改掉它們的前提。
+    long-task)
+      trap emit_interrupted_result INT TERM
+      echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"working on it"}]}}'
+      sleep 3600 &
+      wait $!
+      ;;
     hang)
       sleep 3600
       ;;
