@@ -132,6 +132,27 @@ const ROUTES: Record<string, Route> = {
   },
   outbox_recent: (a) => http("GET", `/v1/outbox?limit=${q(a.limit ?? 30)}`),
   audit_tail: (a) => http("GET", `/v1/audit?limit=${q(a.limit ?? 50)}`),
+  // 追蹤紀錄查詢。沒給的條件不送：送空字串會被後端當成「篩選 空字串」，
+  // 那是另一件事（後端也會把不認得的 class／outcome 當成 400，不悄悄忽略）。
+  trace_query: (a) => {
+    const query = (a.query ?? {}) as Record<string, unknown>;
+    const params = new URLSearchParams();
+    Object.entries(query).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && String(value).trim()) {
+        params.set(key, String(value));
+      }
+    });
+    return http("GET", `/v1/trace${params.size ? `?${params}` : ""}`);
+  },
+  agent_session_activity: (a) => {
+    const params = new URLSearchParams();
+    if (a.before !== undefined && a.before !== null) params.set("before", String(a.before));
+    if (a.limit !== undefined && a.limit !== null) params.set("limit", String(a.limit));
+    return http(
+      "GET",
+      `/v1/agent-sessions/${q(a.id)}/activity${params.size ? `?${params}` : ""}`
+    );
+  },
   events_recent: async (a) => eventsRecentHttp(Number(a.limit ?? 100)),
   set_receptor_enabled: (a) => http("PATCH", `/v1/receptors/${q(a.id)}`, { enabled: a.enabled }),
   set_actuator_enabled: (a) => http("PATCH", `/v1/actuators/${q(a.id)}`, { enabled: a.enabled }),

@@ -173,6 +173,15 @@ export const api = {
       limit,
     }),
   auditTail: (limit = 50) => invoke<Record<string, unknown>[]>("audit_tail", { limit }),
+  /** 追蹤紀錄查詢（人類層；agent token 在後端一律 403）。 */
+  traceQuery: (query: TraceQueryInput = {}) => invoke<TracePage>("trace_query", { query }),
+  /** 「這件工作的經過」：人話投影由 runtime 決定，前端只負責排版。 */
+  agentSessionActivity: (id: string, before?: number, limit?: number) =>
+    invoke<AgentSessionActivity>("agent_session_activity", {
+      id,
+      before: before ?? null,
+      limit: limit ?? null,
+    }),
   eventsRecent: (limit = 100) => invoke<RuntimeEvent[]>("events_recent", { limit }),
   setReceptorEnabled: (id: string, enabled: boolean) =>
     invoke("set_receptor_enabled", { id, enabled }),
@@ -710,6 +719,76 @@ export interface ActivityInboxFilter {
  *  title 已是人話（原始 event_type 在 `detail.eventType`）。 */
 export type SafetyEventStatus = "emergency" | "emergency-cleared" | "sensor.started" | "sensor.stopped";
 
+/** 追蹤紀錄的一列（`interaction_core::TraceRow`）。技術層：只在進階模式出現。 */
+export interface TraceRow {
+  id: number;
+  at: string;
+  /** audit｜trace｜diagnostic。舊列（migration 之前）讀出來一律是 audit。 */
+  class: string;
+  schema?: number;
+  kind: string;
+  actor: string;
+  outcome?: string;
+  code?: string;
+  traceId?: string;
+  causationId?: string;
+  sessionId?: string;
+  /** 來源自報時間（不可信，只供參考）；排序永遠依 `id`。 */
+  sourceAt?: string;
+  detail: Record<string, unknown>;
+}
+
+export interface TraceQueryInput {
+  traceId?: string;
+  sessionId?: string;
+  kind?: string;
+  class?: string;
+  actor?: string;
+  outcome?: string;
+  since?: string;
+  until?: string;
+  /** 往回翻頁的 cursor：只回比它更早（id 更小）的紀錄。 */
+  before?: number;
+  limit?: number;
+}
+
+export interface TracePage {
+  items: TraceRow[];
+  /** 有值＝還可能有更早的紀錄；null＝到底了。 */
+  nextCursor?: number | null;
+  limit: number;
+}
+
+/** 時間線上的一步。`label` 已經是人話——前端**不得**自己用 `kind` 造標籤。 */
+export interface ActivityStep {
+  at: string;
+  id: number;
+  kind: string;
+  label: string;
+  outcome?: string;
+  code?: string;
+  detailAvailable: boolean;
+}
+
+/** 一件工作的「經過」（`GET /v1/agent-sessions/{id}/activity`）。
+ *  人話投影全部在 runtime 決定：headline／stateLabel／failureReason／
+ *  nextStep／每一步的 label 都是後端給的固定文案，前端只負責排版。 */
+export interface AgentSessionActivity {
+  sessionId: string;
+  headline: string;
+  stateLabel: string;
+  phase?: string;
+  recordState: string;
+  lifecycle: "open" | "closed";
+  failureReason?: string;
+  nextStep?: string;
+  timeline: ActivityStep[];
+  /** 技術層原始紀錄（進階模式才展開）；diagnostic 類只剩脫敏後的 tail。 */
+  records: TraceRow[];
+  truncated: boolean;
+  nextCursor?: number | null;
+}
+
 export interface AgentSessionRecord {
   sessionId: string;
   providerId: string;
@@ -724,6 +803,13 @@ export interface AgentSessionRecord {
   /** 允許修改工作區檔案。後端欄位由 gateway cluster 提供；缺席（舊後端）
    *  一律視為唯讀——徽章依此欄位呈現，絕不依建立時的請求值宣稱可寫。 */
   allowWrite?: boolean;
+  /** 執行階段（created／fetched／working／waiting-*／claimed-completed／
+   *  verified／failed／unknown／timed-out／cancelled／closed／expired）。
+   *  與 `state` 是兩個維度：`fetched`／`working` 從來不存在於 `state`。
+   *  舊快照沒有這個欄位 ⇒ undefined（不補造一個沒被觀察到的階段）。 */
+  phase?: string;
+  /** Provider **自報的**實際模型。讀不到就是 undefined：不拿請求值回填。 */
+  actualModel?: string;
   providerSessionId?: string;
   /** 上一次**真的**掛上子程序的工作目錄（後端正規化後的絕對路徑）。
    *  這是續開時唯一可信的資料夾來源：`dataScope` 裡的 `workspace:` 只是

@@ -9,7 +9,7 @@
 // 兩條建立路徑共用 work/TaskComposer 的 buildSessionCreateInput，不重複權限邏輯。
 
 import React from "react";
-import { AgentSessionRecord, api } from "../api";
+import { AgentSessionActivity, ActivityStep, AgentSessionRecord, api } from "../api";
 import { Badge, Section, StateView, useAsync } from "../ui";
 import { Dialog } from "../components/Dialog";
 import { useAppState } from "../appstate";
@@ -18,6 +18,7 @@ import {
   BadgeKind,
   isOpenWorkState,
   projectWorkState,
+  relativeSince,
   WORK_STATE_PROJECTION,
   WORK_STATES,
   WorkState,
@@ -781,9 +782,142 @@ function SessionCard({
               ))}
             </ul>
           )}
+          <WorkActivitySection
+            sessionId={record.sessionId}
+            advanced={advanced}
+            stateSignature={`${record.state}|${record.phase ?? ""}|${record.claimId ?? ""}|${
+              record.humanVerified?.at ?? ""
+            }`}
+          />
         </div>
       )}
     </div>
+  );
+}
+
+
+/** 一次載入幾筆時間線紀錄。展開卡片才載入，之後只在工作狀態真的變了時
+ *  重載一次——不輪詢（紀錄是歷史，不是即時狀態）。 */
+const ACTIVITY_PAGE_SIZE = 20;
+
+/**
+ * 「這件工作的經過」。
+ *
+ * 人話**全部由後端決定**（`/v1/agent-sessions/{id}/activity`）：headline、
+ * 目前狀態、失敗原因、下一步、每一步的 label 都是 runtime 投影好的固定文案。
+ * 這裡只負責排版——前端絕不拿 `kind`／`code` 自己造字，否則「一般模式看得到
+ * 什麼」就會有兩個互相矛盾的真相來源。
+ *
+ * 技術層（原始紀錄、識別碼、stderr）只在進階模式的「技術詳情」裡。
+ */
+export function WorkActivitySection({
+  sessionId,
+  advanced,
+  stateSignature = "",
+}: {
+  sessionId: string;
+  advanced: boolean;
+  /** 工作狀態的指紋（state／phase／claim）。它一變＝後端真的有新事實
+   *  （SSE 讓外層重抓了 session 清單），這時才重載一次。 */
+  stateSignature?: string;
+}) {
+  const headingId = React.useId();
+  const [activity, setActivity] = React.useState<AgentSessionActivity | null>(null);
+  const [steps, setSteps] = React.useState<ActivityStep[]>([]);
+  const [records, setRecords] = React.useState<AgentSessionActivity["records"]>([]);
+  const [cursor, setCursor] = React.useState<number | null>(null);
+  const [failed, setFailed] = React.useState(false);
+  const [loadingOlder, setLoadingOlder] = React.useState(false);
+
+  // 第一頁：展開時載入一次，之後只在工作狀態真的變了時重載（SSE 讓外層
+  // 重抓 session 清單、`stateSignature` 跟著換）。紀錄是歷史，不輪詢。
+  // `alive` 讓過期的回應不會蓋掉新的一頁（狀態連續變化時的競態）。
+  React.useEffect(() => {
+    let alive = true;
+    setFailed(false);
+    api
+      .agentSessionActivity(sessionId, undefined, ACTIVITY_PAGE_SIZE)
+      .then((next) => {
+        if (!alive) return;
+        setActivity(next);
+        setSteps(next.timeline);
+        setRecords(next.records);
+        setCursor(next.nextCursor ?? null);
+      })
+      .catch(() => {
+        if (alive) setFailed(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [sessionId, stateSignature]);
+
+  // 往回翻頁：時間線由新到舊，所以更早的紀錄接在後面。
+  const loadOlder = (before: number) => {
+    setLoadingOlder(true);
+    api
+      .agentSessionActivity(sessionId, before, ACTIVITY_PAGE_SIZE)
+      .then((next) => {
+        setSteps((prev) => [...prev, ...next.timeline]);
+        setRecords((prev) => [...prev, ...next.records]);
+        setCursor(next.nextCursor ?? null);
+      })
+      .catch(() => setFailed(true))
+      .finally(() => setLoadingOlder(false));
+  };
+
+  return (
+    <section className="work-activity" aria-labelledby={headingId}>
+      <h4 id={headingId}>這件工作的經過</h4>
+      {failed ? (
+        // 誠實：讀不到就說讀不到，不拿舊資料或空清單假裝「什麼都沒發生」。
+        <div className="state-box" role="status">
+          目前讀不到這件工作的經過。
+        </div>
+      ) : !activity ? (
+        <div className="state-box" role="status">
+          正在讀取…
+        </div>
+      ) : (
+        <>
+          <p className="activity-headline">{activity.headline}</p>
+          <p className="muted small">目前狀態：{activity.stateLabel}</p>
+          {activity.failureReason && (
+            <p className="risk-note">失敗原因：{activity.failureReason}</p>
+          )}
+          {activity.nextStep && <p className="activity-next">下一步：{activity.nextStep}</p>}
+          {steps.length === 0 ? (
+            <div className="state-box">這件工作還沒有留下任何紀錄。</div>
+          ) : (
+            <ol className="activity-timeline">
+              {steps.map((step) => (
+                <li key={step.id}>
+                  <span className="activity-step-label">{step.label}</span>
+                  <span className="muted small">{relativeSince(step.at)}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+          {cursor !== null && (
+            <div className="row wrap">
+              <button
+                disabled={loadingOlder}
+                onClick={() => loadOlder(cursor)}
+              >
+                {loadingOlder ? "載入中…" : "載入更早"}
+              </button>
+              <span className="muted small">已載入 {steps.length} 筆，還有更早的紀錄。</span>
+            </div>
+          )}
+          {advanced && (
+            <details className="tech-details">
+              <summary className="muted small">技術詳情</summary>
+              <pre className="json-view small">{JSON.stringify(records, null, 2)}</pre>
+            </details>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 

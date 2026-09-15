@@ -2541,98 +2541,19 @@ mod character_session_tests {
 // `/v1/agent-sessions` 前綴本來就整段排除。
 // ---------------------------------------------------------------------------
 
-/// `GET /v1/trace` 的查詢字串。全部可選；每一項都是 AND 條件。
-#[derive(serde::Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct TraceQueryParams {
-    #[serde(default)]
-    pub trace_id: Option<String>,
-    #[serde(default)]
-    pub session_id: Option<String>,
-    #[serde(default)]
-    pub kind: Option<String>,
-    #[serde(default)]
-    pub class: Option<String>,
-    #[serde(default)]
-    pub actor: Option<String>,
-    #[serde(default)]
-    pub outcome: Option<String>,
-    #[serde(default)]
-    pub since: Option<String>,
-    #[serde(default)]
-    pub until: Option<String>,
-    /// 往回翻頁的 cursor：只回 `id < before`。
-    #[serde(default)]
-    pub before: Option<i64>,
-    #[serde(default)]
-    pub limit: Option<u32>,
-}
-
-/// 把不認得的 class／outcome／時間字串當成使用者打錯字，回 400——
-/// 悄悄忽略一個篩選條件比報錯危險得多（查詢者會以為「沒有這種紀錄」）。
-fn parse_filter<T>(
-    raw: Option<&str>,
-    parse: impl Fn(&str) -> Option<T>,
-    what: &str,
-) -> ApiResult<Option<T>> {
-    match raw {
-        None => Ok(None),
-        Some(value) => parse(value).map(Some).ok_or_else(|| {
-            ApiError::from(DomainError::Validation(format!("unknown {what}: {value}")))
-        }),
-    }
-}
-
-fn parse_time(raw: Option<&str>, what: &str) -> ApiResult<Option<interaction_core::Timestamp>> {
-    parse_filter(
-        raw,
-        |value| {
-            chrono::DateTime::parse_from_rfc3339(value)
-                .ok()
-                .map(|t| t.with_timezone(&chrono::Utc))
-        },
-        what,
-    )
-}
-
+/// `GET /v1/trace`。查詢字串的形狀與解析規則都在 runtime
+/// （`activity_trace::TraceQueryInput`）——HTTP、Tauri IPC 與 CLI 共用同一條
+/// 規則，三個地方各寫一次遲早會有一個悄悄把不認得的值當成「沒有篩選」。
 pub async fn trace_query(
     State(state): State<ApiState>,
-    Query(q): Query<TraceQueryParams>,
+    Query(q): Query<interaction_runtime::activity_trace::TraceQueryInput>,
 ) -> ApiResult<Json<Value>> {
-    let query = interaction_core::TraceQuery {
-        trace_id: q.trace_id,
-        session_id: q.session_id,
-        kind: q.kind,
-        class: parse_filter(
-            q.class.as_deref(),
-            interaction_core::TraceClass::parse,
-            "class",
-        )?,
-        actor: q.actor,
-        outcome: parse_filter(
-            q.outcome.as_deref(),
-            interaction_core::TraceOutcome::parse,
-            "outcome",
-        )?,
-        since: parse_time(q.since.as_deref(), "since")?,
-        until: parse_time(q.until.as_deref(), "until")?,
-        before_id: q.before,
-        // 儲存層自己 clamp 到 1..=500；這裡只是把 `limit` 原樣交下去，
-        // 讓「上限是多少」只有一個地方說了算。
-        limit: q
-            .limit
-            .unwrap_or(interaction_core::TRACE_QUERY_DEFAULT_LIMIT),
-    };
-    let limit = query.effective_limit();
-    let items = state.runtime.store.query_trace(&query)?;
-    // 還有更早的紀錄時才給 cursor：回滿一頁就可能還有，沒回滿就是到底了。
-    let next_cursor = (items.len() as u32 == limit)
-        .then(|| items.last().map(|row| row.id))
-        .flatten();
+    let page = state.runtime.query_trace_page(q)?;
     Ok(Json(json!({
-        "items": items,
-        "nextCursor": next_cursor,
-        "limit": limit,
+        "items": page.items,
+        // 明確寫出 null（而不是省略欄位）：呼叫端看得出「到底了」。
+        "nextCursor": page.next_cursor,
+        "limit": page.limit,
     })))
 }
 
