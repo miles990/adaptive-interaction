@@ -262,6 +262,43 @@ pub enum Command {
         #[arg(long, default_value_t = 20)]
         limit: u32,
     },
+    /// Query the trace record trail (audit / trace / diagnostic records).
+    ///
+    /// Human-only: the trail is the full authorization history (who was
+    /// stopped by which limit, and why). Sorting is always by the core's
+    /// receive order (`id`), never a device clock.
+    Trace {
+        /// Only records belonging to this agent session.
+        #[arg(long)]
+        session: Option<String>,
+        /// Only records sharing this trace id (one interaction end to end).
+        #[arg(long)]
+        trace: Option<String>,
+        /// Record kind, e.g. agent-session.outcome.
+        #[arg(long)]
+        kind: Option<String>,
+        /// audit | trace | diagnostic
+        #[arg(long)]
+        class: Option<String>,
+        /// Verified actor class, e.g. human / runtime / watchdog.
+        #[arg(long)]
+        actor: Option<String>,
+        /// accepted|rejected|ignored|deferred|completed|claimed|failed|
+        /// cancelled|unknown|verified|expired|pruned
+        #[arg(long)]
+        outcome: Option<String>,
+        /// Inclusive lower bound (RFC3339).
+        #[arg(long)]
+        since: Option<String>,
+        /// Exclusive upper bound (RFC3339).
+        #[arg(long)]
+        until: Option<String>,
+        /// Paging cursor: only records with a smaller id (older) are returned.
+        #[arg(long)]
+        before: Option<i64>,
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+    },
     /// Run the runtime daemon (HTTP API on 127.0.0.1).
     Serve {
         #[arg(long)]
@@ -373,6 +410,16 @@ pub enum AgentsAction {
     Sessions,
     /// Show one agent session.
     Show { id: String },
+    /// What happened in one session: plain-language headline, current state,
+    /// failure reason, next step, timeline — plus the raw records.
+    Activity {
+        id: String,
+        /// Paging cursor: only records older than this record id.
+        #[arg(long)]
+        before: Option<i64>,
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+    },
     /// Create a leased agent session.
     Create {
         /// Agent profile id (e.g. agent.coder).
