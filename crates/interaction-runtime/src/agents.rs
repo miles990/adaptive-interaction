@@ -16,7 +16,8 @@ use interaction_core::{
     check_delegation, validate_handoff, AgentContextBundleReceipt, AgentSessionId,
     AgentSessionRecord, AgentSessionState, CapabilityLease, DelegationEnvelope, DomainError,
     DomainResult, EventType, HandoffSummary, MailboxDirection, MailboxMessage, ProviderDescriptor,
-    ProviderId, ProviderIdentity, ProviderKind, ProviderState, SessionBudget, TrustLevel,
+    ProviderId, ProviderIdentity, ProviderKind, ProviderState, SessionBudget, TraceOutcome,
+    TraceRecord, TrustLevel,
 };
 use rand::RngCore;
 use serde_json::{json, Value};
@@ -97,16 +98,91 @@ fn capability_digest(token: &str) -> String {
     format!("{:x}", Sha256::digest(token.as_bytes()))
 }
 
+/// 續開比對的結構化結果：每一個維度都算出來，稽核才看得到「比對了什麼」，
+/// 而不只是「被擋掉了」。純資料，沒有副作用。
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ResumeComparison {
+    data_scope_added: Vec<String>,
+    tool_scope_added: Vec<String>,
+    consent_scope_added: Vec<String>,
+    ttl_widened: bool,
+    cost_widened: bool,
+    messages_widened: bool,
+    write_escalation: bool,
+    /// 上次是「一個工具都不給」（intent-only），這次不是：宣告更窄、實權更寬。
+    tools_re_enabled: bool,
+    /// `same`／`changed`／`missing`／`unknown`／`not-applicable`。
+    workdir_check: &'static str,
+}
+
+impl Default for ResumeComparison {
+    fn default() -> Self {
+        Self {
+            data_scope_added: Vec::new(),
+            tool_scope_added: Vec::new(),
+            consent_scope_added: Vec::new(),
+            ttl_widened: false,
+            cost_widened: false,
+            messages_widened: false,
+            write_escalation: false,
+            tools_re_enabled: false,
+            // 沒有上一個紀錄就沒有資料夾可比：不是「一樣」，也不是「換了」。
+            workdir_check: "not-applicable",
+        }
+    }
+}
+
+impl ResumeComparison {
+    fn to_detail(&self) -> Value {
+        json!({
+            "dataScopeAdded": self.data_scope_added,
+            "toolScopeAdded": self.tool_scope_added,
+            "consentScopeAdded": self.consent_scope_added,
+            "ttlWidened": self.ttl_widened,
+            "costWidened": self.cost_widened,
+            "messagesWidened": self.messages_widened,
+            "writeEscalation": self.write_escalation,
+            "toolsReEnabled": self.tools_re_enabled,
+        })
+    }
+}
+
+/// 被拒絕的續開。對外的錯誤**文案一字不變**（介面與既有測試都在比對它）；
+/// `code` 與 `comparison` 只多給稽核用，不影響呼叫端看到的東西。
+#[derive(Debug)]
+pub(crate) struct ResumeRejection {
+    code: &'static str,
+    comparison: ResumeComparison,
+    error: DomainError,
+}
+
+fn reject(
+    code: &'static str,
+    comparison: &ResumeComparison,
+    error: DomainError,
+) -> Box<ResumeRejection> {
+    // Box：拒絕是例外路徑，不該讓每一個 `Result` 都背著三個 Vec 的大小
+    // （clippy::result_large_err）。
+    Box::new(ResumeRejection {
+        code,
+        comparison: comparison.clone(),
+        error,
+    })
+}
+
 /// 續開不得放寬：把這一次的請求逐項和上一個 session 的**實際授權**比對。
 ///
 /// 誠實階梯的延伸：介面說「接續上次的工作（只讀取）」，那就不能偷偷換成
 /// 更長的租期、更高的費用上限或更多的資料範圍。省略欄位＝落到 runtime
 /// 預設，而預設幾乎總是比上一次寬——所以「沒帶」也算放寬，一樣拒絕。
+///
+/// 回傳的是**結構化**結果（不是 `()`）：D9 要求接受與拒絕都留稽核，
+/// 稽核就必須拿得到原因碼與逐項比對，而不是只有一句人話。
 fn check_resume_not_wider(
     input: &CreateAgentSession,
     original: &AgentSessionRecord,
     policy_max_messages: u32,
-) -> DomainResult<()> {
+) -> Result<ResumeComparison, Box<ResumeRejection>> {
     let extra = |requested: &[String], granted: &[String]| -> Vec<String> {
         requested
             .iter()
@@ -114,67 +190,144 @@ fn check_resume_not_wider(
             .cloned()
             .collect()
     };
-    // 「宣告的 scope 是子集」不等於「實際生效的工具集沒有變寬」：上一次是
-    // intent-only（`conversation.generate` ⇒ provider 端一個工具都不給），
-    // 這一次送空集合，字面上是更窄的子集，實際上卻讓 claude 從 `--tools ""`
-    // 變回可讀檔／glob／grep。比對實際生效的那一個開關，縮小 scope 才不會
-    // 反而放寬實權。
-    if crate::gateway::tools_disabled(&original.tool_scope)
-        && !crate::gateway::tools_disabled(&input.tool_scope)
-    {
-        return Err(DomainError::PolicyBlocked(
-            "接續上次的工作不得放寬可用工具：上次是完全不使用工具的工作階段，要接續請一樣只帶 conversation.generate"
-                .into(),
-        ));
-    }
-    for (what, added) in [
-        ("資料範圍", extra(&input.data_scope, &original.data_scope)),
-        ("可用工具", extra(&input.tool_scope, &original.tool_scope)),
-        (
-            "使用授權",
-            extra(&input.consent_scope, &original.consent_scope),
-        ),
-    ] {
-        if !added.is_empty() {
-            return Err(DomainError::PolicyBlocked(format!(
-                "接續上次的工作不得放寬{what}：{} 不在上次的授權範圍裡",
-                added.join("、")
-            )));
-        }
-    }
-    if input.allow_write && !original.allow_write {
-        return Err(DomainError::ConsentRequired(
-            "接續上次的工作不得憑空取得修改權限；要修改檔案請重新建立一個明確授權的工作階段".into(),
-        ));
-    }
     let requested_ttl = input.ttl_minutes.unwrap_or(120);
     let original_ttl = ((original.budget.max_duration_ms / 60_000) as u32).max(1);
-    if requested_ttl > original_ttl {
-        return Err(DomainError::PolicyBlocked(format!(
-            "接續上次的工作不得放寬時間上限（上次 {original_ttl} 分鐘，這次要求 {requested_ttl} 分鐘）"
-        )));
-    }
     // 0＝沒有金額上限。上次有上限、這次沒帶（或帶更高）都是放寬。
     let requested_cost = input.max_cost.unwrap_or(0.0);
-    if original.budget.max_cost > 0.0
-        && (requested_cost <= 0.0 || requested_cost > original.budget.max_cost)
-    {
-        return Err(DomainError::PolicyBlocked(format!(
-            "接續上次的工作不得放寬費用上限（上次 US${:.2}）",
-            original.budget.max_cost
-        )));
-    }
     let requested_messages = match input.max_messages {
         None | Some(0) => policy_max_messages,
         Some(n) => n.min(policy_max_messages),
     };
-    if requested_messages > original.budget.max_messages {
-        return Err(DomainError::PolicyBlocked(format!(
-            "接續上次的工作不得放寬訊息上限（上次 {}，這次 {requested_messages}）",
-            original.budget.max_messages
-        )));
+    let (workdir_check, previous_workdir) = check_resume_same_workdir(input, original);
+    let comparison = ResumeComparison {
+        data_scope_added: extra(&input.data_scope, &original.data_scope),
+        tool_scope_added: extra(&input.tool_scope, &original.tool_scope),
+        consent_scope_added: extra(&input.consent_scope, &original.consent_scope),
+        ttl_widened: requested_ttl > original_ttl,
+        cost_widened: original.budget.max_cost > 0.0
+            && (requested_cost <= 0.0 || requested_cost > original.budget.max_cost),
+        messages_widened: requested_messages > original.budget.max_messages,
+        write_escalation: input.allow_write && !original.allow_write,
+        // 「宣告的 scope 是子集」不等於「實際生效的工具集沒有變寬」：上一次是
+        // intent-only（`conversation.generate` ⇒ provider 端一個工具都不給），
+        // 這一次送空集合，字面上是更窄的子集，實際上卻讓 claude 從 `--tools ""`
+        // 變回可讀檔／glob／grep。比對實際生效的那一個開關，縮小 scope 才不會
+        // 反而放寬實權。
+        tools_re_enabled: crate::gateway::tools_disabled(&original.tool_scope)
+            && !crate::gateway::tools_disabled(&input.tool_scope),
+        workdir_check,
+    };
+
+    // 檢查順序與文案都維持原樣：第一個命中的維度決定呼叫端看到的錯誤。
+    if comparison.tools_re_enabled {
+        return Err(reject(
+            "resume.tools-widened",
+            &comparison,
+            DomainError::PolicyBlocked(
+                "接續上次的工作不得放寬可用工具：上次是完全不使用工具的工作階段，要接續請一樣只帶 conversation.generate"
+                    .into(),
+            ),
+        ));
     }
-    check_resume_same_workdir(input, original)
+    for (what, added, code) in [
+        (
+            "資料範圍",
+            &comparison.data_scope_added,
+            "resume.data-scope-widened",
+        ),
+        (
+            "可用工具",
+            &comparison.tool_scope_added,
+            "resume.tool-scope-widened",
+        ),
+        (
+            "使用授權",
+            &comparison.consent_scope_added,
+            "resume.consent-scope-widened",
+        ),
+    ] {
+        if !added.is_empty() {
+            let message = format!(
+                "接續上次的工作不得放寬{what}：{} 不在上次的授權範圍裡",
+                added.join("、")
+            );
+            return Err(reject(
+                code,
+                &comparison,
+                DomainError::PolicyBlocked(message),
+            ));
+        }
+    }
+    if comparison.write_escalation {
+        return Err(reject(
+            "resume.write-escalation",
+            &comparison,
+            DomainError::ConsentRequired(
+                "接續上次的工作不得憑空取得修改權限；要修改檔案請重新建立一個明確授權的工作階段"
+                    .into(),
+            ),
+        ));
+    }
+    if comparison.ttl_widened {
+        return Err(reject(
+            "resume.ttl-widened",
+            &comparison,
+            DomainError::PolicyBlocked(format!(
+                "接續上次的工作不得放寬時間上限（上次 {original_ttl} 分鐘，這次要求 {requested_ttl} 分鐘）"
+            )),
+        ));
+    }
+    if comparison.cost_widened {
+        return Err(reject(
+            "resume.cost-widened",
+            &comparison,
+            DomainError::PolicyBlocked(format!(
+                "接續上次的工作不得放寬費用上限（上次 US${:.2}）",
+                original.budget.max_cost
+            )),
+        ));
+    }
+    if comparison.messages_widened {
+        return Err(reject(
+            "resume.messages-widened",
+            &comparison,
+            DomainError::PolicyBlocked(format!(
+                "接續上次的工作不得放寬訊息上限（上次 {}，這次 {requested_messages}）",
+                original.budget.max_messages
+            )),
+        ));
+    }
+    match comparison.workdir_check {
+        "changed" => {
+            let previous = previous_workdir.unwrap_or_default();
+            Err(reject(
+                "resume.workdir-changed",
+                &comparison,
+                DomainError::PolicyBlocked(format!(
+                    "接續上次的工作不得更換工作目錄（上次是 {previous}）；                     要換資料夾請重新建立一個明確授權的工作階段"
+                )),
+            ))
+        }
+        "missing" => {
+            let previous = previous_workdir.unwrap_or_default();
+            Err(reject(
+                "resume.workdir-missing",
+                &comparison,
+                DomainError::PolicyBlocked(format!(
+                    "接續上次的工作必須帶上同一個工作目錄（上次是 {previous}）；             省略＝由系統另外挑一個資料夾，那不是接續"
+                )),
+            ))
+        }
+        "unknown" => Err(reject(
+            "resume.workdir-unknown",
+            &comparison,
+            DomainError::PolicyBlocked(
+                "找不到上一次實際掛載的工作目錄記錄，無法確認沒有換資料夾；                 請重新建立一個明確授權的工作階段"
+                    .into(),
+            ),
+        )),
+        _ => Ok(comparison),
+    }
 }
 
 /// 把一個請求裡的 workdir 正規化成可比對的絕對路徑。
@@ -191,7 +344,24 @@ fn canonical_workdir(raw: &str) -> String {
         .unwrap_or_else(|_| trimmed.to_string())
 }
 
-/// 續開不得換工作目錄。
+/// 把一段路徑寫成**可稽核但不外洩**的摘要：正規化後的 sha256 前 12 位＋
+/// 最後一段檔名。稽核要能比對「是不是同一個資料夾」，不需要整條路徑
+/// （那會把使用者的目錄結構留在紀錄裡）。
+pub(crate) fn workdir_digest(raw: &str) -> Value {
+    let canonical = canonical_workdir(raw);
+    let digest: String = format!("{:x}", Sha256::digest(canonical.as_bytes()))
+        .chars()
+        .take(12)
+        .collect();
+    json!({
+        "digest": digest,
+        "basename": std::path::Path::new(&canonical)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned()),
+    })
+}
+
+/// 續開不得換工作目錄。回傳 `(檢查結果, 上次實際掛載的路徑)`。
 ///
 /// `dataScope` 裡的 `workspace:` 只是呼叫端自己附加的人話標籤；真正決定
 /// 子程序掛在哪一棵檔案樹的是 `workdir`。宣稱「什麼範圍都沒放寬」卻換一個
@@ -204,7 +374,7 @@ fn canonical_workdir(raw: &str) -> String {
 fn check_resume_same_workdir(
     input: &CreateAgentSession,
     original: &AgentSessionRecord,
-) -> DomainResult<()> {
+) -> (&'static str, Option<String>) {
     let requested = input
         .workdir
         .as_deref()
@@ -212,27 +382,74 @@ fn check_resume_same_workdir(
         .filter(|w| !w.is_empty());
     match (original.resolved_workdir.as_deref(), requested) {
         (Some(previous), Some(next)) => {
-            if canonical_workdir(previous) != canonical_workdir(next) {
-                return Err(DomainError::PolicyBlocked(format!(
-                    "接續上次的工作不得更換工作目錄（上次是 {previous}）；                     要換資料夾請重新建立一個明確授權的工作階段"
-                )));
-            }
-            Ok(())
+            let same = canonical_workdir(previous) == canonical_workdir(next);
+            (
+                if same { "same" } else { "changed" },
+                Some(previous.to_string()),
+            )
         }
-        (Some(previous), None) => Err(DomainError::PolicyBlocked(format!(
-            "接續上次的工作必須帶上同一個工作目錄（上次是 {previous}）；             省略＝由系統另外挑一個資料夾，那不是接續"
-        ))),
+        (Some(previous), None) => ("missing", Some(previous.to_string())),
         // 舊記錄（升級前建立）沒有留下實際掛載的工作目錄：不確定就拒絕。
         // 這次帶不帶資料夾都一樣——「兩邊都不知道」比「知道一邊」更不確定，
         // 不能因為請求也省略了就當作沒換過（agent-honesty-025）。
         (None, _) if crate::gateway::agent_kind_for(&original.agent_id).is_some() => {
-            Err(DomainError::PolicyBlocked(
-                "找不到上一次實際掛載的工作目錄記錄，無法確認沒有換資料夾；                 請重新建立一個明確授權的工作階段"
-                    .into(),
-            ))
+            ("unknown", None)
         }
         // 純對話 session 從來沒有工作目錄，接續與資料夾無關。
-        _ => Ok(()),
+        _ => ("not-applicable", None),
+    }
+}
+
+/// D9 的稽核列：接受、拒絕、找不到原紀錄三種結局共用同一個形狀，
+/// 查詢端因此不必為每一種結局各寫一套解析。
+///
+/// `actor` 固定 `human`：建立 agent session 只有 human token 做得到——
+/// `agent_request_allowed` 不放行 `POST /v1/agent-sessions`，
+/// session-scoped capability token 也只放行自己 session 的 interrupt 與工具呼叫。
+///
+/// `detail` 不含 token；`workdir` 只留 `{digest, basename}`（不把使用者的
+/// 目錄結構寫進紀錄）。
+#[allow(clippy::too_many_arguments)]
+fn resume_audit_record(
+    session_id: &str,
+    input: &CreateAgentSession,
+    original: Option<&AgentSessionRecord>,
+    resume_provider_session_id: &str,
+    outcome: TraceOutcome,
+    code: &'static str,
+    comparison: &ResumeComparison,
+    reason: &str,
+) -> TraceRecord {
+    let record = TraceRecord::audit("agent-session.resume-checked")
+        .actor("human")
+        .outcome(outcome)
+        .code(code)
+        // 直接原因：呼叫端說要接續的那一個 provider thread／session id。
+        .caused_by(resume_provider_session_id)
+        // 拒絕時這個 id 不會存在於任何 session 清單裡，但它就是**這一次嘗試**
+        // 的身分——查詢「這次嘗試留下什麼」只認得它。
+        .session(session_id)
+        .detail(json!({
+            "agentId": input.agent_id,
+            "originalSessionId": original.map(|o| o.session_id.as_str()),
+            "requested": {
+                "ttlMinutes": input.ttl_minutes,
+                "maxCost": input.max_cost,
+                "maxMessages": input.max_messages,
+                "allowWrite": input.allow_write,
+                "dataScope": input.data_scope,
+                "toolScope": input.tool_scope,
+                "consentScope": input.consent_scope,
+                "workdir": input.workdir.as_deref().map(workdir_digest),
+            },
+            "comparison": comparison.to_detail(),
+            "workdirCheck": comparison.workdir_check,
+            "reason": reason,
+        }));
+    // trace_id ＝被接續的原 session（找得到才填；不知道就是 None，不補造）。
+    match original {
+        Some(original) => record.trace_id(original.session_id.as_str()),
+        None => record,
     }
 }
 
@@ -451,19 +668,83 @@ impl Runtime {
         // `resumeProviderSessionId` 不會被任何 connector 使用，本身不授予
         // 任何東西。
         if let Some(resume_id) = input.resume_provider_session_id.as_deref() {
+            // D9：續開是一次**授權判定**——接受、拒絕、或找不到原紀錄，
+            // 三種結局都必須留下稽核。以前三條路徑一筆都不寫，事後完全看不出
+            // 「誰在什麼時候想接續什麼、被擋在哪一項」。
             match self.resumed_session_record(resume_id).await {
-                Some(original) => check_resume_not_wider(
-                    &input,
-                    &original,
-                    policy.delegation.max_messages_per_session,
-                )?,
+                Some(original) => {
+                    match check_resume_not_wider(
+                        &input,
+                        &original,
+                        policy.delegation.max_messages_per_session,
+                    ) {
+                        Ok(comparison) => {
+                            // 接受是關鍵轉移：稽核寫不進去就不放行
+                            // （記不下來的授權不算授權）。
+                            self.store.record(&resume_audit_record(
+                                session_id.as_str(),
+                                &input,
+                                Some(&original),
+                                resume_id,
+                                TraceOutcome::Accepted,
+                                "resume.ok",
+                                &comparison,
+                                "與上一次的授權逐項比對後沒有任何放寬",
+                            ))?;
+                        }
+                        Err(rejection) => {
+                            let rejection = *rejection;
+                            // 拒絕路徑**沒有任何副作用**：不註冊 provider、
+                            // 不持久化、不 spawn 子程序、不發事件。稽核寫失敗
+                            // 也不得把拒絕變成放行，所以只計數、照樣回錯。
+                            let message = rejection.error.to_string();
+                            self.record_trace(resume_audit_record(
+                                session_id.as_str(),
+                                &input,
+                                Some(&original),
+                                resume_id,
+                                TraceOutcome::Rejected,
+                                rejection.code,
+                                &rejection.comparison,
+                                &message,
+                            ));
+                            return Err(rejection.error);
+                        }
+                    }
+                }
                 None if crate::gateway::agent_kind_for(&input.agent_id).is_some() => {
-                    return Err(DomainError::PolicyBlocked(
+                    let error = DomainError::PolicyBlocked(
                         "找不到上一次的授權紀錄，無法確認接續沒有放寬任何範圍；請重新建立一個明確授權的工作階段"
                             .into(),
+                    );
+                    let message = error.to_string();
+                    self.record_trace(resume_audit_record(
+                        session_id.as_str(),
+                        &input,
+                        None,
+                        resume_id,
+                        TraceOutcome::Rejected,
+                        "resume.no-record",
+                        &ResumeComparison::default(),
+                        &message,
+                    ));
+                    return Err(error);
+                }
+                // 純對話 session：`resumeProviderSessionId` 不會被任何 connector
+                // 使用，本身不授予任何東西。誠實記為「被忽略」——不是接受，
+                // 因為根本沒有東西被接續。
+                None => {
+                    self.record_trace(resume_audit_record(
+                        session_id.as_str(),
+                        &input,
+                        None,
+                        resume_id,
+                        TraceOutcome::Ignored,
+                        "resume.no-record",
+                        &ResumeComparison::default(),
+                        "非 gateway agent：這個 id 不會被任何 connector 使用，沒有東西被接續",
                     ));
                 }
-                None => {}
             }
         }
         let open = self.open_agent_sessions().await;
@@ -1951,9 +2232,15 @@ mod resume_workdir_tests {
         }
     }
 
-    fn blocked(result: DomainResult<()>) -> String {
-        match result {
-            Err(DomainError::PolicyBlocked(msg)) => msg,
+    /// 回 `(人話文案, 結構化原因碼)`：文案是給人看的（介面在比對它），
+    /// code 是給稽核查詢用的——兩者都必須穩定。
+    fn blocked(result: Result<ResumeComparison, Box<ResumeRejection>>) -> (String, &'static str) {
+        match result.map_err(|boxed| *boxed) {
+            Err(ResumeRejection {
+                code,
+                error: DomainError::PolicyBlocked(msg),
+                ..
+            }) => (msg, code),
             other => panic!("expected PolicyBlocked, got {other:?}"),
         }
     }
@@ -1978,20 +2265,22 @@ mod resume_workdir_tests {
 
         // `A/../B`：字串前綴像 A，正規化後其實是隔壁的 B。
         let traversal = format!("{}/../B", dir_a.display());
-        let msg = blocked(check_resume_not_wider(
+        let (msg, code) = blocked(check_resume_not_wider(
             &resume("claude-code", Some(&traversal)),
             &record("claude-code", Some(&a)),
             10,
         ));
         assert!(msg.contains("工作目錄"), "{msg}");
+        assert_eq!(code, "resume.workdir-changed");
 
         // 省略＝由系統另外挑一個資料夾，一樣是換範圍。
-        let msg = blocked(check_resume_not_wider(
+        let (msg, code) = blocked(check_resume_not_wider(
             &resume("claude-code", None),
             &record("claude-code", Some(&a)),
             10,
         ));
         assert!(msg.contains("工作目錄"), "{msg}");
+        assert_eq!(code, "resume.workdir-missing");
     }
 
     /// 舊記錄（升級前建立的 gateway session）沒有留下實際掛載的工作目錄：
@@ -2001,13 +2290,14 @@ mod resume_workdir_tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().to_string_lossy().into_owned();
 
-        let msg = blocked(check_resume_not_wider(
+        let (msg, code) = blocked(check_resume_not_wider(
             &resume("claude-code", Some(&path)),
             &record("claude-code", None),
             10,
         ));
         assert!(msg.contains("工作目錄"), "{msg}");
-        let msg = blocked(check_resume_not_wider(
+        assert_eq!(code, "resume.workdir-unknown");
+        let (msg, _) = blocked(check_resume_not_wider(
             &resume("codex", Some(&path)),
             &record("codex", None),
             10,
@@ -2025,11 +2315,49 @@ mod resume_workdir_tests {
         // 不確定——舊紀錄沒留下實際掛載的目錄，這次也沒指定（後端會自己
         // 挑一個 scratch 目錄）。不確定就拒絕，不得因為請求也省略了就當作
         // 「沒換過」。
-        let msg = blocked(check_resume_not_wider(
+        let (msg, code) = blocked(check_resume_not_wider(
             &resume("claude-code", None),
             &record("claude-code", None),
             10,
         ));
         assert!(msg.contains("工作目錄"), "{msg}");
+        assert_eq!(code, "resume.workdir-unknown");
+    }
+
+    /// 接受的續開也要說得出「比對了什麼」：稽核 detail 的 comparison 不是
+    /// 裝飾，查詢端靠它證明每一個維度都真的比過。
+    #[test]
+    fn an_accepted_resume_reports_every_compared_dimension() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir
+            .path()
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let comparison = check_resume_not_wider(
+            &resume("claude-code", Some(&path)),
+            &record("claude-code", Some(&path)),
+            10,
+        )
+        .expect("誠實接續");
+        assert_eq!(comparison.workdir_check, "same");
+        let detail = comparison.to_detail();
+        for key in [
+            "dataScopeAdded",
+            "toolScopeAdded",
+            "consentScopeAdded",
+            "ttlWidened",
+            "costWidened",
+            "messagesWidened",
+            "writeEscalation",
+            "toolsReEnabled",
+        ] {
+            assert!(detail.get(key).is_some(), "comparison 少了 {key}");
+        }
+        // 工作目錄只留摘要：稽核比對得出「是不是同一個」，但不留整條路徑。
+        let digest = workdir_digest(&path);
+        assert_eq!(digest["digest"].as_str().map(str::len), Some(12));
+        assert!(!digest.to_string().contains(&path));
     }
 }

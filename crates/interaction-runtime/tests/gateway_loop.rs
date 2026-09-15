@@ -2834,3 +2834,170 @@ async fn resume_without_a_recorded_grant_is_refused() {
     );
     std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
 }
+
+/// D9：被拒絕的續開必須留下稽核列——而且**只**留下稽核列。
+///
+/// 以前這條路徑一個字都不寫：事後完全看不出「有人拿著一個 thread id 想把
+/// 30 分鐘的授權換成 120 分鐘，被擋下來了」。同時釘住「拒絕沒有副作用」：
+/// 不長出 session、不長出 provider、不掛子程序。
+#[tokio::test]
+async fn a_rejected_resume_leaves_an_audit_row_but_no_session() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+
+    let first_dir = scenario_workdir("default");
+    let workdir = first_dir.path().to_string_lossy().into_owned();
+    let mut first = claude_input("原本的工作", None);
+    first.ttl_minutes = Some(30);
+    first.workdir = Some(workdir.clone());
+    let original = rt.create_agent_session(first).await.unwrap();
+    let first_sid = original.session_id.as_str().to_string();
+    wait_for(
+        async || {
+            rt.get_agent_session(&first_sid)
+                .await
+                .map(|r| r.provider_session_id.is_some())
+                .unwrap_or(false)
+        },
+        "provider session id",
+    )
+    .await;
+    let provider_sid = rt
+        .get_agent_session(&first_sid)
+        .await
+        .unwrap()
+        .provider_session_id
+        .unwrap();
+    rt.close_agent_session(&first_sid, None, "closed")
+        .await
+        .unwrap();
+
+    let sessions_before: Vec<String> = rt
+        .list_agent_sessions()
+        .await
+        .into_iter()
+        .map(|r| r.session_id.as_str().to_string())
+        .collect();
+    let providers_before = rt.providers.list().await.len();
+
+    // 什麼上限都不帶＝時間從 30 分鐘變回 runtime 預設的 120 分鐘。
+    let mut widened = claude_input("放寬時間", None);
+    widened.ttl_minutes = None;
+    widened.workdir = Some(workdir.clone());
+    widened.resume_provider_session_id = Some(provider_sid.clone());
+    let err = rt.create_agent_session(widened).await.unwrap_err();
+    assert!(matches!(err, DomainError::PolicyBlocked(_)), "{err:?}");
+    assert!(format!("{err}").contains("時間上限"), "{err}");
+
+    let rejected: Vec<TraceRow> = rt
+        .store
+        .query_trace(&TraceQuery {
+            kind: Some("agent-session.resume-checked".into()),
+            outcome: Some(TraceOutcome::Rejected),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(rejected.len(), 1, "被拒絕的續開必須恰好留下一列稽核");
+    let row = &rejected[0];
+    assert_eq!(row.class, TraceClass::Audit);
+    assert_eq!(row.actor, "human");
+    assert_eq!(row.code.as_deref(), Some("resume.ttl-widened"));
+    assert_eq!(row.causation_id.as_deref(), Some(provider_sid.as_str()));
+    assert_eq!(row.trace_id.as_deref(), Some(first_sid.as_str()));
+    assert_eq!(
+        row.detail["comparison"]["ttlWidened"],
+        serde_json::json!(true)
+    );
+    assert_eq!(row.detail["workdirCheck"], serde_json::json!("same"));
+    // 這一次嘗試的 session id：被記下來了，但**沒有**變成一個 session。
+    let attempted = row.session_id.clone().expect("稽核必須說得出是哪一次嘗試");
+    assert!(!sessions_before.contains(&attempted));
+    let sessions_after: Vec<String> = rt
+        .list_agent_sessions()
+        .await
+        .into_iter()
+        .map(|r| r.session_id.as_str().to_string())
+        .collect();
+    assert_eq!(sessions_after, sessions_before, "拒絕不得長出新的 session");
+    assert_eq!(
+        rt.providers.list().await.len(),
+        providers_before,
+        "拒絕不得長出新的 provider"
+    );
+    assert!(
+        !rt.gateway_session_attached(&attempted),
+        "拒絕不得掛上子程序"
+    );
+}
+
+/// D9：接受的續開同樣留稽核，而且 `traceId` 指回**被接續的那一個 session**
+/// ——「這一次是接續哪一段工作」必須查得出來，不能只留一個孤立的新 id。
+#[tokio::test]
+async fn an_accepted_resume_is_audited_with_the_original_session_as_trace() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+
+    let dir = scenario_workdir("default");
+    let workdir = dir.path().to_string_lossy().into_owned();
+    let mut first = claude_input("原本的工作", None);
+    first.ttl_minutes = Some(30);
+    first.workdir = Some(workdir.clone());
+    let original = rt.create_agent_session(first).await.unwrap();
+    let first_sid = original.session_id.as_str().to_string();
+    wait_for(
+        async || {
+            rt.get_agent_session(&first_sid)
+                .await
+                .map(|r| r.provider_session_id.is_some())
+                .unwrap_or(false)
+        },
+        "provider session id",
+    )
+    .await;
+    let provider_sid = rt
+        .get_agent_session(&first_sid)
+        .await
+        .unwrap()
+        .provider_session_id
+        .unwrap();
+    rt.close_agent_session(&first_sid, None, "closed")
+        .await
+        .unwrap();
+
+    let mut faithful = claude_input("誠實接續", None);
+    faithful.ttl_minutes = Some(30);
+    faithful.workdir = Some(workdir.clone());
+    faithful.resume_provider_session_id = Some(provider_sid.clone());
+    let resumed = rt.create_agent_session(faithful).await.unwrap();
+    let resumed_sid = resumed.session_id.as_str().to_string();
+
+    let rows = rt
+        .store
+        .query_trace(&TraceQuery {
+            kind: Some("agent-session.resume-checked".into()),
+            session_id: Some(resumed_sid.clone()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert_eq!(row.outcome, Some(TraceOutcome::Accepted));
+    assert_eq!(row.code.as_deref(), Some("resume.ok"));
+    assert_eq!(row.trace_id.as_deref(), Some(first_sid.as_str()));
+    assert_eq!(row.causation_id.as_deref(), Some(provider_sid.as_str()));
+    assert_eq!(
+        row.detail["originalSessionId"],
+        serde_json::json!(first_sid.as_str())
+    );
+    // detail 不含 token，工作目錄只留摘要（不把整條路徑寫進紀錄）。
+    let detail = row.detail.to_string();
+    assert!(!detail.contains("iat-session-"), "{detail}");
+    assert!(!detail.contains(&workdir), "{detail}");
+    assert!(row.detail["requested"]["workdir"]["digest"].is_string());
+
+    rt.close_agent_session(&resumed_sid, None, "closed")
+        .await
+        .unwrap();
+}
