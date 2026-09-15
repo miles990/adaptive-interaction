@@ -1364,3 +1364,144 @@ async fn retention_never_prunes_a_live_session() {
         listed.len()
     );
 }
+
+/// 一個 session 依序發出的 `agent.session.state`（小樞與介面演出的來源）。
+fn state_events(rt: &Runtime, session_id: &str) -> Vec<serde_json::Value> {
+    rt.events
+        .recent(2000)
+        .into_iter()
+        .filter(|e| e.event_type == EventType::AgentSessionState)
+        .filter(|e| e.payload.get("agentSessionId").and_then(|v| v.as_str()) == Some(session_id))
+        .map(|e| e.payload)
+        .collect()
+}
+
+/// D10／階段 0 的 D2：關閉不得把終局壓成「已關閉」。
+///
+/// `record.state` 一直都保留著 Failed／Unknown／TimedOut，但投影以前只讓
+/// Cancelled 逃得掉——失敗與未知在畫面上一律變成「已關閉」。
+#[tokio::test]
+async fn close_projection_preserves_terminal_state() {
+    for (event, expected_state, expected_taxonomy) in [
+        ("failed", AgentSessionState::Failed, "failed"),
+        ("unknown", AgentSessionState::Unknown, "unknown"),
+        ("timed-out", AgentSessionState::TimedOut, "timed-out"),
+        ("cancelled", AgentSessionState::Cancelled, "cancelled"),
+    ] {
+        let (_g, rt) = runtime().await;
+        let session = rt
+            .create_agent_session(create_input("agent.coder"))
+            .await
+            .unwrap();
+        let sid = session.session_id.as_str().to_string();
+        rt.report_agent_session(&sid, event, json!({}))
+            .await
+            .unwrap();
+        let closed = rt.close_agent_session(&sid, None, "closed").await.unwrap();
+
+        assert_eq!(closed.state, expected_state, "{event}");
+        assert_eq!(closed.phase.as_deref(), Some(expected_taxonomy), "{event}");
+        let states: Vec<String> = state_events(&rt, &sid)
+            .into_iter()
+            .filter_map(|p| p["state"].as_str().map(String::from))
+            .collect();
+        assert_eq!(
+            states.last().map(String::as_str),
+            Some(expected_taxonomy),
+            "關閉不得把 {event} 壓成 closed：{states:?}"
+        );
+        // 生命週期仍然誠實地說「這個 session 已經不開著了」。
+        let last = state_events(&rt, &sid).pop().unwrap();
+        assert_eq!(last["lifecycle"], json!("closed"), "{event}");
+        assert_eq!(last["phase"], last["state"], "{event}");
+    }
+}
+
+/// 沒有終局的 session 關閉後仍然是 `closed`——這一格沒有被順手改掉。
+#[tokio::test]
+async fn closing_a_session_without_a_terminal_outcome_is_still_closed() {
+    let (_g, rt) = runtime().await;
+    let session = rt
+        .create_agent_session(create_input("agent.coder"))
+        .await
+        .unwrap();
+    let sid = session.session_id.as_str().to_string();
+    rt.report_agent_session(&sid, "progress", json!({"text": "在做了"}))
+        .await
+        .unwrap();
+    let closed = rt.close_agent_session(&sid, None, "closed").await.unwrap();
+    assert_eq!(closed.state, AgentSessionState::Closed);
+    assert_eq!(closed.phase.as_deref(), Some("closed"));
+}
+
+/// D10：`phase`（執行階段）與 `state`（授權狀態機）是兩個維度，而且
+/// GET 讀到的 phase 必須等於 SSE 送出的那個值。
+#[tokio::test]
+async fn get_and_sse_agree_on_phase_for_every_reported_state() {
+    let (_g, rt) = runtime().await;
+    let session = rt
+        .create_agent_session(create_input("agent.coder"))
+        .await
+        .unwrap();
+    let sid = session.session_id.as_str().to_string();
+    // 建立當下：兩個維度剛好同值。
+    assert_eq!(session.phase.as_deref(), Some("created"));
+
+    for (event, phase, record_state) in [
+        ("progress", "working", "active"),
+        ("waiting-for-input", "waiting-input", "waiting-for-input"),
+        (
+            "waiting-for-consent",
+            "waiting-consent",
+            "waiting-for-consent",
+        ),
+        (
+            "claimed-completed",
+            "claimed-completed",
+            "claimed-completed",
+        ),
+    ] {
+        rt.report_agent_session(&sid, event, json!({}))
+            .await
+            .unwrap();
+        let got = rt.get_agent_session(&sid).await.unwrap();
+        assert_eq!(got.phase.as_deref(), Some(phase), "{event}");
+        let last = state_events(&rt, &sid).pop().unwrap();
+        assert_eq!(last["state"], json!(phase), "{event}");
+        assert_eq!(last["phase"], json!(phase), "{event}");
+        // `working` 從來不存在於授權狀態機裡：兩個維度不得互相冒充。
+        assert_eq!(last["recordState"], json!(record_state), "{event}");
+        assert_eq!(last["lifecycle"], json!("open"), "{event}");
+    }
+
+    // 人工驗證（human-only）也走同一條路：phase 落地後才發事件。
+    rt.verify_agent_session(&sid, None).await.unwrap();
+    assert_eq!(
+        rt.get_agent_session(&sid).await.unwrap().phase.as_deref(),
+        Some("verified")
+    );
+    let last = state_events(&rt, &sid).pop().unwrap();
+    assert_eq!(last["state"], json!("verified"));
+    assert_eq!(last["recordState"], json!("claimed-completed"));
+}
+
+/// 租約到期：phase 落地成 `timed-out`，重新載入畫面不會回到假象狀態。
+#[tokio::test]
+async fn an_expired_lease_persists_its_timed_out_phase() {
+    let (_g, rt) = runtime().await;
+    let session = rt
+        .create_agent_session(create_input("agent.coder"))
+        .await
+        .unwrap();
+    let sid = session.session_id.as_str().to_string();
+    rt.report_agent_session(&sid, "progress", json!({}))
+        .await
+        .unwrap();
+    let expired = rt.expire_agent_session_lease(&sid).await.unwrap();
+    assert_eq!(expired.state, AgentSessionState::Expired);
+    assert_eq!(expired.phase.as_deref(), Some("timed-out"));
+    let last = state_events(&rt, &sid).pop().unwrap();
+    assert_eq!(last["state"], json!("timed-out"));
+    assert_eq!(last["recordState"], json!("expired"));
+    assert_eq!(last["lifecycle"], json!("closed"));
+}

@@ -187,6 +187,18 @@ pub struct AgentSessionRecord {
     #[serde(default)]
     pub label: Option<String>,
     pub state: AgentSessionState,
+    /// 執行階段（taxonomy 字串）：`created`／`fetched`／`working`／
+    /// `waiting-input`／`waiting-consent`／`claimed-completed`／`verified`／
+    /// `failed`／`unknown`／`timed-out`／`cancelled`／`closed`／`expired`。
+    ///
+    /// 與 [`AgentSessionState`] 是**兩個不同的維度**：`state` 是授權狀態機
+    /// （決定還能不能收訊息、還算不算 open），`phase` 是「這個工作進行到
+    /// 哪裡」——`fetched`／`working` 這些 SSE 一直在送的值從來不存在於
+    /// `state` 裡，以前因此只活在事件流上，重新載入畫面就消失了。
+    ///
+    /// 舊快照沒有這個欄位 ⇒ `None`（不補造一個從來沒被觀察到的階段）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
     pub lease: CapabilityLease,
     /// What data the session may receive (human-meaningful categories).
     #[serde(default)]

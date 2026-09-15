@@ -3001,3 +3001,110 @@ async fn an_accepted_resume_is_audited_with_the_original_session_as_trace() {
         .await
         .unwrap();
 }
+
+/// D10：任務真的送進子程序（`fetched`）之後、agent 開始工作之前，
+/// `GET /v1/agent-sessions/{id}` 讀到的 `phase` 必須就是 SSE 那一刻送出的值。
+///
+/// 以前 `fetched` 只活在事件流上：重新載入畫面就只剩 `state: created`，
+/// 使用者看到的是「還沒開始」——那不是狀態回到起點，是我們從來沒記下來。
+#[tokio::test]
+async fn get_and_sse_agree_on_phase_while_the_task_is_in_flight() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+    let slow = scenario_workdir("slow");
+    let mut input = claude_input("慢慢做", None);
+    input.workdir = Some(slow.path().to_string_lossy().into_owned());
+    let created = rt.create_agent_session(input).await.unwrap();
+    let sid = created.session_id.as_str().to_string();
+    assert_eq!(created.phase.as_deref(), Some("created"));
+
+    rt.mailbox_send(
+        &sid,
+        MailboxDirection::ToSession,
+        "task",
+        BTreeMap::from([("task".to_string(), json!("看一下 repo"))]),
+        None,
+    )
+    .await
+    .unwrap();
+
+    // fixture 的 `slow` 模式在 fetched 與 working 之間留了 0.4 秒。
+    let in_flight = rt.get_agent_session(&sid).await.unwrap();
+    assert_eq!(in_flight.phase.as_deref(), Some("fetched"));
+    assert_eq!(
+        in_flight.state,
+        AgentSessionState::Created,
+        "fetched 不是授權狀態機的值：兩個維度不得互相冒充"
+    );
+    let payload = rt
+        .events
+        .recent(2000)
+        .into_iter()
+        .rfind(|e| {
+            e.event_type == EventType::AgentSessionState
+                && e.payload.get("agentSessionId").and_then(|v| v.as_str()) == Some(sid.as_str())
+        })
+        .unwrap()
+        .payload;
+    assert_eq!(payload["state"], json!("fetched"));
+    assert_eq!(payload["phase"], json!("fetched"));
+    assert_eq!(payload["recordState"], json!("created"));
+    assert_eq!(payload["lifecycle"], json!("open"));
+
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::ClaimedCompleted)
+                .unwrap_or(false)
+        },
+        "claimed-completed",
+    )
+    .await;
+    assert_eq!(
+        rt.get_agent_session(&sid).await.unwrap().phase.as_deref(),
+        Some("claimed-completed")
+    );
+
+    // 子程序自行結束（exit 0）後關閉：終局仍然是聲稱，不是失敗。
+    rt.close_agent_session(&sid, None, "closed").await.unwrap();
+}
+
+/// 子程序在沒有任何聲稱的情況下結束 ⇒ `unknown`，而**關閉不得把它壓成
+/// `closed`**（階段 0 的 D2）。
+#[tokio::test]
+async fn closing_an_unknown_gateway_session_keeps_unknown_on_the_wire() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+    let silent = scenario_workdir("silent");
+    let mut input = claude_input("默默退出", None);
+    input.workdir = Some(silent.path().to_string_lossy().into_owned());
+    let sid = rt
+        .create_agent_session(input)
+        .await
+        .unwrap()
+        .session_id
+        .as_str()
+        .to_string();
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::Unknown)
+                .unwrap_or(false)
+        },
+        "unknown",
+    )
+    .await;
+
+    let closed = rt.close_agent_session(&sid, None, "closed").await.unwrap();
+    assert_eq!(closed.state, AgentSessionState::Unknown);
+    assert_eq!(closed.phase.as_deref(), Some("unknown"));
+    assert_eq!(
+        session_states(&rt, &sid).last().map(String::as_str),
+        Some("unknown"),
+        "關閉不得把「結果未知」改寫成「已關閉」"
+    );
+}

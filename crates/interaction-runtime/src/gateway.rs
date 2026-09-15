@@ -859,30 +859,32 @@ impl Runtime {
         // 新的一輪開始：上一輪的結局不再替這一輪擔保（子程序在這一輪
         // 死掉必須報 unknown），舊的人工驗證也只屬於上一個 claim。
         managed.turn_settled.store(false, Ordering::SeqCst);
-        {
-            let map = self.agent_sessions.read().await;
-            if let Some(entry) = map.get(session_id) {
-                self.emit_agent_session_state(session_id, &entry.record.agent_id, "fetched");
-            }
-        }
-        let acked = {
+        // 一個臨界區做完三件事：寫下執行階段（D10——phase 先落地，事件才發
+        // 得出去，GET 與 SSE 因此不會漂開）、清掉只屬於上一個 claim 的人工
+        // 驗證、補 delivered 戳記。
+        let (snapshot, acked) = {
             let mut map = self.agent_sessions.write().await;
-            map.get_mut(session_id).and_then(|entry| {
-                if entry.record.human_verified.take().is_some() {
-                    self.persist_agent_session(&entry.record);
+            match map.get_mut(session_id) {
+                Some(entry) => {
+                    entry.record.human_verified = None;
+                    let acked = entry
+                        .mailbox
+                        .iter_mut()
+                        .find(|m| m.message_id == message.message_id)
+                        .map(|m| {
+                            if m.delivered_at.is_none() {
+                                m.delivered_at = Some(Utc::now());
+                            }
+                            m.action_id.clone()
+                        });
+                    (Some(self.persist_phase(entry, "fetched")), acked)
                 }
-                entry
-                    .mailbox
-                    .iter_mut()
-                    .find(|m| m.message_id == message.message_id)
-                    .map(|m| {
-                        if m.delivered_at.is_none() {
-                            m.delivered_at = Some(Utc::now());
-                        }
-                        m.action_id.clone()
-                    })
-            })
+                None => (None, None),
+            }
         };
+        if let Some(record) = &snapshot {
+            self.emit_agent_session_state_for(record, "fetched");
+        }
         if let Some(Some(action_id)) = acked {
             let _ = self
                 .acknowledge_delegated_action_public(&action_id, &message.message_id)
