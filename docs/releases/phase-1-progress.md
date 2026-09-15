@@ -272,7 +272,13 @@ warnings`／`cargo test -p interaction-runtime` 全量與其餘受影響 crate�
 
 ### 8.3 PR、CI、合併與 checkpoint tag
 
-（留白，待整合者填寫；依 `AGENTS.md` §6，PR 走 rebase merge，tag 只從已通過
-`release-verify.sh` 的 commit 打——本階段是否對應一次 minor 發布見
-`docs/releases/evidence-index.json` 本輪 candidate 的 `versionPolicy`；若只是查核點，應比照
-階段 0 的 `phase-1-baseline-YYYYMMDD` 命名慣例建 annotated checkpoint tag。）
+- PR：[#9](https://github.com/miles990/adaptive-interaction/pull/9)（base `main`，rebase merge，31 個 commit）。
+- PR CI：第一次 run 34937528076 **紅**——Rust job 的三支新 `api_e2e` 查詢面測試用 codex gateway session，CI 沒有
+  codex 二進位（開發機上更糟：會偷偷跑真 codex）；改用非 gateway session（`28904d2`）後 run 34938165151 四個 job
+  全綠：Rust（fmt＋clippy＋test＋build）5m52s、Frontend 1m51s、Browser E2E（Playwright 對真 daemon）通過、Tauri backend 2m55s。
+- 合併後 main：`1e0ed50f213d6f221ba8d5a04ce0687ae3c4c5fe`（rebase merge，無 merge commit）；main CI run 34938674560 **success**。
+- checkpoint tag：`phase-1-traceability-20260915` → `1e0ed50`（annotated；不是 release，release.yml 只吃 `v*`）。
+- 本節與 `docs/releases/evidence-index.json` 的狀態更新是合併後直接推到 main 的一個 docs commit（比照階段 0；main 無分支保護；
+  tag 指向它之前的合併 commit）。
+- **不是正式發布**：`versionPolicy` 為 0.9.0 minor 候選（新增相容的 schema 9、兩個端點、CLI 子命令），但本輪未走
+  `release-prepare.sh → release-verify.sh → release-tag.sh`；真 iPhone 與原生 App 走查仍為 blocked（§7），發布留待後續裁決。
