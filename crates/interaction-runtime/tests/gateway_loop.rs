@@ -3002,6 +3002,76 @@ async fn an_accepted_resume_is_audited_with_the_original_session_as_trace() {
         .unwrap();
 }
 
+/// 「接續已核准」這一筆稽核不得對應一個**從來沒有被建立**的 session。
+///
+/// resume 比對通過之後、session 真的被建立之前，還有委派與 open session
+/// 上限會把這次建立擋掉。以前接受那一筆在上限檢查**之前**就寫進 DB 了：
+/// 呼叫端拿到 403，稽核裡卻留下一列 `outcome=accepted code=resume.ok`，
+/// 讀起來像有人成功續開了那段授權。
+#[tokio::test]
+async fn a_resume_blocked_by_the_session_limit_leaves_no_accepted_row() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+    // 上限 1：第一個 session 還開著的時候，任何新的建立都會被擋下來。
+    rt.update_policy(json!({"delegation": {"maxSessions": 1}}))
+        .await
+        .unwrap();
+
+    let dir = scenario_workdir("default");
+    let workdir = dir.path().to_string_lossy().into_owned();
+    let mut first = claude_input("原本的工作", None);
+    first.ttl_minutes = Some(30);
+    first.workdir = Some(workdir.clone());
+    let original = rt.create_agent_session(first).await.unwrap();
+    let first_sid = original.session_id.as_str().to_string();
+    wait_for(
+        async || {
+            rt.get_agent_session(&first_sid)
+                .await
+                .map(|r| r.provider_session_id.is_some())
+                .unwrap_or(false)
+        },
+        "provider session id",
+    )
+    .await;
+    let provider_sid = rt
+        .get_agent_session(&first_sid)
+        .await
+        .unwrap()
+        .provider_session_id
+        .unwrap();
+
+    // 完全誠實的續開（一項都沒放寬）——但第一個 session 還開著，撞上限。
+    let mut faithful = claude_input("誠實接續", None);
+    faithful.ttl_minutes = Some(30);
+    faithful.workdir = Some(workdir.clone());
+    faithful.resume_provider_session_id = Some(provider_sid.clone());
+    let err = rt.create_agent_session(faithful).await.unwrap_err();
+    assert!(matches!(err, DomainError::PolicyBlocked(_)), "{err:?}");
+    assert!(
+        format!("{err}").contains("too many open agent sessions"),
+        "{err}"
+    );
+
+    let accepted: Vec<TraceRow> = rt
+        .store
+        .query_trace(&TraceQuery {
+            kind: Some("agent-session.resume-checked".into()),
+            outcome: Some(TraceOutcome::Accepted),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(
+        accepted.is_empty(),
+        "沒有被建立的 session 不得留下「接續已核准」：{accepted:?}"
+    );
+
+    rt.close_agent_session(&first_sid, None, "closed")
+        .await
+        .unwrap();
+}
+
 /// D10：任務真的送進子程序（`fetched`）之後、agent 開始工作之前，
 /// `GET /v1/agent-sessions/{id}` 讀到的 `phase` 必須就是 SSE 那一刻送出的值。
 ///
