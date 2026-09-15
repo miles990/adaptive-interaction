@@ -22,6 +22,42 @@
   `agent_smoke.py`／`multi_session.py`／`restart_test.py`（真 Claude Code／Codex 走正式 HTTP 路徑，隔離 `INTERACT_AI_HOME`）、
   `archive-evidence.py`。
 - `docs/releases/evidence-index.json` 新增 `phase-0-state-recovery-baseline` 候選條目；`AGENTS.md` §7 指向階段 0 入口。
+- 階段 1（互動可追溯性）追蹤紀錄契約 v1（`interaction_core::trace`：`TraceClass`／`TraceOutcome`／`TraceRecord`／
+  `TraceQuery`／`TraceRow`／`TraceRetention`／`TracePruned`）：三種紀錄責任（`audit`／`trace`／`diagnostic`）
+  共用既有 `audit` 表，schema 8→9 只加 nullable 欄位與索引（`class`／`schema`／`trace_id`／`causation_id`／
+  `session_id`／`outcome`／`code`／`source_at`），舊列讀出視為 `class='audit'`，不補造缺失的因果資料。
+  契約、canonical owner 表與接入範例見 `docs/aip/interaction-tracing.md`（新增）。
+- `crates/interaction-storage`：`Store::record`／`StoreTxn::record`／`StoreTxn::save_agent_session`
+  （讓「狀態＋稽核」同一 transaction 提交）／`Store::query_trace`（`ORDER BY id DESC`，limit clamp `1..=500`）／
+  `Store::prune_trace`（逐 class 依天數＋筆數上限刪除，真的刪了才寫一筆 `trace.pruned`，整批與該筆紀錄同一
+  transaction）／`Store::trace_counts`。既有 `Store::audit`／`audit_tail` 相容不變。
+- `crates/interaction-agent-gateway/src/diagnostics.rs`：codex／codex-exec／claude 共用的有界
+  （`TAIL_MAX_BYTES=4096`）、脫敏（ANSI／`Bearer`／`Authorization:`／`token=`／`api_key=`／`iat-*`／`sk-*`／
+  `ghp_*`／`xox[abp]-*`／家目錄路徑）子程序 stderr tail，取代三個連接器各自的 2000 字未脫敏 tail（D16）。
+- `GatewayEvent::SessionStarted` 新增 `model: Option<String>`；`AgentSessionRecord.actual_model: Option<String>`
+  （serde default，舊快照讀出 `None`）＋一筆 `trace("agent-session.provider-model")`：使用者第一次能在
+  SSE／事件層與持久化紀錄看到 provider 實際使用的模型（K-01／K-02／K-03 的一部分；`requestedModel` 仍
+  「not-specifiable-via-gateway」）。
+- 一段 agent 互動的完整因果鏈：`agent-session.dispatched`／`.task-delivered`（trace，無 outcome：派送與送達
+  都不描述結果）、`agent-session.outcome`（audit：`claimed`／`failed`／`unknown`／`expired`／`cancelled`，
+  高頻 progress 不逐筆寫、終態帶 `progressEventsAggregated`）、`agent-session.interrupt-requested`（audit，
+  requested ≠ confirmed）、`agent-session.subprocess-stderr`（diagnostic，刻意不影響 failed／unknown 判定）、
+  `agent.approval`（audit，摘要截 200 字才進紀錄）、`consent.consumed`／`consent.rejected`（audit）、
+  `memory.updated`（audit，只記改了哪些欄位名）。
+- `verify_agent_session`／`close_agent_session` 改走 `store.transaction`：狀態與稽核同一筆提交，commit
+  失敗整個回滾、操作回 `Err`，記憶體不會留下一個其實沒落地的「已驗證」／「已關閉」。
+- `Runtime::record_trace`（非關鍵路徑統一寫入入口）＋`Runtime::trace_write_failures() -> u64`（`/v1/status`
+  可讀）：非關鍵 audit／trace／diagnostic 寫入失敗時只記一次 `tracing::error!`＋計數，不遞迴補寫；`/v1/status`
+  新增 `traceWriteFailures`／`traceCounts`。保存清理（`prune_trace_records`）在啟動與看門狗每 600 tick 執行。
+- 查詢與呈現層：`GET /v1/trace`（`traceId`／`sessionId`／`kind`／`class`／`actor`／`outcome`／`since`／
+  `until`／`before`／`limit`，回 `{items, nextCursor, limit}`，打錯字的 `class`／`outcome`／時間回 400）與
+  `GET /v1/agent-sessions/{id}/activity`（人話投影：headline／目前狀態／失敗原因／下一步／時間線＋原始紀錄），
+  兩支皆 human-only；CLI `interact-ai trace`／`interact-ai agents activity`；桌面工作卡新增「這件工作的經過」
+  區塊（一般模式零技術詞，進階模式才有原始紀錄與 stderr）。
+- 階段 1 交付文件：`docs/aip/interaction-tracing.md`、`docs/releases/phase-1-coverage-matrix.md`、
+  `docs/releases/phase-1-progress.md`（入口）；真 Agent 端到端追蹤驗收腳本
+  `scripts/tests/phase1/trace_e2e.py`（見 `scripts/tests/phase1/README.md`）；`docs/releases/evidence-index.json`
+  新增 `phase-1-interaction-traceability` 候選條目；`AGENTS.md` §7 指向階段 1 入口。
 
 ### Changed
 
@@ -29,6 +65,11 @@
   `docs/FEATURES.md` 補 v0.7.0／v0.8.0 增量；`docs/INSTALL.md` 明說 `install.sh` 沒有 Windows 分支；
   `docs/USER-GUIDE.md` 新增 `interact-ai agents …` 手冊與狀態誠實階梯；`docs/DESKTOP-GUIDE.md` 標明截圖基準版本。
   舊能力清單（`docs/capability-completion-matrix.md`、`docs/v05-*.md`、`docs/releases/v0.6.0-recovery-matrix.md`）頂端加指向。
+- `check_resume_not_wider` 內部簽名改回傳 `Result<ResumeComparison, Box<ResumeRejection>>`（原本是純
+  bool／Err）：每一個比對維度都先算完才決定拒絕原因，供稽核使用；對外的 `PolicyBlocked`／`ConsentRequired`
+  錯誤文案**一字不變**，既有消費端不受影響。
+- SSE `agent.session.state` payload 新增 `phase`／`recordState`／`lifecycle` 三個欄位；既有 `state`
+  欄位相容不變（一個字沒改），舊消費端可以繼續只讀 `state`。
 
 ### Fixed
 
@@ -36,22 +77,87 @@
   `process::exit(2)`，改印 `reconnect-failed` 並保持存活（階段 0 D17，讓「核心離線→重啟→同 token 重連」能用出貨 fixture 走完）。
   <!-- phase0-harness-fixes -->
 - 測試維護：rebind整合測試在原有期限內等待完成稽核，避免Available先發布時誤判；保留精確回執與安全斷言，資料庫讀取錯誤明確失敗。只有測試及證據變更，v0.8.0產品與tag不變；見[CI後記](docs/releases/v0.8.0-ci-followup.md)。
+- **D16**（`baabec7`）：codex app-server 子程序 stderr 以前讀了就丟，現在與 claude／codex-exec 共用同一份
+  有界、脫敏、可截斷的 tail，停止 agent 拒絕原因不留痕的問題。實跑：`cargo test -p interaction-agent-gateway
+  --lib` 32 passed／0 failed。
+- **D9**（`5eff899`）：resume 續開授權檢查（放寬／拒絕／找不到原紀錄）以前完全不落任何稽核；現在接受／
+  拒絕／找不到原紀錄三條路徑都寫 `agent-session.resume-checked`（audit，outcome accepted/rejected/ignored，
+  結構化 `code`），對外 `PolicyBlocked`／`ConsentRequired` 錯誤文案不變。實跑：`cargo test -p interaction-runtime
+  --test gateway_loop -- resume` 8 passed／0 failed；`-- --lib -- resume` 3 passed／0 failed。
+- **D10**（`d8f934b`；同時解決階段 0 **D2**）：SSE `agent.session.state` 以前混用 gateway 內部階段名
+  （`fetched`／`working`）與 `AgentSessionRecord` 的真實持久狀態，且 close 投影把 `failed`／`unknown`／
+  `timed-out`／`expired` 全部塌成 `closed`（僅 `cancelled` 有特判）。現在拆成三個維度：`AgentSessionRecord`
+  新增持久化的 `phase: Option<String>` 欄位（七個發事件點都改走 `persist_phase`）；SSE payload 加
+  `phase`／`recordState`／`lifecycle`；`close_taxonomy()` 依終局逐一對應真實字串，不再塌成 `closed`；既有
+  `state` 欄位相容不變。實跑：`cargo test -p interaction-runtime --test agents_loop -- phase close_projection`
+  3 passed／0 failed；`-- gateway_loop -- phase` 1 passed；`-- closing_an_unknown` 1 passed。
+- 階段 0 **D3**（`ce68181`）：`failed` 的 agent session 以前沒有原因；連接器錯誤前 200 字（`safe_summary`）
+  現在同時寫入 audit `agent-session.outcome` 的 `detail.reason` 與 `AgentSessionRecord.detail`；
+  `close_agent_session` 收尾時不再覆蓋這個原因（`<收尾方式>：<失敗原因>`）。
+- `crates/interaction-agent-gateway/src/diagnostics.rs`（`1070eca`，獨立懷疑者複核發現，非原始三個 finding
+  之一）：`spawn_reader` 以前用 `BufReader::lines()` 逐行讀 stderr，一個非 UTF-8 位元組會讓 `next_line()`
+  回 `InvalidData`、reader 靜默停讀，之後每一行都消失且 `truncated`／`lines_dropped` 停在「看完了全部」的
+  值。改成 bytes 層 `read_until(b'\n')`＋`from_utf8_lossy`（壞位元組 → U+FFFD），只有真正的 I/O 錯誤才停，
+  且誠實標 `truncated`＋`read_error`；新增 `LINE_READ_MAX_BYTES`（1 MiB）避免不吐換行的輸出無界撐大 buffer。
+- `crates/interaction-storage`（`377863c`，獨立懷疑者複核發現）：`insert_record`／`insert_audit` 以前把
+  `detail.to_string()` 原文寫入，沒有上限；一筆異常巨大的 detail 可以不受控地撐大 DB 與查詢回應。改成
+  `bounded_detail()`：序列化後超過 `TRACE_DETAIL_MAX_BYTES`（16 KiB）就改寫成
+  `{"_truncated": true, "_originalBytes": n, "preview": "…"}`，不丟棄整筆紀錄。
+- **TB-1**（`ba01c0a`，獨立懷疑者複核發現）：`resume_audit_record`／`gateway_attach` 的 dispatched 紀錄
+  把 `dataScope`／`toolScope`／`consentScope` 原文寫入 detail，真實用法是 `workspace:<完整絕對路徑>`，
+  於是使用者的目錄結構被逐字留在稽核裡。新增 `agents.rs::safe_scope_list`，改寫成與 `workdir_digest`
+  同一套規則的 `{digest}/{basename}`；同時修掉「範圍放寬」拒絕文案把原始路徑帶進稽核 detail 的同類漏洞。
+- **TB-4／TB-5**（`711de77`，獨立懷疑者複核發現）：`restore_agent_sessions` 的 session 狀態寫回以前是
+  `let _ = store.save_agent_session(...)`，繞過 `persist_agent_session`／`trace_write_failures` 計數，
+  改走同一條會計數的路徑（TB-4）；resume 接受分支的 `resume.ok` 稽核以前寫在委派與 open session 上限
+  檢查之前，這些檢查若失敗則稽核宣稱的「接受」與實際未建立 session 的結果不一致，改成上限都通過、
+  session 確定會被建立才寫（TB-5）。
 
 ### Known limitations
 
 - 本次是測試完成條件修正，受控重現使用pty模擬器；沒有新增真機／真人驗收，也不能據此定位先前缺少底層log的release-verify失敗。v0.8.0既有平台與安全驗收限制仍保留。
 - 階段 0 以真 Claude Code 2.1.263／Codex 0.153.4 實跑確認、**本輪未修**的產品缺陷（重現命令與證據見
   `docs/releases/phase-0-known-issues-reproducibility.md` §4）：人類 interrupt 真 Claude Code session 的終態是 `failed`
-  而非 `cancelled`（D1）；close 的 SSE 投影把 failed／timed-out／unknown 壓成 `closed`（D2）；failed 的 session record
-  與 mailbox 沒有原因（D3）；Codex 核可拒絕送出的 wire 值 `"reject"` 不在 codex 0.153.4 的列舉內，拒絕靠 provider
+  而非 `cancelled`（D1）；~~close 的 SSE 投影把 failed／timed-out／unknown 壓成 `closed`（D2）~~（**階段 1 已修**，
+  `d8f934b`：`close_taxonomy()` 依終局逐一對應真實字串，見 `docs/aip/interaction-tracing.md` §4）；
+  ~~failed 的 session record 與 mailbox 沒有原因（D3）~~（**階段 1 已修**，`ce68181`：連接器錯誤前 200 字寫進
+  `AgentSessionRecord.detail`，同上文件 §4）；Codex 核可拒絕送出的 wire 值 `"reject"` 不在 codex 0.153.4 的列舉內，拒絕靠 provider
   端 fail-closed 而非語意上的 decline（D4）；Codex 連接器沒有等價於 Claude 的 MCP／plugin 封鎖，唯讀 session 仍啟動使用者
   `~/.codex` 設定的 MCP server，任務全文出現在 process argv（D5）；`allowWrite` 的 Codex session 不送 `writable_roots`，
   實際範圍併入使用者全域設定（D6）；`POST /interrupt` 在兩個 agent 上都是 session 級取消，沒有「停止這一輪但保留 session」（D8）；
-  `waiting-for-input` 沒有任何連接器會自動產生，只能人工 `POST /report`（D11）；模型與推理設定不可經 gateway 指定也不可回報（K-01／K-02／K-03）；
+  `waiting-for-input` 沒有任何連接器會自動產生，只能人工 `POST /report`（D11）；模型與推理設定不可經 gateway 指定也不可回報（K-01／K-02／K-03；
+  `actualModel` 階段 1 已補齊事件層與持久化紀錄，但這只解決「回報實際值」，不解決「無法指定」）；
   Context Bundle 上限 48 KiB 與 mailbox 16 KiB 互相矛盾（D-06／E-04，靜態確認、本輪執行期未觸發）；daemon 只處理 SIGINT，
   `kill -TERM` 會跳過優雅關閉與 InstanceLock 釋放，下次啟動印 stale-lock 警告（D15，真 agent 執行中實跑確認）。
+  另見上方階段 1 的 Fixed 條目：D9（續開授權檢查不留稽核）、D10（SSE 狀態語意混用）、D16（codex stderr 被丟棄）
+  三個原本記錄在 `phase-0-known-issues-reproducibility.md` 的缺陷已於階段 1 修復。
 - 階段 0 的原生桌面證據綁在 2026-09-06 的 v0.8.0 候選 App（sha256 `1103cda7…`，Info.plist 0.7.0），不是由 HEAD 重建；
   真 iPhone 因 Xcode 未選 Team 維持 needs-environment；ESP32 仍只有 compile check 與 pty 模擬器。
+- 階段 1 已知限制（非修復中，見 `docs/aip/interaction-tracing.md` §8.1）：TB-3（`consent.consumed`／
+  `memory.updated` 的稽核紀錄是狀態落地後才盡力補寫的 `record_trace` 呼叫，非同一 transaction）；
+  TB-7（`report_agent_session` 持全域 session 寫鎖時同步寫 SQLite，debug build 量測單筆約
+  100–125 µs，尚未做成批次或鎖外提交）；TB-8（agent 自我回報無 idempotency key，重送會產生新
+  `claim_id`，讓舊的 `human_verified` 因 claim 不匹配而失效——刻意 fail-closed，但重送本身不可
+  觀測）；TB-12（`prune_trace_records` 只在啟動與看門狗每 600 tick 執行，兩次清理之間任一 class
+  的實際筆數理論上界可能短暫超過 `TraceRetention` 設定的上限）。
+- 階段 1 查詢層的 cosmetic 不一致：`GET /v1/trace` 的 `nextCursor` 用 `json!()` 手工組裝，`None`
+  時序列化成明確的 `null`；`GET /v1/agent-sessions/{id}/activity` 走 `serde_json::to_value`，
+  `#[serde(skip_serializing_if = "Option::is_none")]` 生效，`None` 時整個鍵被省略。兩個端點對
+  「沒有下一頁」的表示方式不同，消費端不得假設一致（不影響功能，未修復）。
+- `interaction-runtime` 既有大量 `let _ = store.audit(...)` 靜默吞錯調用點，本輪已改用
+  `Runtime::record_trace`／`store.record(...)?`／`store.transaction` 的只有本文件與
+  `docs/releases/phase-1-coverage-matrix.md` 列出的消費點；`agent-session.history-pruned`
+  （`agents.rs`）與其餘未列入本輪清單的既有調用點維持現況，留後續階段逐步替換。
+- 刪除一筆記憶（`memory.deleted`）不保證它曾經出現過的所有 `AgentContextBundleReceipt`（已發出的
+  context bundle 快照，含記憶全文）、audit detail 摘要、或 provider 私有 transcript（例如 codex
+  rollout，在使用者本機、repo 完全無法觸及）中的內容一併被抹除——這是誠實記錄的既有限制，不是
+  本輪要解決的範圍。
+- 階段 1 落地的追蹤查詢／保存效能量測是 **debug build** 的本機數字（見
+  `docs/aip/interaction-tracing.md` §9），不代表 release build 或生產負載表現；正式效能預算
+  （單筆寫入 < 1 ms、查詢 < 5 ms、每 session trace 列 < 60）已由整合者核定，release build 量測
+  留給後續階段。
+- 真 Agent 端到端追蹤驗收（`scripts/tests/phase1/trace_e2e.py`）與完整回歸尚未執行，見
+  `docs/releases/phase-1-progress.md` §5／§8（待填：主模型跑完後補）。
 
 ## [0.8.0] - 2026-09-06
 

@@ -139,6 +139,18 @@
 | **必要測試** | `bash scripts/tests/release-scripts.sh`；`bash scripts/tests/docs-claims.sh`；`crates/interaction-cli/tests/release_provenance.rs::every_crate_version_follows_the_workspace`（兩者也是 `architecture-checks.sh --docs` 的內容） |
 | **已知限制** | 桌面安裝包未簽章、無 SBOM／provenance；Linux aarch64 需從原始碼編譯 |
 
+## 11. 追蹤紀錄（trace／audit／diagnostic）
+
+| | |
+|---|---|
+| **owner** | `crates/interaction-core/src/trace.rs`（`TraceClass`／`TraceOutcome`／`TraceRecord`／`TraceQuery`／`TraceRow`／`TraceRetention`／`TracePruned` 契約型別，純函式）；`crates/interaction-storage/src/lib.rs`（`Store::record`／`query_trace`／`prune_trace`／`trace_counts`，schema 9）；`crates/interaction-runtime/src/activity_trace.rs`（`TraceQueryInput`／`AgentSessionActivity`／`Runtime::query_trace_page`／`Runtime::agent_session_activity`，人話投影）；`Runtime::record_trace`／`trace_write_failures`（`crates/interaction-runtime/src/runtime.rs`，非關鍵路徑統一寫入入口） |
+| **入口** | HTTP `GET /v1/trace`、`GET /v1/agent-sessions/{id}/activity`（human-only）；CLI `interact-ai trace`、`interact-ai agents activity <id>`；Tauri IPC `trace_query`／`agent_session_activity`；桌面工作卡「這件工作的經過」（`apps/interaction-desktop/src/pages/AiPage.tsx::WorkActivitySection`） |
+| **狀態來源** | 同一張 SQLite `audit` 表，用 `class` 欄位分流三種紀錄責任（`audit`／`trace`／`diagnostic`，見 `docs/aip/interaction-tracing.md` §1）。`id`（核心接收序）是唯一排序權威，`source_at`（來源自報時間）不可信只供參考。既有 `Store::audit`／`audit_tail` 相容入口不變 |
+| **公開契約** | `docs/aip/interaction-tracing.md`（唯一契約：schema、canonical owner 表、三維狀態語意、保存與隱私、查詢 API、接入範例、寫入失敗政策、效能與預算） |
+| **擴充點** | 新的 kind＝在契約文件的 canonical owner 表登記一個唯一權威寫入點（一個 kind 只能有一個），用 `TraceRecord::audit/trace/diagnostic(kind)` builder 起手；crate 內部消費點走 `self.record_trace(...)`（非關鍵）或 `store.record(...)?`／`store.transaction`（關鍵轉移，見寫入失敗政策表）；crate 外的新 adapter／連接器走 `Store::record`／`StoreTxn::record`（`record_trace` 是 `pub(crate)`，不是公開 API）。新增查詢欄位要同時改 `TraceQuery`／`TraceQueryInput::into_query`（HTTP／Tauri IPC／CLI 共用同一份解析規則） |
+| **必要測試** | `crates/interaction-core/src/trace.rs`（`builder_fills_only_what_was_given`／`class_and_outcome_round_trip_through_as_str`／`deserializing_tolerates_unknown_and_missing_fields`）；`crates/interaction-storage/tests/trace_store.rs`（含 `perf_trace_write_and_query_baseline`，`--ignored`）；`crates/interaction-runtime/tests/{gateway_loop,agents_loop,consent_one_shot_loop}.rs`（resume／phase／dispatch-delivery-outcome／interrupt／consent 因果鏈）；`crates/interaction-agent-gateway/tests/stderr_capture.rs`＋`src/diagnostics.rs` 內建測試（脫敏、非 UTF-8、有界）；`crates/interaction-api/tests/api_e2e.rs`（`trace_and_activity_are_human_only`／`trace_query_clamps_pages_and_never_crosses_sessions`／`activity_projects_records_into_plain_language`）；`apps/interaction-desktop/src/test/sessionActivity.test.tsx`＋`e2e/work-activity.spec.ts`（一般模式文案、術語黑名單、進階模式技術詳情）；`scripts/v03-cli-e2e.sh`「Trace records」一節；`scripts/tests/phase1/trace_e2e.py`（真 Agent 端到端，見同目錄 README） |
+| **已知限制** | `docs/aip/interaction-tracing.md` §8：`consent.consumed`／`memory.updated` 的稽核是狀態落地後盡力補寫，非同一 transaction（TB-3）；`report_agent_session` 持全域寫鎖時同步寫 SQLite（TB-7）；agent 自我回報無 idempotency key，重送會讓舊 `human_verified` 失效（TB-8）；保存清理只在啟動與每 600 tick 執行，非即時（TB-12）；`GET /v1/trace` 與 `GET /v1/agent-sessions/{id}/activity` 對「沒有下一頁」的 `nextCursor` 序列化方式不一致（cosmetic）。resume／dispatched 的 `dataScope` 原文外洩、`restore_agent_sessions` 繞過失敗計數、resume 接受的稽核早於後續委派上限檢查三項（TB-1／TB-4／TB-5）已修（`ba01c0a`／`711de77`） |
+
 ---
 
 ## 加一列的時機

@@ -128,6 +128,10 @@ Utility = 預期效益 − 干擾成本 − 風險 − 金錢/資源成本 − �
 | 稽核 | 每個敏感操作寫 audit；緊急停止全程留痕；敏感欄位遮罩 |
 | 測試 | v0.4.1 基線 Rust 336、Vitest 94、Playwright 23、Tauri 4、CLI E2E 51（v0.5 最新數字見 `docs/releases/v0.5.0-test-matrix.md` 與 CHANGELOG [0.5.0]）；含未授權、撤回、超載、path traversal、雙 daemon、crash 恢復與 scoped-token 邊界 |
 
+上表「稽核」一列自階段 1（進行中）起有結構化的追蹤紀錄契約（`audit`／`trace`／`diagnostic`
+三種責任、`GET /v1/trace`、`GET /v1/agent-sessions/{id}/activity`、桌面「這件工作的經過」），
+完整內容見 `docs/aip/interaction-tracing.md`，此處不重複列出。
+
 ## v0.4
 
 - 小樞＝Presentation Provider（逐項能力、誠實 receipt、隱藏≠停機）
