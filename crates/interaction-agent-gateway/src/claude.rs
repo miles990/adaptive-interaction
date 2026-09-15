@@ -10,6 +10,7 @@
 //! - 登入狀態用 `claude auth status`（JSON）；不接觸 credential。
 //! - 事件解析為純函式（parse_claude_line），可離線以錄好的樣本測試。
 
+use crate::diagnostics::{drain_stderr, spawn_reader, StderrTail};
 use crate::process::{
     apply_session_capability_env, remove_runtime_auth_env, spawn_grouped, ProcessGroup,
 };
@@ -176,24 +177,22 @@ impl AgentConnector for ClaudeConnector {
         // 讀到 result（stdout task）才設。
         let saw_result = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 
-        // stderr：吞掉但保留最後幾行（診斷；不視為事件）。
-        let stderr_tail = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
-        {
-            let tail = stderr_tail.clone();
-            tokio::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    let mut t = tail.lock().expect("stderr tail lock");
-                    t.push_str(&line);
-                    t.push('\n');
-                    let len = t.len();
-                    if len > 2000 {
-                        let cut = len - 2000;
-                        t.drain(..cut);
-                    }
-                }
-            });
-        }
+        // stderr：有界、脫敏地留存（diagnostic 類紀錄），並持續讀到 EOF——
+        // 讀得慢就會塞住子程序的管線，所以 reader 永遠不停在中途。
+        let stderr_tail = StderrTail::new();
+        // hint 只用於 log 關聯：只放 workdir 的 basename，不放完整路徑
+        // （診斷紀錄不外洩本機使用者名稱與目錄結構）。
+        let stderr_reader = spawn_reader(
+            stderr,
+            stderr_tail.clone(),
+            format!(
+                "claude:{}",
+                spec.workdir
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "?".to_string())
+            ),
+        );
 
         // stdout：逐行解析為正規化事件。Child 交給這個 task 持有並收割，
         // 好讓收場時能讀到真正的 exit status（kill 路徑走 process group，
@@ -205,6 +204,7 @@ impl AgentConnector for ClaudeConnector {
             let saw_result = saw_result.clone();
             tokio::spawn(async move {
                 let mut child = child;
+                let mut stderr_reader = Some(stderr_reader);
                 let mut lines = BufReader::new(stdout).lines();
                 loop {
                     match lines.next_line().await {
@@ -212,6 +212,7 @@ impl AgentConnector for ClaudeConnector {
                             for ev in parse_claude_line(&line) {
                                 if let GatewayEvent::SessionStarted {
                                     provider_session_id,
+                                    ..
                                 } = &ev
                                 {
                                     *session_id.lock().expect("sid lock") =
@@ -238,21 +239,14 @@ impl AgentConnector for ClaudeConnector {
                 // 被訊號終止時 code() 是 None——那多半是我們自己的 kill，
                 // 不是 agent 的錯誤，不得記成失敗。
                 let exit_code = status.and_then(|s| s.code());
+                // 收攤前把 stderr reader 收乾（有界 1 s），快照已是脫敏後的。
+                let snapshot = drain_stderr(&tail, stderr_reader.take()).await;
                 let stderr_tail: Option<String> = {
-                    let t = tail.lock().expect("stderr tail lock");
-                    if t.trim().is_empty() {
+                    let suffix = snapshot.tail_suffix(300);
+                    if suffix.is_empty() {
                         None
                     } else {
-                        Some(
-                            t.trim()
-                                .chars()
-                                .rev()
-                                .take(300)
-                                .collect::<String>()
-                                .chars()
-                                .rev()
-                                .collect(),
-                        )
+                        Some(suffix)
                     }
                 };
                 let exit_note = match (status, exit_code) {
@@ -270,6 +264,13 @@ impl AgentConnector for ClaudeConnector {
                 // saw_result 是「本輪」的：第二輪送出後重置，所以第二輪
                 // 以後的非零 exit 一樣會被記成 failed，不會被第一輪的
                 // result 吞掉。
+                //
+                // 診斷先行：StderrCaptured 在任何結局事件與 SessionClosed
+                // **之前**送出，讓消費端先有脈絡。它只是紀錄，不參與判定
+                // ——底下的規則仍然只看 exit code。
+                if let Some(event) = snapshot.clone().into_event() {
+                    let _ = tx.send(event).await;
+                }
                 if !saw_result.load(std::sync::atomic::Ordering::SeqCst) {
                     if let Some(code) = exit_code.filter(|code| *code != 0) {
                         let error: String = match &stderr_tail {

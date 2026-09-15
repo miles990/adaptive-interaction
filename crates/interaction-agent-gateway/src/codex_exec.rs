@@ -5,6 +5,7 @@
 //! 唯讀 session 用 `read-only`，人類明確建立的限權寫入 session 才用
 //! `workspace-write`。絕不使用 danger-full-access、approve-for-me 或 bypass。
 
+use crate::diagnostics::{drain_stderr, spawn_reader, StderrTail};
 use crate::process::{
     apply_session_capability_env, remove_runtime_auth_env, spawn_grouped, ProcessGroup,
 };
@@ -174,23 +175,13 @@ impl AgentSessionHandle for CodexExecHandle {
         let group = self.group.clone();
         let cancel_requested = self.cancel_requested.clone();
         let closed = self.closed.clone();
+        let stderr_hint = format!("codex-exec:{}", resume.as_deref().unwrap_or("new-thread"));
         tokio::spawn(async move {
-            let stderr_tail = Arc::new(Mutex::new(String::new()));
-            let stderr_task = stderr.map(|stderr| {
-                let tail = stderr_tail.clone();
-                tokio::spawn(async move {
-                    let mut lines = BufReader::new(stderr).lines();
-                    while let Ok(Some(line)) = lines.next_line().await {
-                        let mut t = tail.lock().expect("stderr tail lock");
-                        t.push_str(&line);
-                        t.push('\n');
-                        let len = t.len();
-                        if len > 2000 {
-                            t.drain(..len - 2000);
-                        }
-                    }
-                })
-            });
+            // stderr：有界、脫敏（diagnostic 類紀錄），且一路讀到 EOF——
+            // 讀得慢就會塞住子程序的管線。
+            let stderr_tail = StderrTail::new();
+            let stderr_task =
+                stderr.map(|stderr| spawn_reader(stderr, stderr_tail.clone(), stderr_hint));
 
             let mut lines = BufReader::new(stdout).lines();
             let mut saw_terminal = false;
@@ -198,6 +189,7 @@ impl AgentSessionHandle for CodexExecHandle {
                 for ev in parse_exec_line(&line) {
                     if let GatewayEvent::SessionStarted {
                         provider_session_id,
+                        ..
                     } = &ev
                     {
                         *sid.lock().expect("sid lock") = Some(provider_session_id.clone());
@@ -216,16 +208,16 @@ impl AgentSessionHandle for CodexExecHandle {
                 }
             }
             let status = child.wait().await.ok();
-            if let Some(task) = stderr_task {
-                let _ = tokio::time::timeout(std::time::Duration::from_secs(1), task).await;
-            }
+            // 收攤前把 reader 收乾（有界 1 s）；快照已是脫敏後的。
+            let snapshot = drain_stderr(&stderr_tail, stderr_task).await;
             let cancelled =
                 cancel_requested.swap(false, Ordering::SeqCst) || closed.load(Ordering::SeqCst);
-            let stderr_detail = stderr_tail
-                .lock()
-                .expect("stderr tail lock")
-                .trim()
-                .to_string();
+            let stderr_detail = snapshot.event_tail();
+            // 診斷先行：StderrCaptured 在結局事件之前送出，只提供脈絡。
+            // 它**不參與判定**——底下仍然只看 exit code 與已見的結局事件。
+            if let Some(event) = snapshot.clone().into_event() {
+                let _ = tx.send(event).await;
+            }
             if let Some(event) = drain_outcome_event(
                 saw_terminal,
                 cancelled,

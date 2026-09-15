@@ -10,6 +10,7 @@
 pub mod claude;
 pub mod codex;
 pub mod codex_exec;
+pub mod diagnostics;
 pub mod process;
 
 use serde::{Deserialize, Serialize};
@@ -138,6 +139,27 @@ pub enum GatewayEvent {
     TaskOutcomeUnknown {
         #[serde(skip_serializing_if = "Option::is_none")]
         detail: Option<String>,
+    },
+    /// 子程序 stderr 的**有界、脫敏**摘要（diagnostic 類紀錄；D16）。
+    ///
+    /// 誠實階梯：stderr **不是**業務結局的證據。這個事件只說「agent 的子
+    /// 程序在標準錯誤上說過這些話、總共幾行幾位元組、我們丟掉了多少」；
+    /// 一輪是 completed／failed／unknown 仍然只由 exit code 與協定事件決定
+    /// ——裡面出現 "error" 字樣不得改判任何結局。
+    ///
+    /// 在 `SessionClosed` **之前**送出；完全沒有 stderr 時不送（沉默不是
+    /// 「有話沒說」，不該偽造一筆空紀錄）。
+    StderrCaptured {
+        /// 最後 ≤600 字（已脫敏）。
+        tail: String,
+        /// 讀到過的總行數（含已丟棄的）。
+        lines_seen: u64,
+        /// 讀到過的原始位元組數（含已丟棄的）。
+        bytes_seen: u64,
+        /// 因為有界而丟掉的行數（丟棄量要數出來，不靜默吃掉）。
+        lines_dropped: u64,
+        /// 有任何行被截斷或丟棄 ⇒ 這份 tail 不是全部。
+        truncated: bool,
     },
     SessionClosed {
         /// 可否以 provider session id 續開（--resume / thread/resume）。
