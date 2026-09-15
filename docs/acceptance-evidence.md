@@ -1070,3 +1070,42 @@ wave3／hardening 的落地事實尚未回填。
 因為參考韌體刻意不宣告 `aip.frag/1`）；BLE 的 rebind 與 AIP session 端到端 0 次；非開發者受測者 0 人；
 陪伴預設的「套用→關掉→重開→補送」沒有在真桌面程式跑過；`pnpm perf` 本輪未重跑；整合全套與對抗審查
 尚未執行。詳見 [`docs/releases/v0.7.0-known-limitations.md`](releases/v0.7.0-known-limitations.md)。
+
+# 階段 1：互動可追溯性（trace／audit／diagnostic；分支 `phase-1/interaction-traceability`，起點 `18829cb`）
+
+> 本節只回答一件事：**每一項落地的東西，證據是哪一級、由哪個測試持有。**
+> 完整契約與 canonical owner 表在 [`docs/aip/interaction-tracing.md`](aip/interaction-tracing.md)；
+> 逐領域覆蓋矩陣在 [`docs/releases/phase-1-coverage-matrix.md`](releases/phase-1-coverage-matrix.md)；
+> 進度與 Blockers 在 [`docs/releases/phase-1-progress.md`](releases/phase-1-progress.md)。
+>
+> **等級用字**（由弱到強，逐列標明，不合併、不美化）：
+> `unit`＝cargo test／vitest 單元；
+> `integration`＝crate 內跨模組整合測試（`crates/*/tests/*.rs`）；
+> `contract`＝HTTP／CLI／Tauri IPC 三個介面共用同一份解析規則的行為驗證；
+> `browser`＝Playwright（Chromium）對真 daemon；
+> `CLI e2e`＝`scripts/v03-cli-e2e.sh`，真 daemon＋mock device；
+> `real-agent`＝`scripts/tests/phase1/trace_e2e.py`，真 Claude Code／Codex CLI 走正式 HTTP 路徑；
+> `native`＝真 Tauri `.app`（非 Playwright／jsdom）；
+> **`iPhone`＝零**（本輪完全不涉及桌面原生打包或 iPhone 真機，見 `phase-1-progress.md` §7）。
+
+| # | 落地的東西 | 最高證據等級 | 持有它的測試／腳本 |
+|---|---|---|---|
+| 1 | 追蹤紀錄契約 v1（`TraceClass`／`TraceOutcome`／`TraceRecord`／`TraceQuery`／`TraceRow`／`TraceRetention`／`TracePruned`） | unit | `crates/interaction-core/src/trace.rs`（`builder_fills_only_what_was_given`／`class_and_outcome_round_trip_through_as_str`／`deserializing_tolerates_unknown_and_missing_fields`／`query_limit_is_clamped_and_retention_defaults_match_the_contract`） |
+| 2 | schema 8→9 遷移、`Store::record`／`query_trace`／`prune_trace`／`trace_counts`、`detail` 16 KiB 上限（`bounded_detail`） | integration | `crates/interaction-storage/tests/trace_store.rs`（4 passed／0 failed／1 ignored，`perf_trace_write_and_query_baseline` 另跑） |
+| 3 | 子程序 stderr 有界脫敏 tail（D16）＋非 UTF-8 讀取修復 | unit | `crates/interaction-agent-gateway/src/diagnostics.rs` 內建測試＋`tests/stderr_capture.rs`；`cargo test -p interaction-agent-gateway --lib` 32 passed／0 failed（`baabec7` 附帶數字） |
+| 4 | resume 續開稽核（D9） | integration | `crates/interaction-runtime/tests/gateway_loop.rs -- resume`（8 passed／0 failed）＋`--lib -- resume`（3 passed／0 failed，`5eff899` 附帶數字） |
+| 5 | 三維狀態語意 `phase`／`recordState`／`lifecycle`（D10，同時解決階段 0 D2） | integration | `crates/interaction-runtime/tests/agents_loop.rs -- phase close_projection`（3 passed）＋`gateway_loop.rs -- phase`（1 passed）＋`-- closing_an_unknown`（1 passed，`d8f934b` 附帶數字） |
+| 6 | 派送／送達／終態／approval／interrupt／consent／memory 的完整因果鏈；verify／close 交易化；統一非關鍵寫入入口 `record_trace`／`trace_write_failures` | integration | `crates/interaction-runtime/tests/{gateway_loop,agents_loop,consent_one_shot_loop}.rs` 新增測試（`a_full_turn_leaves_a_dispatch_delivery_and_outcome_trail`／`an_interrupt_is_audited_as_requested_not_confirmed`／`spending_a_one_shot_consent_is_audited`／`a_failed_commit_rolls_back_the_whole_verification`／`a_failed_commit_rolls_back_the_close`／`trace_retention_bounds_the_diagnostic_class_and_records_the_prune`／`status_reports_trace_write_failures_and_counts`，`ce68181`／`3c8a2a6` 附帶） |
+| 7 | `GET /v1/trace`、`GET /v1/agent-sessions/{id}/activity`（human-only，分頁、篩選驗證、人話投影） | integration | `crates/interaction-api/tests/api_e2e.rs`（`trace_and_activity_are_human_only`／`trace_query_clamps_pages_and_never_crosses_sessions`／`activity_projects_records_into_plain_language`，`e63986f` 附帶）＋`crates/interaction-runtime/src/activity_trace.rs` 模組內單元測試 |
+| 8 | CLI `interact-ai trace`／`interact-ai agents activity` | CLI e2e | `./scripts/v03-cli-e2e.sh`「Trace records」一節，6 個新 case；總計 102 passed／0 failed（新增前 96，`58f7477` 附帶數字） |
+| 9 | 桌面「這件工作的經過」（一般模式文案、術語黑名單、進階模式技術詳情、390px） | unit＋browser | `apps/interaction-desktop/src/test/sessionActivity.test.tsx`（8 個）＋`regressions-v05.test.tsx` 擴充；`pnpm typecheck` ✓、`pnpm test` 93 files／1925 passed／0 failed、`pnpm build` ✓；`e2e/work-activity.spec.ts`（真 daemon＋`fake_claude` `crash` fixture，`cbc76c0` 附帶數字） |
+| 10 | 三個獨立懷疑者發現的問題修復：TB-1（scope 標籤路徑外洩）、TB-4（restore 繞過失敗計數）、TB-5（resume.ok 早於上限檢查） | unit | `crates/interaction-runtime`：`scope_labels_keep_paths_out_of_the_record`（`ba01c0a`）、`a_failed_restore_write_is_counted_not_swallowed`／`a_resume_blocked_by_the_session_limit_leaves_no_accepted_row`（`711de77`，皆 commit message 附帶數字） |
+| 11 | 真 Agent 端到端追蹤驗收（normal／cancel／resume／failure／approval／restart 六情境） | real-agent | `scripts/tests/phase1/trace_e2e.py`（`9309028` 已 commit，用法見 `scripts/tests/phase1/README.md`）——（待填：主模型跑完後補；本文件撰寫時腳本已就緒但尚未執行） |
+| 12 | 完整回歸（`cargo fmt`／`cargo clippy --workspace`／`cargo test -p interaction-runtime` 全量／桌面 `pnpm test:e2e`） | — | （待填：主模型跑完後補；見 `docs/releases/phase-1-progress.md` §5／§8。本輪查核期間磁碟可用空間在 991 MiB 至 5.4 GiB 之間波動，跑之前需重新 `df -h /` 確認空間） |
+| 13 | native（真 Tauri `.app`） | — | **未做**——本輪完全不涉及桌面原生打包或走查，沿用階段 0 既有的 native 證據綁定（2026-09-06 候選 bundle），與本輪交付無關 |
+| 14 | iPhone 真機 | — | **未做**——本輪不涉及；沿用階段 0 既有 blocker（Xcode 未選 Team） |
+
+**本輪明確排除的範圍**：`GET /v1/audit` 既有讀取權限模型未變更；`interaction-runtime` 既有大量
+`let _ = store.audit(...)` 靜默吞錯調用點，只有本節第 4／6／10 項列出的消費點改用新的統一寫入
+入口，其餘（例如 `agent-session.history-pruned`）維持現況；四個已知限制（TB-3／TB-7／TB-8／
+TB-12，非修復中）見 `docs/aip/interaction-tracing.md` §8.1，不在本節的「已落地」清單內。

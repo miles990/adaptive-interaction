@@ -252,6 +252,7 @@
 - **重現**：中斷一個 claude session（state→failed），再 `POST /v1/agent-sessions/{id}/close`；close 回應與之後的 GET 都是 `failed`，但同一瞬間發出的 SSE `agent.session.state` 是 `closed`
 - **證據**：`docs/releases/evidence/2026-09-07-phase-0/e2e-runs/R1/claude-interrupt/sse.jsonl`（第 116 行 `state='closed'` @2026-09-07T09:05:07.606889Z）對照同目錄 `result.json`（`final.state='failed'`、`closedAt=09:05:07.598639Z`）；`docs/releases/evidence/2026-09-07-phase-0/e2e-runs/R1/codex-interrupt/sse.jsonl`（第 109 行 `cancelled` — `Cancelled` 是唯一被保留的終局狀態）
 - **撰稿時獨立複核**：`agents.rs:1371-1379` 的 `if record.state == AgentSessionState::Cancelled { "cancelled" } else { "closed" }` 逐字相符
+- **階段 1 處置**：**已修**（`d8f934b`，`fix(runtime): persist the execution phase and keep terminal outcomes on close (D10)`；詳見 `docs/aip/interaction-tracing.md` §4）
 
 ### D3 — `failed` 的 agent session 在 record 與 mailbox 上都沒有任何原因
 
@@ -260,6 +261,7 @@
 - **重現**：中斷一個進行中的 claude session → `GET /v1/agent-sessions/{id}` 得 `{"state":"failed"}` 且無 `detail`；`GET …/messages?direction=from-session` → `[]`；只有 observations 查得到 `error_during_execution`
 - **證據**：`docs/releases/evidence/2026-09-07-phase-0/e2e-runs/R1/b07-claude/result.json`（完整 record，`state='failed'`，無 detail key）、`docs/releases/evidence/2026-09-07-phase-0/e2e-runs/R1/diag-failreason/result.json`（`detail=null`、from-session 信箱 0 筆、audit 無對應行、observations 最新 `inferences.report.error='error_during_execution'`）
 - **撰稿時獨立複核**：`agents.rs:1209-1218` 確實只做 `entry.record.state = next_state`（＋claim id／清 human_verified），沒有寫 detail
+- **階段 1 處置**：**已修**（`ce68181`，`feat(runtime): dispatch, delivery, outcome and stderr diagnostic records`；連接器錯誤前 200 字同時寫入 `AgentSessionRecord.detail` 與 audit `agent-session.outcome` 的 `detail.reason`，詳見 `docs/aip/interaction-tracing.md` §4）
 
 ### D4 — Codex 核可「拒絕」送出的 wire 值 `reject` 不在 codex 0.153.4 的列舉內
 
@@ -309,6 +311,7 @@
 - **位置**：`crates/interaction-runtime/src/agents.rs:453-468`（resume guard 直接 `return Err(PolicyBlocked)`，整段沒有 `store.audit`）；`check_resume_not_wider`（`:105`）、`check_resume_same_workdir`（`:204`）同樣無 audit
 - **重現**：`docs/releases/evidence/2026-09-07-phase-0/e2e-runs/R8/` 的 `guard_probe.py`：對 7 個「放寬」形狀各建一次 session（皆 403），之後 `GET /v1/audit` 找不到任何對應紀錄
 - **證據**：`docs/releases/evidence/2026-09-07-phase-0/e2e-runs/R8/guard-claude/raw.json`（`$.auditAfter` 47 筆，kind 只有 character／agent-session.closed／capability-issued）、`docs/releases/evidence/2026-09-07-phase-0/e2e-runs/R8/claude/raw.json`（`$.auditTail` 23 筆，同樣沒有 resume／policy_blocked）
+- **階段 1 處置**：**已修**（`5eff899`，`fix(runtime): audit every resume authorization decision (D9)`；詳見 `docs/aip/interaction-tracing.md` §3）
 
 ### D10 — SSE 的 `agent.session.state` 混用 gateway 階段名與真實 record 狀態
 
@@ -318,6 +321,7 @@
 - **證據**：`docs/releases/evidence/2026-09-07-phase-0/e2e-runs/R1/claude-interrupt/result.json`（task-sent 到 active 61.3 s，期間 GET 一律 `created`）、`docs/releases/evidence/2026-09-07-phase-0/real-agent-e2e-prior/claude-cancel-1/sse.jsonl`（`id=99 state='fetched'`）
 - **註**：桌面把兩個值都投影成「準備中」，所以不造成錯誤呈現；問題是「取消當下是什麼狀態」有兩個答案
 - **引用更正**：來源 JSON 把 `"working"` 標在 `agents.rs:1060`，撰稿時實讀該行是 `emit_agent_session_state(… "fetched")`；`"working"` 實際在 `crates/interaction-runtime/src/agents.rs:1247`（`"task-started" | "progress" => "working"`）。結論不變、行號要改
+- **階段 1 處置**：**已修**（`d8f934b`，`fix(runtime): persist the execution phase and keep terminal outcomes on close (D10)`；三維拆分 `phase`／`recordState`／`lifecycle`，詳見 `docs/aip/interaction-tracing.md` §4）
 
 ### D11 — `waiting-for-input` 沒有任何連接器會自動產生
 
@@ -364,6 +368,7 @@
 - **重現**：跑 D4 的 deny 案例後 `grep -iE 'error|reject|approval|decision' <out>/daemon.txt` → 0 筆
 - **證據**：`docs/releases/evidence/2026-09-07-phase-0/e2e-runs/R4/a-codex-deny/daemon.txt`（全檔只有啟動訊息）、`docs/releases/evidence/2026-09-07-phase-0/e2e-runs/R4/b-codex/daemon.txt`（同上）
 - **撰稿時獨立複核**：`codex.rs:176-181` 逐字相符
+- **階段 1 處置**：**已修**（`baabec7`，`fix(gateway): keep a bounded, redacted stderr tail for every agent subprocess (D16)`；三個連接器改用共用的 `crates/interaction-agent-gateway/src/diagnostics.rs`，詳見 `docs/aip/interaction-tracing.md` §5）
 
 ### D17 — fixture `fake_iphone` 連線失敗即 `process::exit(2)`（harness 缺陷）
 

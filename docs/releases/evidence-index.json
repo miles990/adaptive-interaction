@@ -339,6 +339,25 @@
         "commit": "8f95f3d79d98a434468c35fb6808376bdee30327",
         "kind": "annotated checkpoint（不是 release；release.yml 只吃 v*）"
       }
+    },
+    {
+      "id": "phase-1-interaction-traceability",
+      "branch": "phase-1/interaction-traceability",
+      "baseCommit": "18829cb54bbbe8f403bf1ee4a628b837234bf2b8",
+      "status": "in-progress",
+      "versionPolicy": "候選 0.9.0 minor：新增向後相容的追蹤紀錄契約 v1（schema 8→9 只加 nullable 欄位）、GET /v1/trace 與 GET /v1/agent-sessions/{id}/activity 兩個新端點、CLI trace／agents activity 子指令；既有 audit／audit_tail 相容不變，AIP 1.0 與 snapshot 格式不變。本輪只打 checkpoint tag（比照階段 0 的 phase-0-baseline-YYYYMMDD 命名慣例），是否併入下一次 0.9.0 發布由整合者在 S3 剩餘部分（若有）與真 Agent 驗收完成後決定。",
+      "progress": "docs/releases/phase-1-progress.md",
+      "docs": {
+        "progress": "docs/releases/phase-1-progress.md",
+        "tracingContract": "docs/aip/interaction-tracing.md",
+        "coverageMatrix": "docs/releases/phase-1-coverage-matrix.md",
+        "generalModeUx": "docs/aip/general-mode-ux.md",
+        "maintainersMap": "docs/MAINTAINERS-MAP.md",
+        "acceptanceEvidence": "docs/acceptance-evidence.md",
+        "baselineRunner": "scripts/tests/phase1/README.md",
+        "knownIssues": "docs/releases/phase-0-known-issues-reproducibility.md"
+      },
+      "note": "S1（型別＋儲存層）、S2（stderr 留痕）、S3（runtime 寫入點、交易化、保存清理）、S4（查詢 API／CLI／桌面 UI）已全部落地並個別附實跑測試數字；三個由獨立懷疑者發現的問題（TB-1／TB-4／TB-5）已修復並 commit（ba01c0a／711de77）；真 Agent 端到端驗收（scripts/tests/phase1/trace_e2e.py，9309028 已 commit）與完整回歸尚未執行。詳見 progress §5／§8。"
     }
   ],
   "postReleaseTestCorrections": [

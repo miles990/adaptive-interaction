@@ -124,6 +124,12 @@ HTTP 信任面有兩個 0600 token：`state/api-token` 屬人類控制面，
 agent token 無法開／授權 session、發布知識、修改 policy 或 clear estop；
 Codex／Claude 子程序啟動時也會移除所有 Runtime token 環境變數。
 
+**互動可追溯性（階段 1，進行中）**：Agent session 的每一段互動（resume 授權判定、派送、送達、
+終態、approval、interrupt、consent 消耗、memory 修改）都留一筆結構化的稽核／追蹤紀錄，人類可
+經 `GET /v1/trace`、`GET /v1/agent-sessions/{id}/activity` 或桌面工作卡「這件工作的經過」查詢；
+AI token 一律排除（同一份規則管 `/v1/audit`）。完整契約、canonical owner 表、保存與隱私規則見
+`docs/aip/interaction-tracing.md`。
+
 ## 感測隱私
 
 麥克風預設關＋Intimate＋consent-gated。`begin_mic_listen` 在 Rust 強制三重閘門：

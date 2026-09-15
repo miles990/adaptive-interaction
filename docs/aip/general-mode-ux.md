@@ -269,6 +269,49 @@ snapshot 已確認後，只要 Host 的 epoch/revision/hash 改變，舊回執�
 守門測試：`state-applied-projection.test.ts`、`statusProjection-session.test.ts`、
 `character-sync-card.test.tsx`、`connectPage.test.tsx`、`general-mode-no-technical-terms.test.tsx`。
 
+## 5.8 這件工作的經過（階段 1）
+
+工作卡片展開後，以前只看得到「Agent 說了什麼」（mailbox 訊息）：一件工作失敗時，畫面能給的
+只有一個「失敗」徽章——為什麼失敗、中間經過了什麼、接下來該做什麼，全都只存在於稽核／追蹤
+紀錄裡，而紀錄在介面上等於不存在。
+
+> 來源：`GET /v1/agent-sessions/{id}/activity`（人話投影，`crates/interaction-runtime/src/activity_trace.rs`）。
+> 呈現：`apps/interaction-desktop/src/pages/AiPage.tsx::WorkActivitySection`，掛在既有
+> `session-detail` 裡。標題「這件工作的經過」——不叫「活動紀錄」，那個名字是「更多」的全域分頁。
+> 完整契約：`docs/aip/interaction-tracing.md`。
+
+**人話全部由後端決定**：headline、目前狀態、失敗原因、下一步、每一步的 label 都是 runtime
+投影好的固定文案（`activity_trace.rs::step_label`／`work_state_label`／`next_step_for`）。前端
+不得拿 `kind`／`code` 自己造字，否則「一般模式看得到什麼」就有兩個互相矛盾的真相來源。
+
+**文案表**（順序固定：發生了什麼 → 目前狀態 → 失敗原因〔有才顯示〕→ 下一步 → 時間線）：
+
+| 欄位 | 內容 | 沒有事實可填時 |
+|---|---|---|
+| headline | 最新一筆紀錄的人話標籤（例：「已交給 Codex」、「對方說已完成（尚未檢查）」、「失敗：…」） | 一筆紀錄都沒有時說「這件工作還沒有留下任何紀錄」（照實說，不猜） |
+| 目前狀態 | 與桌面 `workState.ts` 同一組文案（`work_state_label`）；`phase` 比 `state` 細（`fetched`／`working` 這些值 `state` 裡根本沒有），有 `phase` 就用它 | — |
+| 失敗原因 | 只在終態是 `failed`／`unknown`／`expired`／`cancelled` 時顯示；來源是終態紀錄的安全摘要（`detail.reason`）或 session 自己的 `detail`（同樣是安全摘要，不是原文） | 沒有原因就整段不顯示（`failureReason: null`），不硬擠一句話 |
+| 下一步 | 例：「請檢查結果並確認」（`claimed-completed`）、「請核准或拒絕」（等待同意）、「請回答」（等待輸入）、「可重新交代一件工作」（失敗／不確定／逾時）、「無需處理」（已驗證／已取消／已關閉／已到期） | 進行中且不需要人類裁決時是 `None`，不硬擠一句話 |
+| 載入更早 | 真 `<button>`（不是連結），文案「載入更早」／載入中「載入中…」；Enter 會帶 `before` 呼叫 API；到底之後（`nextCursor` 為空）按鈕消失 | — |
+| 空狀態 | 時間線一筆都沒有時顯示「這件工作還沒有留下任何紀錄」；讀取失敗時顯示「目前讀不到這件工作的經過」——不拿舊資料或空清單假裝「什麼都沒發生」 | — |
+| 技術詳情 | 只在**進階模式**的 `<details>`／`<summary>「技術詳情」` 裡，內容是原始 `TraceRow[]`（JSON） | 一般模式完全不出現這個區塊 |
+
+**一般模式看不到的技術詞**（一個字都不會有，只在進階模式的「技術詳情」出現）：
+
+`trace`、`stderr`、`SSE`、`UUID`／原始 id、`session id`、`kind`、`code`、`provider`、`lease`、
+以及 diagnostic 類（子程序 stderr）紀錄的原始內容——一般模式最多只看得到脫敏後的 tail 是否存在
+（`detailAvailable`），看不到 tail 本身。
+
+**不輪詢**：展開時載入一次，之後只在 state／phase／claim／驗證時間真的變了（SSE 讓外層重抓
+session 清單，`stateSignature` 跟著換）才重載一次；紀錄是歷史，不是即時狀態。過期的回應不會
+蓋掉新的一頁（`alive` guard）。
+
+**守門測試**：`apps/interaction-desktop/src/test/sessionActivity.test.tsx`（人話四段、術語黑名單、
+讀取失敗的誠實降級、進階模式才有技術詳情與 tail、「載入更早」是真 `<button>`、390px 不硬編寬度）；
+`regressions-v05.test.tsx`（SessionCard 黑名單擴充：展開後同樣不得出現 trace／stderr／SSE／
+diagnostic／audit）；`e2e/work-activity.spec.ts`（真 daemon＋fixture，驗失敗工作的四段文案與
+stderr 只留在後端、390px 下可見不橫向捲動、「載入更早」focus 與 Enter 皆可用）。
+
 ## 6. 模擬 iPhone（fixture）的標示
 
 瀏覽器 journey（`e2e/character-session.spec.ts`）用的是
