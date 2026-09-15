@@ -15,8 +15,8 @@ use interaction_core::{
     ActionId, ActionReceipt, ActionStatus, CapabilityConstraint, CapabilitySnapshot, ConsentScope,
     DiscoveryContext, DomainError, DomainResult, EventType, MessageStrategy, Observation,
     ObservationQuery, Plan, PlanId, PlanStatus, PolicyConfig, ReceptorId, RuntimeEvent,
-    SemanticIntent, Session, SessionId, Timestamp, TraceOutcome, TraceRecord, VerificationEvidence,
-    VerificationVerdict,
+    SemanticIntent, Session, SessionId, Timestamp, TraceOutcome, TraceRecord, TraceRetention,
+    VerificationEvidence, VerificationVerdict,
 };
 use interaction_events::EventBus;
 use interaction_policy::ActionSource;
@@ -508,6 +508,9 @@ impl Runtime {
             );
         }
         runtime.restore_agent_sessions().await;
+        // 紀錄有界：啟動時先照保存政策清一次（90／30／7 天，100k／50k／10k 筆），
+        // 長跑的 daemon 不能只增不減。
+        runtime.prune_trace_records();
         runtime.init_providers().await;
         // 外部 character adapter 登記（token sha256＋撤銷旗標）跨重啟保留。
         runtime.character_load_adapters();
@@ -622,6 +625,42 @@ impl Runtime {
         self.trace_write_failures.load(Ordering::SeqCst)
     }
 
+    /// 狀態快照寫入失敗：同樣只記一次＋計數，不再往儲存層補寫（不遞迴）。
+    /// 以前這裡是 `let _ =`——磁碟寫不進去完全靜默，狀態就悄悄只活在記憶體裡。
+    pub(crate) fn note_storage_write_failure(&self, what: &str, error: &DomainError) {
+        self.trace_write_failures.fetch_add(1, Ordering::SeqCst);
+        tracing::error!(
+            target: "interaction.trace",
+            what,
+            error = %error,
+            "狀態寫入失敗（記憶體與磁碟已經不一致）"
+        );
+    }
+
+    /// 有界保存清理：逐 class 依天數與筆數上限刪除（啟動與看門狗共用）。
+    ///
+    /// 公開（而不只是看門狗內部呼叫）好讓「紀錄有界」這條不變量能被確定性
+    /// 驗證，不必等 wall-clock——與 `prune_agent_sessions` 同一個理由。
+    pub fn prune_trace_records(&self) {
+        match self
+            .store
+            .prune_trace(&TraceRetention::default(), Utc::now())
+        {
+            Ok(pruned) if !pruned.is_empty() => tracing::info!(
+                target: "interaction.trace",
+                audit = pruned.audit,
+                trace = pruned.trace,
+                diagnostic = pruned.diagnostic,
+                "追蹤紀錄保存清理"
+            ),
+            Ok(_) => {}
+            Err(error) => {
+                self.trace_write_failures.fetch_add(1, Ordering::SeqCst);
+                tracing::error!(target: "interaction.trace", error = %error, "追蹤紀錄保存清理失敗");
+            }
+        }
+    }
+
     pub async fn status(&self) -> Value {
         let session = self.session.read().await.clone();
         let recipes = self.recipes.read().await;
@@ -669,6 +708,10 @@ impl Runtime {
             "quietHours": quiet_hours,
             "onboardingCompleted": self.onboarding_state().await
                 .get("completed").and_then(Value::as_bool).unwrap_or(false),
+            // 紀錄寫不進去就是「這段歷史有缺口」：誠實揭露，不只留在 log 裡。
+            "traceWriteFailures": self.trace_write_failures(),
+            // 讀不到就是 null（不猜一組 0——那會讓「查不到」看起來像「沒有」）。
+            "traceCounts": self.store.trace_counts().ok(),
         });
         // 裝置成員**實際上**拿得到多少共享狀態（full-state／intent-only／
         // event-source）。非空才序列化——沒有裝置成員就不該在每一份 status 上
@@ -2496,6 +2539,8 @@ impl Runtime {
                     let hours = runtime.config.read().await.observation_retention_hours;
                     let cutoff = Utc::now() - chrono::Duration::hours(hours as i64);
                     let _ = runtime.store.prune_observations(cutoff);
+                    // 追蹤紀錄的保存政策（audit 90／trace 30／diagnostic 7 天）。
+                    runtime.prune_trace_records();
                 }
             }
         });

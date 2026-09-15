@@ -1505,3 +1505,162 @@ async fn an_expired_lease_persists_its_timed_out_phase() {
     assert_eq!(last["recordState"], json!("expired"));
     assert_eq!(last["lifecycle"], json!("closed"));
 }
+
+/// 契約規則 4：關鍵轉移（verify／close）的稽核必須與狀態同一個 transaction。
+///
+/// commit 失敗 ⇒ 整筆回滾：API 回 Err、record 仍然是 claimed-completed
+/// （**沒有**變成 verified）、稽核裡也沒有那一列。以前狀態先落地、稽核後寫，
+/// 中間失敗就會留下一個「已驗證但查不到是誰驗的」紀錄。
+#[tokio::test]
+async fn a_failed_commit_rolls_back_the_whole_verification() {
+    let (_g, rt) = runtime().await;
+    let sid = rt
+        .create_agent_session(create_input("agent.coder"))
+        .await
+        .unwrap()
+        .session_id
+        .as_str()
+        .to_string();
+    rt.report_agent_session(&sid, "claimed-completed", json!({"summary": "做完了"}))
+        .await
+        .unwrap();
+
+    rt.store.force_next_transaction_error("disk on fire");
+    let err = rt.verify_agent_session(&sid, Some("看過了".into())).await;
+    assert!(err.is_err(), "commit 失敗必須讓驗證整筆失敗");
+
+    let record = rt.get_agent_session(&sid).await.unwrap();
+    assert_eq!(record.state, AgentSessionState::ClaimedCompleted);
+    assert!(
+        record.human_verified.is_none(),
+        "回滾後記憶體裡也不得留下一個已驗證的假象"
+    );
+    assert_eq!(record.phase.as_deref(), Some("claimed-completed"));
+    assert!(rt
+        .store
+        .query_trace(&TraceQuery {
+            kind: Some("agent-session.verified".into()),
+            ..Default::default()
+        })
+        .unwrap()
+        .is_empty());
+
+    // 沒有被注入故障時，狀態與稽核一起提交。
+    let verified = rt.verify_agent_session(&sid, None).await.unwrap();
+    assert!(verified.human_verified.is_some());
+    let rows = rt
+        .store
+        .query_trace(&TraceQuery {
+            kind: Some("agent-session.verified".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].outcome, Some(TraceOutcome::Verified));
+    assert_eq!(rows[0].actor, "human");
+    assert_eq!(rows[0].code.as_deref(), Some("verify.human-confirmed"));
+    // 備註內容不進稽核，只記「有沒有留」。
+    assert_eq!(rows[0].detail["hasNote"], json!(false));
+}
+
+/// 關閉同樣是關鍵轉移：commit 失敗就整筆回滾，不得留下半個已關閉的 session。
+#[tokio::test]
+async fn a_failed_commit_rolls_back_the_close() {
+    let (_g, rt) = runtime().await;
+    let sid = rt
+        .create_agent_session(create_input("agent.coder"))
+        .await
+        .unwrap()
+        .session_id
+        .as_str()
+        .to_string();
+
+    rt.store.force_next_transaction_error("disk on fire");
+    assert!(rt.close_agent_session(&sid, None, "closed").await.is_err());
+    let still_open = rt.get_agent_session(&sid).await.unwrap();
+    assert!(
+        still_open.state.is_open() && still_open.closed_at.is_none(),
+        "回滾後 session 必須還開著：{still_open:?}"
+    );
+    assert!(
+        rt.trace_write_failures() == 0,
+        "transaction 失敗不算靜默寫入失敗"
+    );
+
+    let closed = rt.close_agent_session(&sid, None, "closed").await.unwrap();
+    assert_eq!(closed.state, AgentSessionState::Closed);
+    let rows = rt
+        .store
+        .query_trace(&TraceQuery {
+            kind: Some("agent-session.closed".into()),
+            session_id: Some(sid.clone()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].detail["reason"], json!("closed"));
+}
+
+/// 保存政策：diagnostic 只留最新 N 筆，而且**真的刪了**才寫 `trace.pruned`。
+#[tokio::test]
+async fn trace_retention_bounds_the_diagnostic_class_and_records_the_prune() {
+    let (_g, rt) = runtime().await;
+    let retention = TraceRetention::default();
+    let over = retention.diagnostic_max as usize + 25;
+    for i in 0..over {
+        rt.store
+            .record(
+                &TraceRecord::diagnostic("agent-session.subprocess-stderr")
+                    .actor("runtime")
+                    .detail(json!({ "n": i })),
+            )
+            .unwrap();
+    }
+    assert_eq!(
+        rt.store.trace_counts().unwrap().get("diagnostic").copied(),
+        Some(over as u64)
+    );
+
+    rt.prune_trace_records();
+    assert_eq!(
+        rt.store.trace_counts().unwrap().get("diagnostic").copied(),
+        Some(retention.diagnostic_max),
+        "超過上限的最舊列必須被刪掉（留最新）"
+    );
+    let pruned = rt
+        .store
+        .query_trace(&TraceQuery {
+            kind: Some("trace.pruned".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(pruned.len(), 1);
+    assert_eq!(pruned[0].outcome, Some(TraceOutcome::Pruned));
+    assert_eq!(pruned[0].detail["removed"]["diagnostic"], json!(25));
+
+    // 沒東西可刪就不寫（不遞迴、不讓 prune 自己變成無限增長的來源）。
+    rt.prune_trace_records();
+    assert_eq!(
+        rt.store
+            .query_trace(&TraceQuery {
+                kind: Some("trace.pruned".into()),
+                ..Default::default()
+            })
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+/// `/v1/status` 必須說得出「紀錄寫失敗過幾次」與「現在各有幾筆」。
+#[tokio::test]
+async fn status_reports_trace_write_failures_and_counts() {
+    let (_g, rt) = runtime().await;
+    let status = rt.status().await;
+    assert_eq!(status["traceWriteFailures"], json!(0));
+    assert!(
+        status["traceCounts"]["audit"].is_u64(),
+        "{}",
+        status["traceCounts"]
+    );
+}
