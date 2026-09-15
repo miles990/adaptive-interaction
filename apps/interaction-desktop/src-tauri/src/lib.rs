@@ -1310,7 +1310,8 @@ async fn agent_session_approve(
 #[tauri::command]
 async fn agent_session_interrupt(state: State<'_, AppState>, id: String) -> Result<Value, String> {
     let runtime = rt(&state)?;
-    runtime.gateway_interrupt(&id).await.map_err(err_s)
+    // 桌面控制中心是人類的介面（Tauri IPC 只有本機視窗打得到）。
+    runtime.gateway_interrupt(&id, "human").await.map_err(err_s)
 }
 
 #[tauri::command]

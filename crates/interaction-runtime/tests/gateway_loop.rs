@@ -1802,7 +1802,7 @@ async fn an_interrupted_codex_turn_is_cancelled_not_claimed_completed() {
     )
     .await;
 
-    let out = rt.gateway_interrupt(&sid).await.unwrap();
+    let out = rt.gateway_interrupt(&sid, "human").await.unwrap();
     assert_eq!(out["interrupted"], json!(true));
     let marker = dir.path().join("fake-turn-interrupt");
     wait_for(async || marker.exists(), "turn/interrupt reached the agent").await;
@@ -1897,7 +1897,7 @@ async fn a_cancelled_session_still_emits_its_state_event_when_ingest_is_unavaila
         "停用 agent.session receptor 之後 ingest 必須真的失敗"
     );
 
-    rt.gateway_interrupt(&sid).await.unwrap();
+    rt.gateway_interrupt(&sid, "human").await.unwrap();
     wait_for(
         async || {
             rt.get_agent_session(&sid)
@@ -3107,4 +3107,232 @@ async fn closing_an_unknown_gateway_session_keeps_unknown_on_the_wire() {
         Some("unknown"),
         "關閉不得把「結果未知」改寫成「已關閉」"
     );
+}
+
+/// 一整輪工作走完之後，儲存層必須說得出這段互動的**起點、轉折與終點**：
+/// 派送（dispatched）→ provider 自報模型 → 任務送達 → 終局。
+///
+/// 同時釘住兩件事：高頻的 progress **不逐筆**寫紀錄（只在終態帶彙整數字），
+/// 以及 `claimed-completed` 的 outcome 絕不會被寫成 `verified`。
+#[tokio::test]
+async fn a_full_turn_leaves_a_dispatch_delivery_and_outcome_trail() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+    let dir = scenario_workdir("default");
+    let workdir = dir.path().to_string_lossy().into_owned();
+    let mut input = claude_input("留下軌跡", None);
+    input.workdir = Some(workdir.clone());
+    input.data_scope = vec!["project-source".into()];
+    let sid = rt
+        .create_agent_session(input)
+        .await
+        .unwrap()
+        .session_id
+        .as_str()
+        .to_string();
+
+    rt.mailbox_send(
+        &sid,
+        MailboxDirection::ToSession,
+        "task",
+        BTreeMap::from([("task".to_string(), json!("看一下 repo"))]),
+        None,
+    )
+    .await
+    .unwrap();
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::ClaimedCompleted)
+                .unwrap_or(false)
+        },
+        "claimed-completed",
+    )
+    .await;
+
+    let rows = rt
+        .store
+        .query_trace(&TraceQuery {
+            session_id: Some(sid.clone()),
+            limit: 500,
+            ..Default::default()
+        })
+        .unwrap();
+    let row = |kind: &str| {
+        rows.iter().find(|r| r.kind == kind).unwrap_or_else(|| {
+            panic!(
+                "缺少 {kind}：{:?}",
+                rows.iter().map(|r| &r.kind).collect::<Vec<_>>()
+            )
+        })
+    };
+
+    // 起點：派送。這一筆不描述結果（沒有 outcome）——它只說「掛上去了」。
+    let dispatched = row("agent-session.dispatched");
+    assert_eq!(dispatched.class, TraceClass::Trace);
+    assert_eq!(dispatched.actor, "runtime");
+    assert!(dispatched.outcome.is_none(), "派送不描述結果");
+    assert_eq!(dispatched.detail["providerKind"], json!("claude-code"));
+    assert_eq!(dispatched.detail["readOnly"], json!(true));
+    assert_eq!(dispatched.detail["resume"], json!(false));
+    assert_eq!(dispatched.detail["resumeOf"], serde_json::Value::Null);
+    // 沒有的東西寫 null／說明，不補造：這條路徑沒有模板，也沒辦法指定模型。
+    assert_eq!(dispatched.detail["promptTemplate"], serde_json::Value::Null);
+    assert_eq!(
+        dispatched.detail["requestedModel"],
+        json!("not-specifiable-via-gateway")
+    );
+    assert_eq!(dispatched.detail["actualModel"], serde_json::Value::Null);
+    assert!(dispatched.detail["workdir"]["digest"].is_string());
+    assert!(!dispatched.detail.to_string().contains(&workdir));
+
+    // 轉折一：provider 自報的模型（fixture 的 init 行帶 `fake-model`）。
+    let model = row("agent-session.provider-model");
+    assert_eq!(model.class, TraceClass::Trace);
+    assert_eq!(model.detail["actualModel"], json!("fake-model"));
+    assert_eq!(
+        rt.get_agent_session(&sid)
+            .await
+            .unwrap()
+            .actual_model
+            .as_deref(),
+        Some("fake-model")
+    );
+
+    // 轉折二：任務真的送進子程序（caused_by = messageId）。
+    let delivered = row("agent-session.task-delivered");
+    assert_eq!(delivered.class, TraceClass::Trace);
+    assert!(delivered.outcome.is_none(), "送達≠完成，不描述結果");
+    assert!(delivered
+        .causation_id
+        .as_deref()
+        .is_some_and(|id| id.starts_with("msg-")));
+    assert_eq!(delivered.detail["kind"], json!("task"));
+    assert!(delivered.detail["contextBundle"]["contentHash"].is_string());
+
+    // 終點：聲稱完成。claim≠verified——outcome 是 completed 而**不是**
+    // verified，code 又說了一次這只是聲稱。
+    let outcome = row("agent-session.outcome");
+    assert_eq!(outcome.class, TraceClass::Audit);
+    assert_eq!(outcome.outcome, Some(TraceOutcome::Completed));
+    assert_eq!(outcome.code.as_deref(), Some("outcome.claimed-completed"));
+    assert_eq!(outcome.detail["claim"], json!(true));
+    assert!(outcome.detail["claimId"].is_string());
+    assert!(outcome.detail["durationMs"].as_i64().unwrap() >= 0);
+    // 高頻進度不逐筆寫，但丟棄量要數得出來。
+    assert!(
+        outcome.detail["progressEventsAggregated"].as_u64().unwrap() >= 1,
+        "{:?}",
+        outcome.detail
+    );
+    assert!(
+        !rows.iter().any(|r| r.kind == "agent-session.progress"),
+        "進度事件不得逐筆寫進儲存層"
+    );
+
+    rt.close_agent_session(&sid, None, "closed").await.unwrap();
+}
+
+/// 子程序噴到 stderr：留一筆 **diagnostic**，而且**不得**改變結局判定。
+#[tokio::test]
+async fn subprocess_stderr_is_a_diagnostic_record_and_changes_no_outcome() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+    let dir = scenario_workdir("crash");
+    let mut input = claude_input("會噴錯的工作", None);
+    input.workdir = Some(dir.path().to_string_lossy().into_owned());
+    let sid = rt
+        .create_agent_session(input)
+        .await
+        .unwrap()
+        .session_id
+        .as_str()
+        .to_string();
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::Failed)
+                .unwrap_or(false)
+        },
+        "failed",
+    )
+    .await;
+
+    let rows = rt
+        .store
+        .query_trace(&TraceQuery {
+            session_id: Some(sid.clone()),
+            limit: 500,
+            ..Default::default()
+        })
+        .unwrap();
+    let stderr = rows
+        .iter()
+        .find(|r| r.kind == "agent-session.subprocess-stderr")
+        .expect("stderr 必須留下診斷紀錄");
+    assert_eq!(stderr.class, TraceClass::Diagnostic);
+    assert!(stderr.outcome.is_none(), "stderr 不是業務結局的證據");
+    assert!(stderr.detail["tail"].as_str().unwrap().chars().count() <= 600);
+    assert!(stderr.detail["linesSeen"].as_u64().unwrap() >= 1);
+
+    // 結局仍然由 exit code／協定事件決定：stderr 裡有 error 字樣也一樣。
+    let outcome = rows
+        .iter()
+        .find(|r| r.kind == "agent-session.outcome")
+        .expect("終局紀錄");
+    assert_eq!(outcome.outcome, Some(TraceOutcome::Failed));
+    assert_eq!(outcome.code.as_deref(), Some("outcome.connector-error"));
+    // 階段 0 的 D3：失敗原因要留在 record 上，不是只飄過事件流。
+    let failed = rt.get_agent_session(&sid).await.unwrap();
+    assert!(
+        failed.detail.as_deref().is_some_and(|d| !d.is_empty()),
+        "失敗必須說得出原因：{failed:?}"
+    );
+    assert_eq!(
+        outcome.detail["reason"].as_str(),
+        failed.detail.as_deref(),
+        "紀錄與 record 上的原因摘要必須是同一份"
+    );
+}
+
+/// 中斷留下 `interrupt-requested`——**requested ≠ confirmed**。
+#[tokio::test]
+async fn an_interrupt_is_audited_as_requested_not_confirmed() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+    let dir = scenario_workdir("hang");
+    let mut input = claude_input("會卡住的工作", None);
+    input.workdir = Some(dir.path().to_string_lossy().into_owned());
+    let sid = rt
+        .create_agent_session(input)
+        .await
+        .unwrap()
+        .session_id
+        .as_str()
+        .to_string();
+    rt.gateway_interrupt(&sid, "human").await.unwrap();
+
+    let rows = rt
+        .store
+        .query_trace(&TraceQuery {
+            kind: Some("agent-session.interrupt-requested".into()),
+            session_id: Some(sid.clone()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].class, TraceClass::Audit);
+    assert_eq!(rows[0].actor, "human");
+    assert_eq!(rows[0].outcome, Some(TraceOutcome::Accepted));
+    assert_eq!(rows[0].code.as_deref(), Some("interrupt.sent"));
+    assert_eq!(rows[0].detail["deliveredToAgent"], json!(true));
+    // 「已請求」不得升級成「已取消」：session 仍然開著。
+    assert!(rt.get_agent_session(&sid).await.unwrap().state.is_open());
+
+    rt.close_agent_session(&sid, None, "closed").await.unwrap();
 }
