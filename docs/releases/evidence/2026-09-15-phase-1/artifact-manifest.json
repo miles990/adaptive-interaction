@@ -1,0 +1,62 @@
+{
+ "evidenceSourceCheckpoint": "c89a5c4d8646",
+ "note": "階段 1 真 Agent 追蹤驗收（trace_e2e.py，daemon 由 c6dd64e 建置 sha256 5bea07b8…）與 workspace 回歸 log；home／work-* 不歸檔",
+ "files": [
+  {
+   "original": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79ba5151-5f26-4639-88f8-71c12b013198/scratchpad/real-agent/final2-claude/daemon.log",
+   "path": "real-agent/claude-code/daemon.txt",
+   "originalSha256": "b156bced7374dd47056006e1b2e22746dd1fdd68e535bcd82aa928fa3f6e4569",
+   "bytes": 1949,
+   "archivedSha256": "b156bced7374dd47056006e1b2e22746dd1fdd68e535bcd82aa928fa3f6e4569",
+   "normalization": "text trailing whitespace / EOF blank lines normalized"
+  },
+  {
+   "original": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79ba5151-5f26-4639-88f8-71c12b013198/scratchpad/real-agent/final2-claude/result.json",
+   "path": "real-agent/claude-code/result.json",
+   "originalSha256": "fa1bcb8b80142f5bebd3e993ab20d90536e2a78e25568735458ffb966a51f3a1",
+   "bytes": 44934,
+   "archivedSha256": "fa1bcb8b80142f5bebd3e993ab20d90536e2a78e25568735458ffb966a51f3a1",
+   "normalization": "byte-identical"
+  },
+  {
+   "original": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79ba5151-5f26-4639-88f8-71c12b013198/scratchpad/real-agent/final2-claude/run.txt",
+   "path": "real-agent/claude-code/run.txt",
+   "originalSha256": "72e3df5291d3acfa1e12b09039ea366888f782cbe7cbcd1eafdc7625d857de2f",
+   "bytes": 6270,
+   "archivedSha256": "72e3df5291d3acfa1e12b09039ea366888f782cbe7cbcd1eafdc7625d857de2f",
+   "normalization": "text trailing whitespace / EOF blank lines normalized"
+  },
+  {
+   "original": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79ba5151-5f26-4639-88f8-71c12b013198/scratchpad/real-agent/final2-codex/daemon.log",
+   "path": "real-agent/codex/daemon.txt",
+   "originalSha256": "80feaf290ebaf6de3cb46d77b9eff08e88d1cca06a193b6e4abf895aef976176",
+   "bytes": 1422,
+   "archivedSha256": "80feaf290ebaf6de3cb46d77b9eff08e88d1cca06a193b6e4abf895aef976176",
+   "normalization": "text trailing whitespace / EOF blank lines normalized"
+  },
+  {
+   "original": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79ba5151-5f26-4639-88f8-71c12b013198/scratchpad/real-agent/final2-codex/result.json",
+   "path": "real-agent/codex/result.json",
+   "originalSha256": "dc6a4e2351b49544f4535d8dc743c6816f687968d6d03cb7a21d9ef4c48f30fa",
+   "bytes": 57991,
+   "archivedSha256": "dc6a4e2351b49544f4535d8dc743c6816f687968d6d03cb7a21d9ef4c48f30fa",
+   "normalization": "byte-identical"
+  },
+  {
+   "original": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79ba5151-5f26-4639-88f8-71c12b013198/scratchpad/real-agent/final2-codex/run.txt",
+   "path": "real-agent/codex/run.txt",
+   "originalSha256": "c85915dafa863d892a32df7cb9fcb40cdcd78ba48f20161e57ec67c1a749291b",
+   "bytes": 9030,
+   "archivedSha256": "c85915dafa863d892a32df7cb9fcb40cdcd78ba48f20161e57ec67c1a749291b",
+   "normalization": "text trailing whitespace / EOF blank lines normalized"
+  },
+  {
+   "original": "/private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79ba5151-5f26-4639-88f8-71c12b013198/scratchpad/wslog/workspace-test.log",
+   "path": "./workspace-test.txt",
+   "originalSha256": "1ae7b84e1a061d2afb8b568d9a590674cbcb873e41e02e4e61cf68fb329f928d",
+   "bytes": 116421,
+   "archivedSha256": "1ae7b84e1a061d2afb8b568d9a590674cbcb873e41e02e4e61cf68fb329f928d",
+   "normalization": "text trailing whitespace / EOF blank lines normalized"
+  }
+ ]
+}

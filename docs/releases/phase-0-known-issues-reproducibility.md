@@ -200,10 +200,10 @@
 
 | 缺陷 | 一句話 | 嚴重度 | 對應既有限制 | 建議階段 | 本階段可修？ |
 |---|---|---|---|---|---|
-| D1 | 人類中斷真 claude-code session 落 `failed` 而非 `cancelled` | high | **L-02（同根因合併）** | 1 | 否（產品缺陷，未阻止驗證） |
+| D1 | 人類中斷真 claude-code session 落 `failed` 而非 `cancelled` | high | **L-02（同根因合併）** | 1 | 否（產品缺陷，未阻止驗證）——**階段 1 已修（`24ae45d`）**，真 Claude 2.1.272 重跑終態 `cancelled` |
 | D2 | close 的 SSE 投影把 `failed`／`timed-out`／`unknown` 壓成 `closed` | high | 與 L-60 同族（誠實階梯在投影層流失） | 1 | 否 |
 | D3 | `failed` 的 session 在 record 與信箱上都沒有原因 | medium | 與 L-60 同族 | 1 | 否 |
-| D4 | codex 核可「拒絕」送出的 wire 值 `reject` 不在 0.153.4 列舉內 | medium | 無（新） | 1 | 否 |
+| D4 | codex 核可「拒絕」送出的 wire 值 `reject` 不在 0.153.4 列舉內 | medium | 無（新） | 1 | 否——**階段 1 已修（`a24153e`）**，改送 `decline`（列舉由 D16 stderr 診斷紀錄取得） |
 | D5 | codex 連接器沒有 MCP／plugin 封鎖，唯讀 session 仍啟動使用者的 MCP server | high | 與 L-07 同族（連接器能力不對稱） | 1 | 否 |
 | D6 | codex `allowWrite` 不送 `writable_roots`，實際範圍併入使用者全域設定 | medium | 無（新） | 2 | 否 |
 | D7 | codex 把所有帶 id+method 的 ServerRequest 都當核可請求 | medium | 與 L-01／D11 同族 | 2 | 否（EXPERIMENTAL，本輪未自然觸發） |

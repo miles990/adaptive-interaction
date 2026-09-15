@@ -1,0 +1,47 @@
+{"t": "2026-09-15T06:26:39.816Z", "mono": 0.202, "k": "daemon-spawned", "pid": 89844}
+{"t": "2026-09-15T06:26:40.078Z", "mono": 0.464, "k": "daemon-ready"}
+{"t": "2026-09-15T06:26:40.333Z", "mono": 0.719, "k": "create", "scenario": "normal", "status": 200, "id": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2", "error": null}
+{"t": "2026-09-15T06:26:40.336Z", "mono": 0.722, "k": "task-sent", "scenario": "normal", "status": 200, "messageId": "msg-asession-fc77110b-89e8-4168-950a-c3316c92cbd2-1"}
+{"t": "2026-09-15T06:26:40.337Z", "mono": 0.723, "k": "state", "scenario": "normal", "state": "created", "phase": "fetched"}
+{"t": "2026-09-15T06:26:44.371Z", "mono": 4.758, "k": "state", "scenario": "normal", "state": "active", "phase": "working"}
+{"t": "2026-09-15T06:26:47.405Z", "mono": 7.791, "k": "state", "scenario": "normal", "state": "claimed-completed", "phase": "claimed-completed"}
+{"t": "2026-09-15T06:26:47.407Z", "mono": 7.793, "k": "verify", "status": 200, "humanVerified": true}
+{"t": "2026-09-15T06:26:47.410Z", "mono": 7.796, "k": "close", "status": 200, "state": "closed"}
+{"t": "2026-09-15T06:26:47.413Z", "mono": 7.799, "k": "verdict", "scenario": "normal", "verdict": "passed", "reason": ""}
+{"t": "2026-09-15T06:26:47.749Z", "mono": 8.136, "k": "create", "scenario": "cancel", "status": 200, "id": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f", "error": null}
+{"t": "2026-09-15T06:26:47.754Z", "mono": 8.14, "k": "task-sent", "scenario": "cancel", "status": 200, "messageId": "msg-asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f-1"}
+{"t": "2026-09-15T06:26:47.756Z", "mono": 8.142, "k": "state", "scenario": "cancel", "state": "created", "phase": "fetched"}
+{"t": "2026-09-15T06:26:54.839Z", "mono": 15.225, "k": "state", "scenario": "cancel", "state": "active", "phase": "working"}
+{"t": "2026-09-15T06:26:57.891Z", "mono": 18.277, "k": "interrupt", "status": 200, "resp": {"interrupted": true}}
+{"t": "2026-09-15T06:26:57.894Z", "mono": 18.28, "k": "state", "scenario": "cancel", "state": "active", "phase": "working"}
+{"t": "2026-09-15T06:26:58.400Z", "mono": 18.786, "k": "state", "scenario": "cancel", "state": "cancelled", "phase": "cancelled"}
+{"t": "2026-09-15T06:26:59.906Z", "mono": 20.292, "k": "close", "status": 200, "state": "cancelled"}
+{"t": "2026-09-15T06:26:59.910Z", "mono": 20.296, "k": "verdict", "scenario": "cancel", "verdict": "passed", "reason": ""}
+{"t": "2026-09-15T06:26:59.912Z", "mono": 20.298, "k": "create", "scenario": "resume-reject", "status": 403, "id": null, "error": {"error": {"code": "policy_blocked", "message": "policy blocked: 接續上次的工作不得放寬時間上限（上次 20 分鐘，這次要求 60 分鐘）"}}}
+{"t": "2026-09-15T06:26:59.914Z", "mono": 20.3, "k": "verdict", "scenario": "resume-reject", "verdict": "passed", "reason": ""}
+{"t": "2026-09-15T06:27:00.178Z", "mono": 20.564, "k": "create", "scenario": "resume-accept", "status": 200, "id": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3", "error": null}
+{"t": "2026-09-15T06:27:00.196Z", "mono": 20.582, "k": "task-sent", "scenario": "resume-accept", "status": 200, "messageId": "msg-asession-b22310e6-3aae-4b39-9c37-356760aa75e3-1"}
+{"t": "2026-09-15T06:27:00.198Z", "mono": 20.584, "k": "state", "scenario": "resume-accept", "state": "created", "phase": "fetched"}
+{"t": "2026-09-15T06:27:03.235Z", "mono": 23.621, "k": "state", "scenario": "resume-accept", "state": "active", "phase": "working"}
+{"t": "2026-09-15T06:27:05.763Z", "mono": 26.148, "k": "state", "scenario": "resume-accept", "state": "claimed-completed", "phase": "claimed-completed"}
+{"t": "2026-09-15T06:27:05.766Z", "mono": 26.152, "k": "close", "status": 200, "state": "closed"}
+{"t": "2026-09-15T06:27:05.776Z", "mono": 26.162, "k": "verdict", "scenario": "resume-accept", "verdict": "passed", "reason": ""}
+{"t": "2026-09-15T06:27:06.109Z", "mono": 26.494, "k": "create", "scenario": "failure", "status": 200, "id": "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35", "error": null}
+{"t": "2026-09-15T06:27:06.112Z", "mono": 26.498, "k": "task-sent", "scenario": "failure", "status": 200, "messageId": "msg-asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35-1"}
+{"t": "2026-09-15T06:27:06.113Z", "mono": 26.499, "k": "state", "scenario": "failure", "state": "created", "phase": "fetched"}
+{"t": "2026-09-15T06:27:08.640Z", "mono": 29.026, "k": "state", "scenario": "failure", "state": "failed", "phase": "failed"}
+{"t": "2026-09-15T06:27:08.653Z", "mono": 29.038, "k": "close", "status": 200, "state": "failed"}
+{"t": "2026-09-15T06:27:08.667Z", "mono": 29.053, "k": "verdict", "scenario": "failure", "verdict": "passed", "reason": ""}
+{"t": "2026-09-15T06:27:08.930Z", "mono": 29.316, "k": "create", "scenario": "restart", "status": 200, "id": "asession-cfd527c9-5ada-432e-ac07-95703a2a52a4", "error": null}
+{"t": "2026-09-15T06:27:08.934Z", "mono": 29.32, "k": "task-sent", "scenario": "restart", "status": 200, "messageId": "msg-asession-cfd527c9-5ada-432e-ac07-95703a2a52a4-1"}
+{"t": "2026-09-15T06:27:08.936Z", "mono": 29.322, "k": "state", "scenario": "restart", "state": "created", "phase": "fetched"}
+{"t": "2026-09-15T06:27:13.994Z", "mono": 34.38, "k": "state", "scenario": "restart", "state": "active", "phase": "working"}
+{"t": "2026-09-15T06:27:16.001Z", "mono": 36.387, "k": "daemon-stopped", "signal": 9}
+{"t": "2026-09-15T06:27:17.014Z", "mono": 37.4, "k": "daemon-spawned", "pid": 97687}
+{"t": "2026-09-15T06:27:17.271Z", "mono": 37.657, "k": "daemon-ready"}
+{"t": "2026-09-15T06:27:17.272Z", "mono": 37.658, "k": "after-restart", "state": "expired", "phase": "unknown", "detail": "runtime restarted"}
+{"t": "2026-09-15T06:27:17.275Z", "mono": 37.661, "k": "verdict", "scenario": "restart", "verdict": "passed", "reason": ""}
+{"t": "2026-09-15T06:27:17.288Z", "mono": 37.674, "k": "verdict", "scenario": "isolation", "verdict": "passed"}
+{"t": "2026-09-15T06:27:17.290Z", "mono": 37.675, "k": "verdict", "scenario": "agent-token-forbidden", "status": 403}
+{"t": "2026-09-15T06:27:17.295Z", "mono": 37.681, "k": "daemon-stopped", "signal": 15}
+RESULT {"normal": "passed", "cancel": "passed", "resume-reject": "passed", "resume-accept": "passed", "failure": "passed", "restart": "passed", "isolation": "passed", "agent-token-forbidden": "passed"}

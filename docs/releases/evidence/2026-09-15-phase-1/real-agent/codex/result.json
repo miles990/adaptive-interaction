@@ -1,0 +1,2246 @@
+{
+ "agent": "codex",
+ "port": 19141,
+ "commit": "c89a5c4d864650aa1dafbe72cc59f1cf43d26e27",
+ "binarySha256": "5bea07b88575817c6d1daeffe46f5df21ee6a34ba7879919b9e7653788c32ec2",
+ "scenarios": {
+  "normal": {
+   "sessionId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5",
+   "traceStatus": 200,
+   "activityStatus": 200,
+   "kinds": [
+    [
+     "agent-session.closed",
+     "completed",
+     "close.requested"
+    ],
+    [
+     "agent-session.verified",
+     "verified",
+     "verify.human-confirmed"
+    ],
+    [
+     "agent-session.outcome",
+     "claimed",
+     "outcome.claimed-completed"
+    ],
+    [
+     "agent.approval",
+     "accepted",
+     "approval.human-approved"
+    ],
+    [
+     "agent-session.task-delivered",
+     null,
+     null
+    ],
+    [
+     "agent-session.provider-model",
+     null,
+     null
+    ],
+    [
+     "agent-session.dispatched",
+     null,
+     null
+    ],
+    [
+     "agent-session.capability-issued",
+     "accepted",
+     "capability.issued"
+    ]
+   ],
+   "expected": [
+    [
+     "agent-session.capability-issued",
+     null,
+     null
+    ],
+    [
+     "agent-session.dispatched",
+     null,
+     null
+    ],
+    [
+     "agent-session.task-delivered",
+     null,
+     null
+    ],
+    [
+     "agent-session.outcome",
+     "claimed",
+     "outcome.claimed-completed"
+    ],
+    [
+     "agent-session.verified",
+     "verified",
+     null
+    ],
+    [
+     "agent-session.closed",
+     null,
+     null
+    ],
+    [
+     "agent.approval",
+     "accepted",
+     "approval.human-approved"
+    ]
+   ],
+   "missing": [],
+   "activity": {
+    "headline": "已關閉",
+    "lifecycle": "closed",
+    "nextStep": "無需處理",
+    "phase": "closed",
+    "recordState": "closed",
+    "records": [
+     {
+      "actor": "human",
+      "at": "2026-09-15T06:26:50.696Z",
+      "class": "audit",
+      "code": "close.requested",
+      "detail": {
+       "agentSessionId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5",
+       "finalState": "closed",
+       "phase": "closed",
+       "priorState": "ClaimedCompleted",
+       "reason": "phase1 normal done"
+      },
+      "id": 26,
+      "kind": "agent-session.closed",
+      "outcome": "completed",
+      "schema": 1,
+      "sessionId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5",
+      "traceId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5"
+     },
+     {
+      "actor": "human",
+      "at": "2026-09-15T06:26:50.682Z",
+      "causationId": "claim-00f4ccb7-ab1e-4382-8903-000f5ee89c42",
+      "class": "audit",
+      "code": "verify.human-confirmed",
+      "detail": {
+       "agentSessionId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5",
+       "claimId": "claim-00f4ccb7-ab1e-4382-8903-000f5ee89c42",
+       "hasNote": true
+      },
+      "id": 22,
+      "kind": "agent-session.verified",
+      "outcome": "verified",
+      "schema": 1,
+      "sessionId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5",
+      "traceId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:50.439Z",
+      "class": "audit",
+      "code": "outcome.claimed-completed",
+      "detail": {
+       "agentId": "codex",
+       "claim": true,
+       "claimId": "claim-00f4ccb7-ab1e-4382-8903-000f5ee89c42",
+       "costUsd": null,
+       "durationMs": 11718,
+       "numTurns": null,
+       "progressEventsAggregated": 8,
+       "reason": null,
+       "tokens": 50199
+      },
+      "id": 19,
+      "kind": "agent-session.outcome",
+      "outcome": "claimed",
+      "schema": 1,
+      "sessionId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5",
+      "traceId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5"
+     },
+     {
+      "actor": "human",
+      "at": "2026-09-15T06:26:46.121Z",
+      "causationId": "0",
+      "class": "audit",
+      "code": "approval.human-approved",
+      "detail": {
+       "approved": true,
+       "by": "human",
+       "requestId": "0",
+       "sessionId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5",
+       "summary": "codex 請求核可：item/commandExecution/requestApproval \"/bin/zsh -lc 'cat NOTES.md'\""
+      },
+      "id": 13,
+      "kind": "agent.approval",
+      "outcome": "accepted",
+      "schema": 1,
+      "sessionId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5",
+      "traceId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:39.037Z",
+      "causationId": "msg-asession-f7529467-41c4-40ec-99f6-1970c69a0bb5-1",
+      "class": "trace",
+      "detail": {
+       "contextBundle": {
+        "bundleId": "bundle-611f07e0-ae62-4d7c-8dab-f176f964ed8c",
+        "bytes": 645,
+        "contentHash": "7d076414fcb660d7828d32ffa62f8d8290e32e622497194c5a2ab1f2b3fb6203",
+        "truncated": false
+       },
+       "kind": "task",
+       "messageId": "msg-asession-f7529467-41c4-40ec-99f6-1970c69a0bb5-1"
+      },
+      "id": 6,
+      "kind": "agent-session.task-delivered",
+      "schema": 1,
+      "sessionId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5",
+      "traceId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:38.995Z",
+      "causationId": "01a0a3bf-0082-7ca0-b3ab-c6b753319ce1",
+      "class": "trace",
+      "detail": {
+       "actualModel": "gpt-6-astra"
+      },
+      "id": 5,
+      "kind": "agent-session.provider-model",
+      "schema": 1,
+      "sessionId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5",
+      "traceId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:38.992Z",
+      "class": "trace",
+      "detail": {
+       "actualModel": null,
+       "agentId": "codex",
+       "connector": {
+        "binaryVersion": "codex-cli 0.154.0"
+       },
+       "consentScope": [],
+       "dataScope": [],
+       "maxCost": 0.0,
+       "maxMessages": 40,
+       "promptTemplate": null,
+       "providerKind": "codex",
+       "readOnly": true,
+       "requestedModel": "not-specifiable-via-gateway",
+       "resume": false,
+       "resumeOf": null,
+       "toolScope": [],
+       "toolsDisabled": false,
+       "ttlMinutes": 20,
+       "workdir": {
+        "basename": "work-normal",
+        "digest": "73557f121d3a"
+       },
+       "writeEnabled": false
+      },
+      "id": 4,
+      "kind": "agent-session.dispatched",
+      "schema": 1,
+      "sessionId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5",
+      "traceId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:38.721Z",
+      "class": "audit",
+      "code": "capability.issued",
+      "detail": {
+       "agentSessionId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5",
+       "expiresAt": "2026-09-15T06:46:38.720343Z"
+      },
+      "id": 2,
+      "kind": "agent-session.capability-issued",
+      "outcome": "accepted",
+      "schema": 1,
+      "sessionId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5",
+      "traceId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5"
+     }
+    ],
+    "sessionId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5",
+    "stateLabel": "已由你確認",
+    "timeline": [
+     {
+      "at": "2026-09-15T06:26:50.696Z",
+      "code": "close.requested",
+      "detailAvailable": true,
+      "id": 26,
+      "kind": "agent-session.closed",
+      "label": "已關閉",
+      "outcome": "completed"
+     },
+     {
+      "at": "2026-09-15T06:26:50.682Z",
+      "code": "verify.human-confirmed",
+      "detailAvailable": true,
+      "id": 22,
+      "kind": "agent-session.verified",
+      "label": "已由你確認",
+      "outcome": "verified"
+     },
+     {
+      "at": "2026-09-15T06:26:50.439Z",
+      "code": "outcome.claimed-completed",
+      "detailAvailable": true,
+      "id": 19,
+      "kind": "agent-session.outcome",
+      "label": "對方說已完成（尚未檢查）",
+      "outcome": "claimed"
+     },
+     {
+      "at": "2026-09-15T06:26:46.121Z",
+      "code": "approval.human-approved",
+      "detailAvailable": true,
+      "id": 13,
+      "kind": "agent.approval",
+      "label": "你核准了一項請求",
+      "outcome": "accepted"
+     },
+     {
+      "at": "2026-09-15T06:26:39.037Z",
+      "detailAvailable": true,
+      "id": 6,
+      "kind": "agent-session.task-delivered",
+      "label": "任務已送達"
+     },
+     {
+      "at": "2026-09-15T06:26:38.995Z",
+      "detailAvailable": true,
+      "id": 5,
+      "kind": "agent-session.provider-model",
+      "label": "工作助手回報了它實際使用的模型"
+     },
+     {
+      "at": "2026-09-15T06:26:38.992Z",
+      "detailAvailable": true,
+      "id": 4,
+      "kind": "agent-session.dispatched",
+      "label": "已交給 Codex"
+     },
+     {
+      "at": "2026-09-15T06:26:38.721Z",
+      "code": "capability.issued",
+      "detailAvailable": true,
+      "id": 2,
+      "kind": "agent-session.capability-issued",
+      "label": "核發了這次工作的通行證",
+      "outcome": "accepted"
+     }
+    ],
+    "truncated": false
+   },
+   "leaks": [],
+   "verdict": "passed",
+   "reason": "",
+   "finalState": "claimed-completed",
+   "actualModel": "gpt-6-astra",
+   "providerSessionId": "01a0a3bf-0082-7ca0-b3ab-c6b753319ce1",
+   "phase": "verified"
+  },
+  "cancel": {
+   "sessionId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3",
+   "traceStatus": 200,
+   "activityStatus": 200,
+   "kinds": [
+    [
+     "agent-session.closed",
+     "completed",
+     "close.requested"
+    ],
+    [
+     "agent-session.outcome",
+     "cancelled",
+     "outcome.cancelled"
+    ],
+    [
+     "agent-session.interrupt-requested",
+     "accepted",
+     "interrupt.sent"
+    ],
+    [
+     "agent-session.task-delivered",
+     null,
+     null
+    ],
+    [
+     "agent-session.provider-model",
+     null,
+     null
+    ],
+    [
+     "agent-session.dispatched",
+     null,
+     null
+    ],
+    [
+     "agent-session.capability-issued",
+     "accepted",
+     "capability.issued"
+    ]
+   ],
+   "expected": [
+    [
+     "agent-session.interrupt-requested",
+     "accepted",
+     "interrupt.sent"
+    ],
+    [
+     "agent-session.outcome",
+     "cancelled",
+     "outcome.cancelled"
+    ]
+   ],
+   "missing": [],
+   "activity": {
+    "headline": "已關閉",
+    "lifecycle": "closed",
+    "nextStep": "無需處理",
+    "phase": "cancelled",
+    "recordState": "cancelled",
+    "records": [
+     {
+      "actor": "human",
+      "at": "2026-09-15T06:26:56.632Z",
+      "class": "audit",
+      "code": "close.requested",
+      "detail": {
+       "agentSessionId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3",
+       "finalState": "cancelled",
+       "phase": "cancelled",
+       "priorState": "Cancelled",
+       "reason": "phase1 cancel done"
+      },
+      "id": 40,
+      "kind": "agent-session.closed",
+      "outcome": "completed",
+      "schema": 1,
+      "sessionId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3",
+      "traceId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:54.628Z",
+      "class": "audit",
+      "code": "outcome.cancelled",
+      "detail": {
+       "agentId": "codex",
+       "claim": false,
+       "claimId": null,
+       "costUsd": null,
+       "durationMs": 3909,
+       "numTurns": null,
+       "progressEventsAggregated": 1,
+       "reason": null,
+       "tokens": null
+      },
+      "id": 37,
+      "kind": "agent-session.outcome",
+      "outcome": "cancelled",
+      "schema": 1,
+      "sessionId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3",
+      "traceId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3"
+     },
+     {
+      "actor": "human",
+      "at": "2026-09-15T06:26:54.618Z",
+      "class": "audit",
+      "code": "interrupt.sent",
+      "detail": {
+       "agentSessionId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3",
+       "deliveredToAgent": true,
+       "error": null,
+       "note": "requested ≠ confirmed：真的停了要由之後的 cancelled 結局來說"
+      },
+      "id": 36,
+      "kind": "agent-session.interrupt-requested",
+      "outcome": "accepted",
+      "schema": 1,
+      "sessionId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3",
+      "traceId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:51.087Z",
+      "causationId": "msg-asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3-1",
+      "class": "trace",
+      "detail": {
+       "contextBundle": {
+        "bundleId": "bundle-1fa1067f-eb9b-4694-afad-968a1c8e1065",
+        "bytes": 1060,
+        "contentHash": "1abcf1ed1790e9a2f6c9cfe5a354872e893e019674ce970ff990d1dbcf157827",
+        "truncated": false
+       },
+       "kind": "task",
+       "messageId": "msg-asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3-1"
+      },
+      "id": 33,
+      "kind": "agent-session.task-delivered",
+      "schema": 1,
+      "sessionId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3",
+      "traceId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:51.028Z",
+      "causationId": "01a0a3bf-2f6b-76a1-86e6-13a850f50cf7",
+      "class": "trace",
+      "detail": {
+       "actualModel": "gpt-6-astra"
+      },
+      "id": 32,
+      "kind": "agent-session.provider-model",
+      "schema": 1,
+      "sessionId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3",
+      "traceId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:51.021Z",
+      "class": "trace",
+      "detail": {
+       "actualModel": null,
+       "agentId": "codex",
+       "connector": {
+        "binaryVersion": "codex-cli 0.154.0"
+       },
+       "consentScope": [],
+       "dataScope": [],
+       "maxCost": 0.0,
+       "maxMessages": 40,
+       "promptTemplate": null,
+       "providerKind": "codex",
+       "readOnly": true,
+       "requestedModel": "not-specifiable-via-gateway",
+       "resume": false,
+       "resumeOf": null,
+       "toolScope": [],
+       "toolsDisabled": false,
+       "ttlMinutes": 20,
+       "workdir": {
+        "basename": "work-cancel",
+        "digest": "35e65f455d58"
+       },
+       "writeEnabled": false
+      },
+      "id": 31,
+      "kind": "agent-session.dispatched",
+      "schema": 1,
+      "sessionId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3",
+      "traceId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:50.719Z",
+      "class": "audit",
+      "code": "capability.issued",
+      "detail": {
+       "agentSessionId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3",
+       "expiresAt": "2026-09-15T06:46:50.718432Z"
+      },
+      "id": 29,
+      "kind": "agent-session.capability-issued",
+      "outcome": "accepted",
+      "schema": 1,
+      "sessionId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3",
+      "traceId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3"
+     }
+    ],
+    "sessionId": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3",
+    "stateLabel": "已取消",
+    "timeline": [
+     {
+      "at": "2026-09-15T06:26:56.632Z",
+      "code": "close.requested",
+      "detailAvailable": true,
+      "id": 40,
+      "kind": "agent-session.closed",
+      "label": "已關閉",
+      "outcome": "completed"
+     },
+     {
+      "at": "2026-09-15T06:26:54.628Z",
+      "code": "outcome.cancelled",
+      "detailAvailable": true,
+      "id": 37,
+      "kind": "agent-session.outcome",
+      "label": "已取消",
+      "outcome": "cancelled"
+     },
+     {
+      "at": "2026-09-15T06:26:54.618Z",
+      "code": "interrupt.sent",
+      "detailAvailable": true,
+      "id": 36,
+      "kind": "agent-session.interrupt-requested",
+      "label": "你要求中斷（等待確認）",
+      "outcome": "accepted"
+     },
+     {
+      "at": "2026-09-15T06:26:51.087Z",
+      "detailAvailable": true,
+      "id": 33,
+      "kind": "agent-session.task-delivered",
+      "label": "任務已送達"
+     },
+     {
+      "at": "2026-09-15T06:26:51.028Z",
+      "detailAvailable": true,
+      "id": 32,
+      "kind": "agent-session.provider-model",
+      "label": "工作助手回報了它實際使用的模型"
+     },
+     {
+      "at": "2026-09-15T06:26:51.021Z",
+      "detailAvailable": true,
+      "id": 31,
+      "kind": "agent-session.dispatched",
+      "label": "已交給 Codex"
+     },
+     {
+      "at": "2026-09-15T06:26:50.719Z",
+      "code": "capability.issued",
+      "detailAvailable": true,
+      "id": 29,
+      "kind": "agent-session.capability-issued",
+      "label": "核發了這次工作的通行證",
+      "outcome": "accepted"
+     }
+    ],
+    "truncated": false
+   },
+   "leaks": [],
+   "verdict": "passed",
+   "reason": "",
+   "finalState": "cancelled",
+   "detail": "phase1 cancel done (was Cancelled)"
+  },
+  "resume-reject": {
+   "createStatus": 403,
+   "createError": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: 接續上次的工作不得放寬時間上限（上次 20 分鐘，這次要求 60 分鐘）"
+    }
+   },
+   "rejectedRows": [
+    [
+     "resume.ttl-widened",
+     "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5",
+     "asession-af135657-c2f6-422a-bad8-b083beaa3963"
+    ]
+   ],
+   "sessionCreated": false,
+   "traceStatus": 200,
+   "leaks": [],
+   "verdict": "passed",
+   "reason": ""
+  },
+  "resume-accept": {
+   "sessionId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9",
+   "traceStatus": 200,
+   "activityStatus": 200,
+   "kinds": [
+    [
+     "agent-session.closed",
+     "completed",
+     "close.requested"
+    ],
+    [
+     "agent-session.outcome",
+     "claimed",
+     "outcome.claimed-completed"
+    ],
+    [
+     "agent.approval",
+     "accepted",
+     "approval.human-approved"
+    ],
+    [
+     "agent-session.task-delivered",
+     null,
+     null
+    ],
+    [
+     "agent-session.provider-model",
+     null,
+     null
+    ],
+    [
+     "agent-session.dispatched",
+     null,
+     null
+    ],
+    [
+     "agent-session.capability-issued",
+     "accepted",
+     "capability.issued"
+    ],
+    [
+     "agent-session.resume-checked",
+     "accepted",
+     "resume.ok"
+    ]
+   ],
+   "expected": [
+    [
+     "agent-session.resume-checked",
+     "accepted",
+     "resume.ok"
+    ],
+    [
+     "agent-session.dispatched",
+     null,
+     null
+    ]
+   ],
+   "missing": [],
+   "activity": {
+    "headline": "已關閉",
+    "lifecycle": "closed",
+    "nextStep": "無需處理",
+    "phase": "closed",
+    "recordState": "closed",
+    "records": [
+     {
+      "actor": "human",
+      "at": "2026-09-15T06:27:11.270Z",
+      "class": "audit",
+      "code": "close.requested",
+      "detail": {
+       "agentSessionId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9",
+       "finalState": "closed",
+       "phase": "closed",
+       "priorState": "ClaimedCompleted",
+       "reason": "phase1 resume done"
+      },
+      "id": 67,
+      "kind": "agent-session.closed",
+      "outcome": "completed",
+      "schema": 1,
+      "sessionId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9",
+      "traceId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:10.953Z",
+      "class": "audit",
+      "code": "outcome.claimed-completed",
+      "detail": {
+       "agentId": "codex",
+       "claim": true,
+       "claimId": "claim-42dcfef1-703c-4ee8-8244-8b525baa52fe",
+       "costUsd": null,
+       "durationMs": 14298,
+       "numTurns": null,
+       "progressEventsAggregated": 9,
+       "reason": null,
+       "tokens": 102101
+      },
+      "id": 64,
+      "kind": "agent-session.outcome",
+      "outcome": "claimed",
+      "schema": 1,
+      "sessionId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9",
+      "traceId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9"
+     },
+     {
+      "actor": "human",
+      "at": "2026-09-15T06:27:06.711Z",
+      "causationId": "0",
+      "class": "audit",
+      "code": "approval.human-approved",
+      "detail": {
+       "approved": true,
+       "by": "human",
+       "requestId": "0",
+       "sessionId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9",
+       "summary": "codex 請求核可：item/commandExecution/requestApproval \"/bin/zsh -lc 'cat NOTES.md'\""
+      },
+      "id": 58,
+      "kind": "agent.approval",
+      "outcome": "accepted",
+      "schema": 1,
+      "sessionId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9",
+      "traceId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:57.092Z",
+      "causationId": "msg-asession-dab2339d-3213-46d8-b659-af0d8187d2c9-1",
+      "class": "trace",
+      "detail": {
+       "contextBundle": {
+        "bundleId": "bundle-db5d5178-4858-442f-a1e1-154554890727",
+        "bytes": 1391,
+        "contentHash": "05396d52c0139a2bd168194446918507961b32d9011c56b209ddbb38216edccd",
+        "truncated": false
+       },
+       "kind": "task",
+       "messageId": "msg-asession-dab2339d-3213-46d8-b659-af0d8187d2c9-1"
+      },
+      "id": 51,
+      "kind": "agent-session.task-delivered",
+      "schema": 1,
+      "sessionId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9",
+      "traceId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:56.973Z",
+      "causationId": "01a0a3bf-0082-7ca0-b3ab-c6b753319ce1",
+      "class": "trace",
+      "detail": {
+       "actualModel": "gpt-6-astra"
+      },
+      "id": 49,
+      "kind": "agent-session.provider-model",
+      "schema": 1,
+      "sessionId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9",
+      "traceId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:56.942Z",
+      "class": "trace",
+      "detail": {
+       "actualModel": null,
+       "agentId": "codex",
+       "connector": {
+        "binaryVersion": "codex-cli 0.154.0"
+       },
+       "consentScope": [],
+       "dataScope": [],
+       "maxCost": 0.0,
+       "maxMessages": 40,
+       "promptTemplate": null,
+       "providerKind": "codex",
+       "readOnly": true,
+       "requestedModel": "not-specifiable-via-gateway",
+       "resume": true,
+       "resumeOf": "01a0a3bf-0082-7ca0-b3ab-c6b753319ce1",
+       "toolScope": [],
+       "toolsDisabled": false,
+       "ttlMinutes": 20,
+       "workdir": {
+        "basename": "work-normal",
+        "digest": "73557f121d3a"
+       },
+       "writeEnabled": false
+      },
+      "id": 48,
+      "kind": "agent-session.dispatched",
+      "schema": 1,
+      "sessionId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9",
+      "traceId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:56.656Z",
+      "class": "audit",
+      "code": "capability.issued",
+      "detail": {
+       "agentSessionId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9",
+       "expiresAt": "2026-09-15T06:46:56.655496Z"
+      },
+      "id": 46,
+      "kind": "agent-session.capability-issued",
+      "outcome": "accepted",
+      "schema": 1,
+      "sessionId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9",
+      "traceId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9"
+     },
+     {
+      "actor": "human",
+      "at": "2026-09-15T06:26:56.654Z",
+      "causationId": "01a0a3bf-0082-7ca0-b3ab-c6b753319ce1",
+      "class": "audit",
+      "code": "resume.ok",
+      "detail": {
+       "agentId": "codex",
+       "comparison": {
+        "consentScopeAdded": [],
+        "costWidened": false,
+        "dataScopeAdded": [],
+        "messagesWidened": false,
+        "toolScopeAdded": [],
+        "toolsReEnabled": false,
+        "ttlWidened": false,
+        "writeEscalation": false
+       },
+       "originalSessionId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5",
+       "reason": "與上一次的授權逐項比對後沒有任何放寬",
+       "requested": {
+        "allowWrite": false,
+        "consentScope": [],
+        "dataScope": [],
+        "maxCost": null,
+        "maxMessages": 40,
+        "toolScope": [],
+        "ttlMinutes": 20,
+        "workdir": {
+         "basename": "work-normal",
+         "digest": "73557f121d3a"
+        }
+       },
+       "workdirCheck": "same"
+      },
+      "id": 44,
+      "kind": "agent-session.resume-checked",
+      "outcome": "accepted",
+      "schema": 1,
+      "sessionId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9",
+      "traceId": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5"
+     }
+    ],
+    "sessionId": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9",
+    "stateLabel": "已取消",
+    "timeline": [
+     {
+      "at": "2026-09-15T06:27:11.270Z",
+      "code": "close.requested",
+      "detailAvailable": true,
+      "id": 67,
+      "kind": "agent-session.closed",
+      "label": "已關閉",
+      "outcome": "completed"
+     },
+     {
+      "at": "2026-09-15T06:27:10.953Z",
+      "code": "outcome.claimed-completed",
+      "detailAvailable": true,
+      "id": 64,
+      "kind": "agent-session.outcome",
+      "label": "對方說已完成（尚未檢查）",
+      "outcome": "claimed"
+     },
+     {
+      "at": "2026-09-15T06:27:06.711Z",
+      "code": "approval.human-approved",
+      "detailAvailable": true,
+      "id": 58,
+      "kind": "agent.approval",
+      "label": "你核准了一項請求",
+      "outcome": "accepted"
+     },
+     {
+      "at": "2026-09-15T06:26:57.092Z",
+      "detailAvailable": true,
+      "id": 51,
+      "kind": "agent-session.task-delivered",
+      "label": "任務已送達"
+     },
+     {
+      "at": "2026-09-15T06:26:56.973Z",
+      "detailAvailable": true,
+      "id": 49,
+      "kind": "agent-session.provider-model",
+      "label": "工作助手回報了它實際使用的模型"
+     },
+     {
+      "at": "2026-09-15T06:26:56.942Z",
+      "detailAvailable": true,
+      "id": 48,
+      "kind": "agent-session.dispatched",
+      "label": "已交給 Codex"
+     },
+     {
+      "at": "2026-09-15T06:26:56.656Z",
+      "code": "capability.issued",
+      "detailAvailable": true,
+      "id": 46,
+      "kind": "agent-session.capability-issued",
+      "label": "核發了這次工作的通行證",
+      "outcome": "accepted"
+     },
+     {
+      "at": "2026-09-15T06:26:56.654Z",
+      "code": "resume.ok",
+      "detailAvailable": true,
+      "id": 44,
+      "kind": "agent-session.resume-checked",
+      "label": "接續上次的工作：已接受",
+      "outcome": "accepted"
+     }
+    ],
+    "truncated": false
+   },
+   "leaks": [],
+   "verdict": "passed",
+   "reason": "",
+   "finalState": "claimed-completed",
+   "createStatus": 200
+  },
+  "failure": {
+   "sessionId": "asession-7de9818a-2898-47e3-b2df-b13cdd93c664",
+   "traceStatus": 200,
+   "activityStatus": 200,
+   "kinds": [
+    [
+     "agent-session.closed",
+     "completed",
+     "close.requested"
+    ],
+    [
+     "agent-session.outcome",
+     "unknown",
+     "outcome.no-result"
+    ],
+    [
+     "agent-session.task-delivered",
+     null,
+     null
+    ],
+    [
+     "agent-session.provider-model",
+     null,
+     null
+    ],
+    [
+     "agent-session.dispatched",
+     null,
+     null
+    ],
+    [
+     "agent-session.capability-issued",
+     "accepted",
+     "capability.issued"
+    ]
+   ],
+   "expected": [
+    [
+     "agent-session.outcome",
+     null,
+     null
+    ]
+   ],
+   "missing": [],
+   "activity": {
+    "failureReason": "agent 程序已結束而未回報結果；結果未知，未經人工確認前不得視為成功或失敗",
+    "headline": "已關閉",
+    "lifecycle": "closed",
+    "nextStep": "可重新交代一件工作",
+    "phase": "unknown",
+    "recordState": "unknown",
+    "records": [
+     {
+      "actor": "human",
+      "at": "2026-09-15T06:27:15.047Z",
+      "class": "audit",
+      "code": "close.requested",
+      "detail": {
+       "agentSessionId": "asession-7de9818a-2898-47e3-b2df-b13cdd93c664",
+       "finalState": "unknown",
+       "phase": "unknown",
+       "priorState": "Unknown",
+       "reason": "phase1 failure done"
+      },
+      "id": 80,
+      "kind": "agent-session.closed",
+      "outcome": "completed",
+      "schema": 1,
+      "sessionId": "asession-7de9818a-2898-47e3-b2df-b13cdd93c664",
+      "traceId": "asession-7de9818a-2898-47e3-b2df-b13cdd93c664"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:14.543Z",
+      "class": "audit",
+      "code": "outcome.no-result",
+      "detail": {
+       "agentId": "codex",
+       "claim": false,
+       "claimId": null,
+       "costUsd": null,
+       "durationMs": 3176,
+       "numTurns": null,
+       "progressEventsAggregated": 1,
+       "reason": "agent 程序已結束而未回報結果；結果未知，未經人工確認前不得視為成功或失敗",
+       "tokens": null
+      },
+      "id": 77,
+      "kind": "agent-session.outcome",
+      "outcome": "unknown",
+      "schema": 1,
+      "sessionId": "asession-7de9818a-2898-47e3-b2df-b13cdd93c664",
+      "traceId": "asession-7de9818a-2898-47e3-b2df-b13cdd93c664"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:11.964Z",
+      "causationId": "msg-asession-7de9818a-2898-47e3-b2df-b13cdd93c664-1",
+      "class": "trace",
+      "detail": {
+       "contextBundle": {
+        "bundleId": "bundle-f5ce993b-798b-47c1-b30e-2bb0c0867b73",
+        "bytes": 1821,
+        "contentHash": "3cdb72a0d8a94b697434380e3e6c42f24d8380883fe6359ab15f4832e691efaf",
+        "truncated": false
+       },
+       "kind": "task",
+       "messageId": "msg-asession-7de9818a-2898-47e3-b2df-b13cdd93c664-1"
+      },
+      "id": 74,
+      "kind": "agent-session.task-delivered",
+      "schema": 1,
+      "sessionId": "asession-7de9818a-2898-47e3-b2df-b13cdd93c664",
+      "traceId": "asession-7de9818a-2898-47e3-b2df-b13cdd93c664"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:11.723Z",
+      "causationId": "01a0a3bf-801b-70f1-80bb-78c395eddeed",
+      "class": "trace",
+      "detail": {
+       "actualModel": "gpt-6-astra"
+      },
+      "id": 73,
+      "kind": "agent-session.provider-model",
+      "schema": 1,
+      "sessionId": "asession-7de9818a-2898-47e3-b2df-b13cdd93c664",
+      "traceId": "asession-7de9818a-2898-47e3-b2df-b13cdd93c664"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:11.710Z",
+      "class": "trace",
+      "detail": {
+       "actualModel": null,
+       "agentId": "codex",
+       "connector": {
+        "binaryVersion": "codex-cli 0.154.0"
+       },
+       "consentScope": [],
+       "dataScope": [],
+       "maxCost": 0.0,
+       "maxMessages": 40,
+       "promptTemplate": null,
+       "providerKind": "codex",
+       "readOnly": true,
+       "requestedModel": "not-specifiable-via-gateway",
+       "resume": false,
+       "resumeOf": null,
+       "toolScope": [],
+       "toolsDisabled": false,
+       "ttlMinutes": 20,
+       "workdir": {
+        "basename": "work-failure",
+        "digest": "5113d5cd54ac"
+       },
+       "writeEnabled": false
+      },
+      "id": 72,
+      "kind": "agent-session.dispatched",
+      "schema": 1,
+      "sessionId": "asession-7de9818a-2898-47e3-b2df-b13cdd93c664",
+      "traceId": "asession-7de9818a-2898-47e3-b2df-b13cdd93c664"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:11.366Z",
+      "class": "audit",
+      "code": "capability.issued",
+      "detail": {
+       "agentSessionId": "asession-7de9818a-2898-47e3-b2df-b13cdd93c664",
+       "expiresAt": "2026-09-15T06:47:11.365916Z"
+      },
+      "id": 70,
+      "kind": "agent-session.capability-issued",
+      "outcome": "accepted",
+      "schema": 1,
+      "sessionId": "asession-7de9818a-2898-47e3-b2df-b13cdd93c664",
+      "traceId": "asession-7de9818a-2898-47e3-b2df-b13cdd93c664"
+     }
+    ],
+    "sessionId": "asession-7de9818a-2898-47e3-b2df-b13cdd93c664",
+    "stateLabel": "結果不確定",
+    "timeline": [
+     {
+      "at": "2026-09-15T06:27:15.047Z",
+      "code": "close.requested",
+      "detailAvailable": true,
+      "id": 80,
+      "kind": "agent-session.closed",
+      "label": "已關閉",
+      "outcome": "completed"
+     },
+     {
+      "at": "2026-09-15T06:27:14.543Z",
+      "code": "outcome.no-result",
+      "detailAvailable": true,
+      "id": 77,
+      "kind": "agent-session.outcome",
+      "label": "結果不確定",
+      "outcome": "unknown"
+     },
+     {
+      "at": "2026-09-15T06:27:11.964Z",
+      "detailAvailable": true,
+      "id": 74,
+      "kind": "agent-session.task-delivered",
+      "label": "任務已送達"
+     },
+     {
+      "at": "2026-09-15T06:27:11.723Z",
+      "detailAvailable": true,
+      "id": 73,
+      "kind": "agent-session.provider-model",
+      "label": "工作助手回報了它實際使用的模型"
+     },
+     {
+      "at": "2026-09-15T06:27:11.710Z",
+      "detailAvailable": true,
+      "id": 72,
+      "kind": "agent-session.dispatched",
+      "label": "已交給 Codex"
+     },
+     {
+      "at": "2026-09-15T06:27:11.366Z",
+      "code": "capability.issued",
+      "detailAvailable": true,
+      "id": 70,
+      "kind": "agent-session.capability-issued",
+      "label": "核發了這次工作的通行證",
+      "outcome": "accepted"
+     }
+    ],
+    "truncated": false
+   },
+   "leaks": [],
+   "verdict": "passed",
+   "reason": "",
+   "finalState": "unknown",
+   "detail": "agent 程序已結束而未回報結果；結果未知，未經人工確認前不得視為成功或失敗",
+   "failureReason": "agent 程序已結束而未回報結果；結果未知，未經人工確認前不得視為成功或失敗"
+  },
+  "approval": {
+   "sessionId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c",
+   "traceStatus": 200,
+   "activityStatus": 200,
+   "kinds": [
+    [
+     "agent-session.closed",
+     "completed",
+     "close.requested"
+    ],
+    [
+     "agent-session.outcome",
+     "claimed",
+     "outcome.claimed-completed"
+    ],
+    [
+     "agent.approval",
+     "rejected",
+     "approval.human-denied"
+    ],
+    [
+     "agent-session.task-delivered",
+     null,
+     null
+    ],
+    [
+     "agent-session.provider-model",
+     null,
+     null
+    ],
+    [
+     "agent-session.dispatched",
+     null,
+     null
+    ],
+    [
+     "agent-session.capability-issued",
+     "accepted",
+     "capability.issued"
+    ]
+   ],
+   "expected": [
+    [
+     "agent.approval",
+     "rejected",
+     "approval.human-denied"
+    ]
+   ],
+   "missing": [],
+   "activity": {
+    "headline": "已關閉",
+    "lifecycle": "closed",
+    "nextStep": "無需處理",
+    "phase": "closed",
+    "recordState": "closed",
+    "records": [
+     {
+      "actor": "human",
+      "at": "2026-09-15T06:27:27.577Z",
+      "class": "audit",
+      "code": "close.requested",
+      "detail": {
+       "agentSessionId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c",
+       "finalState": "closed",
+       "phase": "closed",
+       "priorState": "ClaimedCompleted",
+       "reason": "phase1 approval done"
+      },
+      "id": 104,
+      "kind": "agent-session.closed",
+      "outcome": "completed",
+      "schema": 1,
+      "sessionId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c",
+      "traceId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:27.416Z",
+      "class": "audit",
+      "code": "outcome.claimed-completed",
+      "detail": {
+       "agentId": "codex",
+       "claim": true,
+       "claimId": "claim-fbf29e29-b352-4351-8387-cc8e67586741",
+       "costUsd": null,
+       "durationMs": 12357,
+       "numTurns": null,
+       "progressEventsAggregated": 8,
+       "reason": null,
+       "tokens": 51442
+      },
+      "id": 101,
+      "kind": "agent-session.outcome",
+      "outcome": "claimed",
+      "schema": 1,
+      "sessionId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c",
+      "traceId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c"
+     },
+     {
+      "actor": "human",
+      "at": "2026-09-15T06:27:23.522Z",
+      "causationId": "0",
+      "class": "audit",
+      "code": "approval.human-denied",
+      "detail": {
+       "approved": false,
+       "by": "human",
+       "requestId": "0",
+       "sessionId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c",
+       "summary": "codex 請求核可：item/commandExecution/requestApproval \"/bin/zsh -lc 'cat NOTES.md'\""
+      },
+      "id": 95,
+      "kind": "agent.approval",
+      "outcome": "rejected",
+      "schema": 1,
+      "sessionId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c",
+      "traceId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:15.422Z",
+      "causationId": "msg-asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c-1",
+      "class": "trace",
+      "detail": {
+       "contextBundle": {
+        "bundleId": "bundle-beba9c9a-d278-4d6d-a28b-d56177683fdb",
+        "bytes": 2152,
+        "contentHash": "acd286b8d47841ce28796fe0ce2c35463e6189f3f7ee22ad3c67abd99bbf391d",
+        "truncated": false
+       },
+       "kind": "task",
+       "messageId": "msg-asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c-1"
+      },
+      "id": 88,
+      "kind": "agent-session.task-delivered",
+      "schema": 1,
+      "sessionId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c",
+      "traceId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:15.309Z",
+      "causationId": "01a0a3bf-8e61-7b62-b8c0-9fc1906eb3c6",
+      "class": "trace",
+      "detail": {
+       "actualModel": "gpt-6-astra"
+      },
+      "id": 87,
+      "kind": "agent-session.provider-model",
+      "schema": 1,
+      "sessionId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c",
+      "traceId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:15.296Z",
+      "class": "trace",
+      "detail": {
+       "actualModel": null,
+       "agentId": "codex",
+       "connector": {
+        "binaryVersion": "codex-cli 0.154.0"
+       },
+       "consentScope": [],
+       "dataScope": [],
+       "maxCost": 0.0,
+       "maxMessages": 40,
+       "promptTemplate": null,
+       "providerKind": "codex",
+       "readOnly": true,
+       "requestedModel": "not-specifiable-via-gateway",
+       "resume": false,
+       "resumeOf": null,
+       "toolScope": [],
+       "toolsDisabled": false,
+       "ttlMinutes": 20,
+       "workdir": {
+        "basename": "work-approval",
+        "digest": "fbe8df48d392"
+       },
+       "writeEnabled": false
+      },
+      "id": 86,
+      "kind": "agent-session.dispatched",
+      "schema": 1,
+      "sessionId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c",
+      "traceId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:15.059Z",
+      "class": "audit",
+      "code": "capability.issued",
+      "detail": {
+       "agentSessionId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c",
+       "expiresAt": "2026-09-15T06:47:15.058451Z"
+      },
+      "id": 84,
+      "kind": "agent-session.capability-issued",
+      "outcome": "accepted",
+      "schema": 1,
+      "sessionId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c",
+      "traceId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c"
+     }
+    ],
+    "sessionId": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c",
+    "stateLabel": "已取消",
+    "timeline": [
+     {
+      "at": "2026-09-15T06:27:27.577Z",
+      "code": "close.requested",
+      "detailAvailable": true,
+      "id": 104,
+      "kind": "agent-session.closed",
+      "label": "已關閉",
+      "outcome": "completed"
+     },
+     {
+      "at": "2026-09-15T06:27:27.416Z",
+      "code": "outcome.claimed-completed",
+      "detailAvailable": true,
+      "id": 101,
+      "kind": "agent-session.outcome",
+      "label": "對方說已完成（尚未檢查）",
+      "outcome": "claimed"
+     },
+     {
+      "at": "2026-09-15T06:27:23.522Z",
+      "code": "approval.human-denied",
+      "detailAvailable": true,
+      "id": 95,
+      "kind": "agent.approval",
+      "label": "你拒絕了一項請求",
+      "outcome": "rejected"
+     },
+     {
+      "at": "2026-09-15T06:27:15.422Z",
+      "detailAvailable": true,
+      "id": 88,
+      "kind": "agent-session.task-delivered",
+      "label": "任務已送達"
+     },
+     {
+      "at": "2026-09-15T06:27:15.309Z",
+      "detailAvailable": true,
+      "id": 87,
+      "kind": "agent-session.provider-model",
+      "label": "工作助手回報了它實際使用的模型"
+     },
+     {
+      "at": "2026-09-15T06:27:15.296Z",
+      "detailAvailable": true,
+      "id": 86,
+      "kind": "agent-session.dispatched",
+      "label": "已交給 Codex"
+     },
+     {
+      "at": "2026-09-15T06:27:15.059Z",
+      "code": "capability.issued",
+      "detailAvailable": true,
+      "id": 84,
+      "kind": "agent-session.capability-issued",
+      "label": "核發了這次工作的通行證",
+      "outcome": "accepted"
+     }
+    ],
+    "truncated": false
+   },
+   "leaks": [],
+   "verdict": "passed",
+   "reason": "",
+   "finalState": "claimed-completed",
+   "reachedConsent": true
+  },
+  "restart": {
+   "sessionId": "asession-514f1915-a3a2-49c9-895b-33f6b44aed78",
+   "traceStatus": 200,
+   "activityStatus": 200,
+   "kinds": [
+    [
+     "agent-session.outcome",
+     "unknown",
+     "runtime.restarted"
+    ],
+    [
+     "agent-session.task-delivered",
+     null,
+     null
+    ],
+    [
+     "agent-session.provider-model",
+     null,
+     null
+    ],
+    [
+     "agent-session.dispatched",
+     null,
+     null
+    ],
+    [
+     "agent-session.capability-issued",
+     "accepted",
+     "capability.issued"
+    ]
+   ],
+   "expected": [
+    [
+     "agent-session.outcome",
+     "unknown",
+     "runtime.restarted"
+    ]
+   ],
+   "missing": [],
+   "activity": {
+    "failureReason": "runtime 重新啟動；上一輪的工作結果未知",
+    "headline": "程式重新啟動過，這一輪的結果不確定",
+    "lifecycle": "closed",
+    "nextStep": "無需處理",
+    "phase": "unknown",
+    "recordState": "expired",
+    "records": [
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:31.586Z",
+      "class": "audit",
+      "code": "runtime.restarted",
+      "detail": {
+       "agentId": "codex",
+       "reapedPgid": null,
+       "reason": "runtime 重新啟動；上一輪的工作結果未知"
+      },
+      "id": 117,
+      "kind": "agent-session.outcome",
+      "outcome": "unknown",
+      "schema": 1,
+      "sessionId": "asession-514f1915-a3a2-49c9-895b-33f6b44aed78",
+      "traceId": "asession-514f1915-a3a2-49c9-895b-33f6b44aed78"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:27.953Z",
+      "causationId": "msg-asession-514f1915-a3a2-49c9-895b-33f6b44aed78-1",
+      "class": "trace",
+      "detail": {
+       "contextBundle": {
+        "bundleId": "bundle-c21bc08a-e0dd-47ac-9c6c-656ae60fc19e",
+        "bytes": 2572,
+        "contentHash": "469b538a7241a3e1bfc03c53c00155eff622fd0ee83bdf28e5169656b874d11b",
+        "truncated": false
+       },
+       "kind": "task",
+       "messageId": "msg-asession-514f1915-a3a2-49c9-895b-33f6b44aed78-1"
+      },
+      "id": 112,
+      "kind": "agent-session.task-delivered",
+      "schema": 1,
+      "sessionId": "asession-514f1915-a3a2-49c9-895b-33f6b44aed78",
+      "traceId": "asession-514f1915-a3a2-49c9-895b-33f6b44aed78"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:27.908Z",
+      "causationId": "01a0a3bf-bfc3-7863-9042-3441194a82ed",
+      "class": "trace",
+      "detail": {
+       "actualModel": "gpt-6-astra"
+      },
+      "id": 111,
+      "kind": "agent-session.provider-model",
+      "schema": 1,
+      "sessionId": "asession-514f1915-a3a2-49c9-895b-33f6b44aed78",
+      "traceId": "asession-514f1915-a3a2-49c9-895b-33f6b44aed78"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:27.906Z",
+      "class": "trace",
+      "detail": {
+       "actualModel": null,
+       "agentId": "codex",
+       "connector": {
+        "binaryVersion": "codex-cli 0.154.0"
+       },
+       "consentScope": [],
+       "dataScope": [],
+       "maxCost": 0.0,
+       "maxMessages": 40,
+       "promptTemplate": null,
+       "providerKind": "codex",
+       "readOnly": true,
+       "requestedModel": "not-specifiable-via-gateway",
+       "resume": false,
+       "resumeOf": null,
+       "toolScope": [],
+       "toolsDisabled": false,
+       "ttlMinutes": 20,
+       "workdir": {
+        "basename": "work-restart",
+        "digest": "7a43e3fda9c4"
+       },
+       "writeEnabled": false
+      },
+      "id": 110,
+      "kind": "agent-session.dispatched",
+      "schema": 1,
+      "sessionId": "asession-514f1915-a3a2-49c9-895b-33f6b44aed78",
+      "traceId": "asession-514f1915-a3a2-49c9-895b-33f6b44aed78"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:27.596Z",
+      "class": "audit",
+      "code": "capability.issued",
+      "detail": {
+       "agentSessionId": "asession-514f1915-a3a2-49c9-895b-33f6b44aed78",
+       "expiresAt": "2026-09-15T06:47:27.595648Z"
+      },
+      "id": 107,
+      "kind": "agent-session.capability-issued",
+      "outcome": "accepted",
+      "schema": 1,
+      "sessionId": "asession-514f1915-a3a2-49c9-895b-33f6b44aed78",
+      "traceId": "asession-514f1915-a3a2-49c9-895b-33f6b44aed78"
+     }
+    ],
+    "sessionId": "asession-514f1915-a3a2-49c9-895b-33f6b44aed78",
+    "stateLabel": "結果不確定",
+    "timeline": [
+     {
+      "at": "2026-09-15T06:27:31.586Z",
+      "code": "runtime.restarted",
+      "detailAvailable": true,
+      "id": 117,
+      "kind": "agent-session.outcome",
+      "label": "程式重新啟動過，這一輪的結果不確定",
+      "outcome": "unknown"
+     },
+     {
+      "at": "2026-09-15T06:27:27.953Z",
+      "detailAvailable": true,
+      "id": 112,
+      "kind": "agent-session.task-delivered",
+      "label": "任務已送達"
+     },
+     {
+      "at": "2026-09-15T06:27:27.908Z",
+      "detailAvailable": true,
+      "id": 111,
+      "kind": "agent-session.provider-model",
+      "label": "工作助手回報了它實際使用的模型"
+     },
+     {
+      "at": "2026-09-15T06:27:27.906Z",
+      "detailAvailable": true,
+      "id": 110,
+      "kind": "agent-session.dispatched",
+      "label": "已交給 Codex"
+     },
+     {
+      "at": "2026-09-15T06:27:27.596Z",
+      "code": "capability.issued",
+      "detailAvailable": true,
+      "id": 107,
+      "kind": "agent-session.capability-issued",
+      "label": "核發了這次工作的通行證",
+      "outcome": "accepted"
+     }
+    ],
+    "truncated": false
+   },
+   "leaks": [],
+   "verdict": "passed",
+   "reason": "",
+   "stateAfterRestart": "expired",
+   "phaseAfterRestart": "unknown"
+  },
+  "isolation": {
+   "verdict": "passed",
+   "sessions": [
+    "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5",
+    "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3",
+    "asession-dab2339d-3213-46d8-b659-af0d8187d2c9",
+    "asession-7de9818a-2898-47e3-b2df-b13cdd93c664",
+    "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c",
+    "asession-514f1915-a3a2-49c9-895b-33f6b44aed78"
+   ],
+   "crossRows": []
+  },
+  "agent-token-forbidden": {
+   "status": 403,
+   "verdict": "passed"
+  }
+ },
+ "events": [
+  {
+   "t": "2026-09-15T06:26:38.450Z",
+   "mono": 1.537,
+   "k": "daemon-spawned",
+   "pid": 89268
+  },
+  {
+   "t": "2026-09-15T06:26:38.718Z",
+   "mono": 1.804,
+   "k": "daemon-ready"
+  },
+  {
+   "t": "2026-09-15T06:26:39.034Z",
+   "mono": 2.121,
+   "k": "create",
+   "scenario": "normal",
+   "status": 200,
+   "id": "asession-f7529467-41c4-40ec-99f6-1970c69a0bb5",
+   "error": null
+  },
+  {
+   "t": "2026-09-15T06:26:39.038Z",
+   "mono": 2.124,
+   "k": "task-sent",
+   "scenario": "normal",
+   "status": 200,
+   "messageId": "msg-asession-f7529467-41c4-40ec-99f6-1970c69a0bb5-1"
+  },
+  {
+   "t": "2026-09-15T06:26:39.039Z",
+   "mono": 2.125,
+   "k": "state",
+   "scenario": "normal",
+   "state": "created",
+   "phase": "fetched"
+  },
+  {
+   "t": "2026-09-15T06:26:39.545Z",
+   "mono": 2.631,
+   "k": "state",
+   "scenario": "normal",
+   "state": "active",
+   "phase": "working"
+  },
+  {
+   "t": "2026-09-15T06:26:46.117Z",
+   "mono": 9.204,
+   "k": "state",
+   "scenario": "normal",
+   "state": "waiting-for-consent",
+   "phase": "waiting-consent"
+  },
+  {
+   "t": "2026-09-15T06:26:46.121Z",
+   "mono": 9.207,
+   "k": "approve",
+   "scenario": "normal",
+   "requestId": "0",
+   "status": 200,
+   "summary": "codex 請求核可：item/commandExecution/requestApproval \"/bin/zsh -lc 'cat NOTES.md'\""
+  },
+  {
+   "t": "2026-09-15T06:26:46.628Z",
+   "mono": 9.714,
+   "k": "state",
+   "scenario": "normal",
+   "state": "active",
+   "phase": "working"
+  },
+  {
+   "t": "2026-09-15T06:26:50.676Z",
+   "mono": 13.763,
+   "k": "state",
+   "scenario": "normal",
+   "state": "claimed-completed",
+   "phase": "claimed-completed"
+  },
+  {
+   "t": "2026-09-15T06:26:50.693Z",
+   "mono": 13.779,
+   "k": "verify",
+   "status": 200,
+   "humanVerified": true
+  },
+  {
+   "t": "2026-09-15T06:26:50.713Z",
+   "mono": 13.799,
+   "k": "close",
+   "status": 200,
+   "state": "closed"
+  },
+  {
+   "t": "2026-09-15T06:26:50.717Z",
+   "mono": 13.803,
+   "k": "verdict",
+   "scenario": "normal",
+   "verdict": "passed",
+   "reason": ""
+  },
+  {
+   "t": "2026-09-15T06:26:51.084Z",
+   "mono": 14.171,
+   "k": "create",
+   "scenario": "cancel",
+   "status": 200,
+   "id": "asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3",
+   "error": null
+  },
+  {
+   "t": "2026-09-15T06:26:51.088Z",
+   "mono": 14.174,
+   "k": "task-sent",
+   "scenario": "cancel",
+   "status": 200,
+   "messageId": "msg-asession-ec1e415c-6080-4b61-9e52-d7f9b6251bc3-1"
+  },
+  {
+   "t": "2026-09-15T06:26:51.089Z",
+   "mono": 14.176,
+   "k": "state",
+   "scenario": "cancel",
+   "state": "created",
+   "phase": "fetched"
+  },
+  {
+   "t": "2026-09-15T06:26:51.593Z",
+   "mono": 14.679,
+   "k": "state",
+   "scenario": "cancel",
+   "state": "active",
+   "phase": "working"
+  },
+  {
+   "t": "2026-09-15T06:26:54.619Z",
+   "mono": 17.705,
+   "k": "interrupt",
+   "status": 200,
+   "resp": {
+    "interrupted": true
+   }
+  },
+  {
+   "t": "2026-09-15T06:26:54.620Z",
+   "mono": 17.707,
+   "k": "state",
+   "scenario": "cancel",
+   "state": "active",
+   "phase": "working"
+  },
+  {
+   "t": "2026-09-15T06:26:55.125Z",
+   "mono": 18.212,
+   "k": "state",
+   "scenario": "cancel",
+   "state": "cancelled",
+   "phase": "cancelled"
+  },
+  {
+   "t": "2026-09-15T06:26:56.634Z",
+   "mono": 19.72,
+   "k": "close",
+   "status": 200,
+   "state": "cancelled"
+  },
+  {
+   "t": "2026-09-15T06:26:56.643Z",
+   "mono": 19.73,
+   "k": "verdict",
+   "scenario": "cancel",
+   "verdict": "passed",
+   "reason": ""
+  },
+  {
+   "t": "2026-09-15T06:26:56.647Z",
+   "mono": 19.733,
+   "k": "create",
+   "scenario": "resume-reject",
+   "status": 403,
+   "id": null,
+   "error": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: 接續上次的工作不得放寬時間上限（上次 20 分鐘，這次要求 60 分鐘）"
+    }
+   }
+  },
+  {
+   "t": "2026-09-15T06:26:56.652Z",
+   "mono": 19.738,
+   "k": "verdict",
+   "scenario": "resume-reject",
+   "verdict": "passed",
+   "reason": ""
+  },
+  {
+   "t": "2026-09-15T06:26:57.089Z",
+   "mono": 20.175,
+   "k": "create",
+   "scenario": "resume-accept",
+   "status": 200,
+   "id": "asession-dab2339d-3213-46d8-b659-af0d8187d2c9",
+   "error": null
+  },
+  {
+   "t": "2026-09-15T06:26:57.093Z",
+   "mono": 20.179,
+   "k": "task-sent",
+   "scenario": "resume-accept",
+   "status": 200,
+   "messageId": "msg-asession-dab2339d-3213-46d8-b659-af0d8187d2c9-1"
+  },
+  {
+   "t": "2026-09-15T06:26:57.094Z",
+   "mono": 20.181,
+   "k": "state",
+   "scenario": "resume-accept",
+   "state": "active",
+   "phase": "fetched"
+  },
+  {
+   "t": "2026-09-15T06:26:57.604Z",
+   "mono": 20.691,
+   "k": "state",
+   "scenario": "resume-accept",
+   "state": "active",
+   "phase": "working"
+  },
+  {
+   "t": "2026-09-15T06:27:06.708Z",
+   "mono": 29.794,
+   "k": "state",
+   "scenario": "resume-accept",
+   "state": "waiting-for-consent",
+   "phase": "waiting-consent"
+  },
+  {
+   "t": "2026-09-15T06:27:06.712Z",
+   "mono": 29.798,
+   "k": "approve",
+   "scenario": "resume-accept",
+   "requestId": "0",
+   "status": 200,
+   "summary": "codex 請求核可：item/commandExecution/requestApproval \"/bin/zsh -lc 'cat NOTES.md'\""
+  },
+  {
+   "t": "2026-09-15T06:27:07.217Z",
+   "mono": 30.303,
+   "k": "state",
+   "scenario": "resume-accept",
+   "state": "active",
+   "phase": "working"
+  },
+  {
+   "t": "2026-09-15T06:27:11.269Z",
+   "mono": 34.355,
+   "k": "state",
+   "scenario": "resume-accept",
+   "state": "claimed-completed",
+   "phase": "claimed-completed"
+  },
+  {
+   "t": "2026-09-15T06:27:11.273Z",
+   "mono": 34.359,
+   "k": "close",
+   "status": 200,
+   "state": "closed"
+  },
+  {
+   "t": "2026-09-15T06:27:11.282Z",
+   "mono": 34.368,
+   "k": "verdict",
+   "scenario": "resume-accept",
+   "verdict": "passed",
+   "reason": ""
+  },
+  {
+   "t": "2026-09-15T06:27:11.961Z",
+   "mono": 35.047,
+   "k": "create",
+   "scenario": "failure",
+   "status": 200,
+   "id": "asession-7de9818a-2898-47e3-b2df-b13cdd93c664",
+   "error": null
+  },
+  {
+   "t": "2026-09-15T06:27:11.965Z",
+   "mono": 35.052,
+   "k": "task-sent",
+   "scenario": "failure",
+   "status": 200,
+   "messageId": "msg-asession-7de9818a-2898-47e3-b2df-b13cdd93c664-1"
+  },
+  {
+   "t": "2026-09-15T06:27:11.968Z",
+   "mono": 35.054,
+   "k": "state",
+   "scenario": "failure",
+   "state": "created",
+   "phase": "fetched"
+  },
+  {
+   "t": "2026-09-15T06:27:12.470Z",
+   "mono": 35.556,
+   "k": "state",
+   "scenario": "failure",
+   "state": "active",
+   "phase": "working"
+  },
+  {
+   "t": "2026-09-15T06:27:14.535Z",
+   "mono": 37.621,
+   "k": "subprocess-killed",
+   "pgid": "94739",
+   "candidates": [
+    "94739"
+   ]
+  },
+  {
+   "t": "2026-09-15T06:27:14.537Z",
+   "mono": 37.624,
+   "k": "state",
+   "scenario": "failure",
+   "state": "active",
+   "phase": "working"
+  },
+  {
+   "t": "2026-09-15T06:27:15.044Z",
+   "mono": 38.131,
+   "k": "state",
+   "scenario": "failure",
+   "state": "unknown",
+   "phase": "unknown"
+  },
+  {
+   "t": "2026-09-15T06:27:15.050Z",
+   "mono": 38.136,
+   "k": "close",
+   "status": 200,
+   "state": "unknown"
+  },
+  {
+   "t": "2026-09-15T06:27:15.056Z",
+   "mono": 38.143,
+   "k": "verdict",
+   "scenario": "failure",
+   "verdict": "passed",
+   "reason": ""
+  },
+  {
+   "t": "2026-09-15T06:27:15.403Z",
+   "mono": 38.489,
+   "k": "create",
+   "scenario": "approval",
+   "status": 200,
+   "id": "asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c",
+   "error": null
+  },
+  {
+   "t": "2026-09-15T06:27:15.424Z",
+   "mono": 38.51,
+   "k": "task-sent",
+   "scenario": "approval",
+   "status": 200,
+   "messageId": "msg-asession-6337b8f5-b361-4ee8-a407-8d79eb3fd12c-1"
+  },
+  {
+   "t": "2026-09-15T06:27:15.426Z",
+   "mono": 38.513,
+   "k": "state",
+   "scenario": "approval",
+   "state": "created",
+   "phase": "fetched"
+  },
+  {
+   "t": "2026-09-15T06:27:15.930Z",
+   "mono": 39.016,
+   "k": "state",
+   "scenario": "approval",
+   "state": "active",
+   "phase": "working"
+  },
+  {
+   "t": "2026-09-15T06:27:23.519Z",
+   "mono": 46.605,
+   "k": "state",
+   "scenario": "approval",
+   "state": "waiting-for-consent",
+   "phase": "waiting-consent"
+  },
+  {
+   "t": "2026-09-15T06:27:23.523Z",
+   "mono": 46.609,
+   "k": "deny",
+   "requestId": "0",
+   "status": 200
+  },
+  {
+   "t": "2026-09-15T06:27:23.524Z",
+   "mono": 46.61,
+   "k": "state",
+   "scenario": "approval",
+   "state": "active",
+   "phase": "working"
+  },
+  {
+   "t": "2026-09-15T06:27:27.576Z",
+   "mono": 50.662,
+   "k": "state",
+   "scenario": "approval",
+   "state": "claimed-completed",
+   "phase": "claimed-completed"
+  },
+  {
+   "t": "2026-09-15T06:27:27.590Z",
+   "mono": 50.676,
+   "k": "close",
+   "status": 200,
+   "state": "closed"
+  },
+  {
+   "t": "2026-09-15T06:27:27.594Z",
+   "mono": 50.68,
+   "k": "verdict",
+   "scenario": "approval",
+   "verdict": "passed",
+   "reason": ""
+  },
+  {
+   "t": "2026-09-15T06:27:27.948Z",
+   "mono": 51.034,
+   "k": "create",
+   "scenario": "restart",
+   "status": 200,
+   "id": "asession-514f1915-a3a2-49c9-895b-33f6b44aed78",
+   "error": null
+  },
+  {
+   "t": "2026-09-15T06:27:27.956Z",
+   "mono": 51.042,
+   "k": "task-sent",
+   "scenario": "restart",
+   "status": 200,
+   "messageId": "msg-asession-514f1915-a3a2-49c9-895b-33f6b44aed78-1"
+  },
+  {
+   "t": "2026-09-15T06:27:27.958Z",
+   "mono": 51.044,
+   "k": "state",
+   "scenario": "restart",
+   "state": "created",
+   "phase": "fetched"
+  },
+  {
+   "t": "2026-09-15T06:27:28.464Z",
+   "mono": 51.55,
+   "k": "state",
+   "scenario": "restart",
+   "state": "active",
+   "phase": "working"
+  },
+  {
+   "t": "2026-09-15T06:27:30.473Z",
+   "mono": 53.559,
+   "k": "daemon-stopped",
+   "signal": 9
+  },
+  {
+   "t": "2026-09-15T06:27:31.477Z",
+   "mono": 54.563,
+   "k": "daemon-spawned",
+   "pid": 99817
+  },
+  {
+   "t": "2026-09-15T06:27:31.734Z",
+   "mono": 54.82,
+   "k": "daemon-ready"
+  },
+  {
+   "t": "2026-09-15T06:27:31.736Z",
+   "mono": 54.822,
+   "k": "after-restart",
+   "state": "expired",
+   "phase": "unknown",
+   "detail": "runtime restarted"
+  },
+  {
+   "t": "2026-09-15T06:27:31.739Z",
+   "mono": 54.825,
+   "k": "verdict",
+   "scenario": "restart",
+   "verdict": "passed",
+   "reason": ""
+  },
+  {
+   "t": "2026-09-15T06:27:31.755Z",
+   "mono": 54.841,
+   "k": "verdict",
+   "scenario": "isolation",
+   "verdict": "passed"
+  },
+  {
+   "t": "2026-09-15T06:27:31.756Z",
+   "mono": 54.842,
+   "k": "verdict",
+   "scenario": "agent-token-forbidden",
+   "status": 403
+  },
+  {
+   "t": "2026-09-15T06:27:31.759Z",
+   "mono": 54.845,
+   "k": "daemon-stopped",
+   "signal": 15
+  }
+ ],
+ "worktreeDirty": false,
+ "versions": {
+  "interact-ai": "interact-ai 0.8.0",
+  "claude": "2.1.272 (Claude Code)",
+  "codex": "codex-cli 0.154.0",
+  "os": "26.2\narm64"
+ },
+ "statusAfter": {
+  "traceWriteFailures": 0,
+  "traceCounts": {
+   "audit": 98,
+   "diagnostic": 1,
+   "trace": 18
+  },
+  "version": "0.8.0",
+  "agentSessions": 0
+ },
+ "wallSeconds": 54.84
+}

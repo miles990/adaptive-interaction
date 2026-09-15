@@ -1,0 +1,12 @@
+interact-ai daemon listening on http://127.0.0.1:19140
+human token file: /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79ba5151-5f26-4639-88f8-71c12b013198/scratchpad/real-agent/final2-claude/home/state/api-token
+restricted agent token file: /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79ba5151-5f26-4639-88f8-71c12b013198/scratchpad/real-agent/final2-claude/home/state/api-agent-token
+press Ctrl-C to stop
+[2m2026-09-15T06:26:47.748697Z[0m [33m WARN[0m [2minteraction.gateway[0m[2m:[0m 無法確定 gateway 子程序 pgid；daemon 崩潰時這個 session 的孤兒清理會漏掉它 [3msession[0m[2m=[0masession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f [3mcandidates[0m[2m=[0m2
+[2m2026-09-15T06:27:06.108255Z[0m [33m WARN[0m [2minteraction.gateway[0m[2m:[0m 無法確定 gateway 子程序 pgid；daemon 崩潰時這個 session 的孤兒清理會漏掉它 [3msession[0m[2m=[0masession-b456c20d-0d7f-4811-8f4d-f22d566a5c35 [3mcandidates[0m[2m=[0m2
+[2m2026-09-15T06:27:08.929906Z[0m [33m WARN[0m [2minteraction.gateway[0m[2m:[0m 無法確定 gateway 子程序 pgid；daemon 崩潰時這個 session 的孤兒清理會漏掉它 [3msession[0m[2m=[0masession-cfd527c9-5ada-432e-ac07-95703a2a52a4 [3mcandidates[0m[2m=[0m2
+[2m2026-09-15T06:27:17.024623Z[0m [33m WARN[0m [2minteraction_runtime::lock[0m[2m:[0m reclaiming stale instance lock [3mpid[0m[2m=[0m89844
+interact-ai daemon listening on http://127.0.0.1:19140
+human token file: /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79ba5151-5f26-4639-88f8-71c12b013198/scratchpad/real-agent/final2-claude/home/state/api-token
+restricted agent token file: /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79ba5151-5f26-4639-88f8-71c12b013198/scratchpad/real-agent/final2-claude/home/state/api-agent-token
+press Ctrl-C to stop
