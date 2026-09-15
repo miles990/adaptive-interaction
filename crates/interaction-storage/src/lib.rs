@@ -9,7 +9,8 @@ use chrono::{DateTime, Utc};
 use interaction_core::{
     ActionId, ActionReceipt, DomainError, DomainResult, Observation, ObservationQuery, Plan,
     PlanId, Session, SessionId, TraceClass, TraceOutcome, TracePruned, TraceQuery, TraceRecord,
-    TraceRetention, TraceRow, TRACE_RECORD_SCHEMA,
+    TraceRetention, TraceRow, TRACE_DETAIL_MAX_BYTES, TRACE_DETAIL_PREVIEW_CHARS,
+    TRACE_RECORD_SCHEMA,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::BTreeMap;
@@ -63,6 +64,39 @@ fn parse_ts(raw: &str) -> Option<DateTime<Utc>> {
 const TRACE_COLUMNS: &str = "id, at, COALESCE(class,'audit'), \"schema\", kind, actor, outcome, \
      code, trace_id, causation_id, session_id, source_at, detail";
 
+/// `detail` 寫進 DB 之前的有界化（見 [`TRACE_DETAIL_MAX_BYTES`]）。
+///
+/// 超過上限的那一筆**不被丟掉**——丟掉的紀錄追不回來，而且「有一筆紀錄本來
+/// 該存在」這件事比它的內容更重要。改成一個自我描述的截斷標記：
+/// `{"_truncated": true, "_originalBytes": n, "preview": "<前 2000 字>"}`。
+/// 讀回來的人看得出這是截斷過的、原本多大、開頭在講什麼，不會誤以為那就是
+/// 全部。
+///
+/// `preview` 依**字元**切（不能砍在 UTF-8 字元中間）；JSON 轉義可能讓字元
+/// 膨脹（控制字元一個變六個 bytes），所以最後再量一次，真的還是超過就把
+/// preview 折半重來——離開這個函式的字串保證 ≤ [`TRACE_DETAIL_MAX_BYTES`]。
+fn bounded_detail(detail: &serde_json::Value) -> String {
+    let raw = detail.to_string();
+    if raw.len() <= TRACE_DETAIL_MAX_BYTES {
+        return raw;
+    }
+    let original_bytes = raw.len();
+    let mut preview_chars = TRACE_DETAIL_PREVIEW_CHARS;
+    loop {
+        let preview: String = raw.chars().take(preview_chars).collect();
+        let marked = serde_json::json!({
+            "_truncated": true,
+            "_originalBytes": original_bytes,
+            "preview": preview,
+        })
+        .to_string();
+        if marked.len() <= TRACE_DETAIL_MAX_BYTES || preview_chars == 0 {
+            return marked;
+        }
+        preview_chars /= 2;
+    }
+}
+
 /// 舊 `audit()` 的寫入路徑：一律是 `class='audit'`，schema = 本輪版本。
 fn insert_audit(
     conn: &Connection,
@@ -77,7 +111,7 @@ fn insert_audit(
             ts_to_str(Utc::now()),
             kind,
             actor,
-            detail.to_string(),
+            bounded_detail(detail),
             TRACE_RECORD_SCHEMA
         ],
     )
@@ -96,7 +130,7 @@ fn insert_record(conn: &Connection, record: &TraceRecord) -> DomainResult<i64> {
             ts_to_str(Utc::now()),
             record.kind,
             record.actor,
-            record.detail.to_string(),
+            bounded_detail(&record.detail),
             record.class.as_str(),
             TRACE_RECORD_SCHEMA,
             record.trace_id,
@@ -2155,6 +2189,111 @@ mod tests {
             .prune_observations(now - chrono::Duration::hours(1))
             .unwrap();
         assert_eq!(pruned, 1);
+    }
+
+    /// `detail` 是不可信來源的摘要，摘得好不好不是儲存層說了算：超過 16 KiB
+    /// 的那一筆要被有界化，但**不能被丟掉**，而且必須看得出自己被截斷了。
+    #[test]
+    fn an_oversized_detail_is_bounded_without_losing_the_record() {
+        let store = Store::open_in_memory().unwrap();
+        let blob = "x".repeat(100 * 1024);
+        let id = store
+            .record(
+                &TraceRecord::diagnostic("codex.stderr")
+                    .session("sess-1")
+                    .detail(serde_json::json!({ "leading": "why this happened", "blob": blob })),
+            )
+            .unwrap();
+
+        // 紀錄還在，而且查得到。
+        let rows = store
+            .query_trace(&TraceQuery {
+                session_id: Some("sess-1".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(rows.len(), 1, "the record must survive, not be dropped");
+        let row = &rows[0];
+        assert_eq!(row.id, id);
+        assert_eq!(row.kind, "codex.stderr");
+
+        // 誠實：截斷這件事寫在 detail 裡，原本多大也說出來。
+        assert_eq!(row.detail["_truncated"], serde_json::json!(true));
+        assert!(
+            row.detail["_originalBytes"].as_u64().unwrap() > 100 * 1024,
+            "{:?}",
+            row.detail
+        );
+        let preview = row.detail["preview"].as_str().expect("preview is a string");
+        assert_eq!(preview.chars().count(), TRACE_DETAIL_PREVIEW_CHARS);
+        assert!(
+            preview.starts_with("{\"blob\":\"xxx"),
+            "preview is the head of the original JSON: {preview:.40}"
+        );
+        assert!(
+            !row.detail.to_string().contains(&"x".repeat(3000)),
+            "the 100 KiB blob must not come back whole"
+        );
+
+        // 有界：DB 裡那一列真的小於上限（不是只有讀出來的那一份小）。
+        let stored: i64 = store
+            .conn
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT length(detail) FROM audit WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            (stored as usize) < TRACE_DETAIL_MAX_BYTES,
+            "stored detail is {stored} bytes"
+        );
+    }
+
+    /// 舊 `audit()` 介面走同一道上限；而正常大小的 detail 一個字都不能被動到。
+    #[test]
+    fn the_legacy_audit_entry_is_bounded_and_ordinary_details_are_untouched() {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .audit(
+                "device.rejected",
+                "runtime",
+                &serde_json::json!({ "payload": "y".repeat(40 * 1024) }),
+            )
+            .unwrap();
+        let ordinary = serde_json::json!({ "why": "test", "count": 3, "nested": { "ok": true } });
+        store.audit("emergency.stop", "cli", &ordinary).unwrap();
+
+        let tail = store.audit_tail(10).unwrap();
+        assert_eq!(tail.len(), 2);
+        // audit_tail 是 id DESC：最新的（正常那筆）在前。
+        assert_eq!(
+            tail[0]["detail"], ordinary,
+            "small details stay byte-identical"
+        );
+        assert_eq!(tail[1]["detail"]["_truncated"], serde_json::json!(true));
+        assert!(
+            tail[1]["detail"].to_string().len() < TRACE_DETAIL_MAX_BYTES,
+            "{}",
+            tail[1]["detail"]
+        );
+    }
+
+    /// 有界化本身不能被 JSON 轉義撐破：全是控制字元的 100 KiB（每個字元轉義
+    /// 成 6 bytes）仍然要 ≤ 上限。
+    #[test]
+    fn the_truncation_marker_stays_under_the_cap_even_when_escaping_inflates_it() {
+        let detail = serde_json::json!({ "blob": "\u{1}".repeat(100 * 1024) });
+        let bounded = bounded_detail(&detail);
+        assert!(
+            bounded.len() <= TRACE_DETAIL_MAX_BYTES,
+            "bounded detail is {} bytes",
+            bounded.len()
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&bounded).unwrap();
+        assert_eq!(parsed["_truncated"], serde_json::json!(true));
     }
 
     #[test]
