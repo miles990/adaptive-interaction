@@ -216,6 +216,12 @@ pub struct AgentSessionRecord {
     /// 供進階詳情與續開（resume）；不是 runtime 的 session 身分。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_session_id: Option<String>,
+    /// Provider **自報的**實際模型（claude 的 `system/init.model`、codex 的
+    /// thread 回應）。這是 provider 說的，不是我們請求的——gateway 這條路徑
+    /// 根本沒有指定模型的地方。讀不到就是 `None`：不拿請求值回填、不猜。
+    /// 舊快照沒有這個欄位 ⇒ `None`（不補造）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actual_model: Option<String>,
     /// 這個 session **實際**掛上子程序的工作目錄（正規化後的絕對路徑）。
     /// 只有 gateway agents（codex／claude-code）有值；純對話 session 永遠
     /// 是 None，升級前建立的舊記錄也是 None（新增欄位、舊 JSON 相容）。
