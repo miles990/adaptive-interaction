@@ -453,6 +453,22 @@ fn resume_audit_record(
     }
 }
 
+/// 關閉時要投影出去的 taxonomy：**終局優先**。
+///
+/// 階段 0 的 D2／D10：`record.state` 早就保留了 Failed／Unknown／TimedOut／
+/// Cancelled，但投影以前只讓 Cancelled 逃得掉——失敗與未知在畫面上一律變成
+/// 「已關閉」，誠實階梯的最後一段就被「關閉」這個動作抹掉了。
+fn close_taxonomy(state: AgentSessionState) -> &'static str {
+    match state {
+        AgentSessionState::Failed => "failed",
+        AgentSessionState::Unknown => "unknown",
+        AgentSessionState::TimedOut => "timed-out",
+        AgentSessionState::Cancelled => "cancelled",
+        AgentSessionState::Expired => "expired",
+        _ => "closed",
+    }
+}
+
 pub struct AgentSessionEntry {
     pub record: AgentSessionRecord,
     pub mailbox: VecDeque<MailboxMessage>,
@@ -794,6 +810,8 @@ impl Runtime {
             agent_id: input.agent_id.clone(),
             label: input.label,
             state: AgentSessionState::Created,
+            // 執行階段與授權狀態是兩個維度：建立當下兩者都是 created。
+            phase: Some("created".to_string()),
             lease: CapabilityLease {
                 issued_at: now,
                 expires_at: now + chrono::Duration::minutes(ttl as i64),
@@ -872,7 +890,7 @@ impl Runtime {
             json!({"agentSessionId": session_id.as_str(), "agentId": record.agent_id}),
         );
         // v0.5 角色 taxonomy：queued（session 已建立、任務尚未被取走）。
-        self.emit_agent_session_state(session_id.as_str(), &record.agent_id, "created");
+        self.emit_agent_session_state_for(&record, "created");
 
         // Gateway agents（codex/claude-code）：掛真實子程序。失敗＝建立失敗
         // （誠實），不留下看似可用其實沒有 agent 的 session。
@@ -960,7 +978,8 @@ impl Runtime {
             entry.record.state = AgentSessionState::Expired;
             entry.record.closed_at = Some(now);
             entry.record.detail = Some("lease expired".into());
-            self.persist_agent_session(&entry.record);
+            // 角色 taxonomy：租約到期是「時間到了，工作沒收尾」。
+            let snapshot = self.persist_phase(entry, "timed-out");
             let pid = ProviderId::new(format!(
                 "provider.ai-session.{}",
                 entry.record.session_id.as_str()
@@ -973,14 +992,9 @@ impl Runtime {
                 EventType::SessionStopped,
                 json!({"agentSessionId": entry.record.session_id.as_str(), "reason": "expired"}),
             );
-            // 角色 taxonomy：租約到期是「時間到了，工作沒收尾」——必須跟
-            // session.stopped 一起發出，否則小樞會停在最後一個假象狀態
-            // （例如永遠的「工作中」），感測／狀態就靜默了。
-            self.emit_agent_session_state(
-                entry.record.session_id.as_str(),
-                &entry.record.agent_id,
-                "timed-out",
-            );
+            // 必須跟 session.stopped 一起發出，否則小樞會停在最後一個假象
+            // 狀態（例如永遠的「工作中」），感測／狀態就靜默了。
+            self.emit_agent_session_state_for(&snapshot, "timed-out");
             self.revoke_agent_session_capabilities(entry.record.session_id.as_str())
                 .await;
         }
@@ -1292,7 +1306,7 @@ impl Runtime {
         let mut acked: Vec<(String, String)> = Vec::new();
         // 真的被 agent 取走時要發 `fetched`（taxonomy §7.4）；在鎖外發，
         // 與 gateway 路徑同一個事實來源。
-        let mut fetched_by_agent: Option<String> = None;
+        let mut fetched_by_agent: Option<AgentSessionRecord> = None;
         let out = {
             let mut map = self.agent_sessions.write().await;
             let entry = map
@@ -1327,10 +1341,8 @@ impl Runtime {
             // 新任務送達 ⇒ 舊的人工驗證只屬於上一個 claim，不再顯示為
             // 「目前這個」已確認。
             if newly_delivered {
-                fetched_by_agent = Some(entry.record.agent_id.clone());
-                if entry.record.human_verified.take().is_some() {
-                    self.persist_agent_session(&entry.record);
-                }
+                entry.record.human_verified = None;
+                fetched_by_agent = Some(self.persist_phase(entry, "fetched"));
             }
             out
         };
@@ -1338,8 +1350,8 @@ impl Runtime {
         // session 的 fetched 由 gateway_deliver 發（子程序真的收到才算）；
         // 輪詢流程的 agent 走這裡。沒有這個事件，角色與介面會一直停在
         // 「準備中」，等於 fetched 這一態對非 gateway agent 不存在。
-        if let Some(agent_id) = fetched_by_agent {
-            self.emit_agent_session_state(id, &agent_id, "fetched");
+        if let Some(record) = fetched_by_agent {
+            self.emit_agent_session_state_for(&record, "fetched");
         }
         for (action_id, message_id) in acked {
             let _ = self
@@ -1374,17 +1386,46 @@ impl Runtime {
     /// mistake an agent claim for observed evidence.
     /// v0.5 角色 taxonomy 事件：created/fetched/working/waiting-input/
     /// waiting-consent/claimed-completed/verified/failed/unknown/timed-out/
-    /// cancelled/closed。小樞依這些「真實事件」演出；`verified` 只會由
-    /// verify_agent_session（human-only）發出，`unknown` 表示結果未知
+    /// cancelled/closed/expired。小樞依這些「真實事件」演出；`verified` 只會
+    /// 由 verify_agent_session（human-only）發出，`unknown` 表示結果未知
     /// （既不演成功也不演失敗）。
-    pub(crate) fn emit_agent_session_state(&self, id: &str, agent_id: &str, state: &str) {
+    ///
+    /// **只吃已經把 `phase` 寫進去並落地的那一份 record**（D10）：SSE 送出的
+    /// `state` 與 `GET /v1/agent-sessions` 讀到的 `record.phase` 因此永遠是
+    /// 同一個值。以前 `fetched`／`working` 只活在事件流上，重新載入畫面就
+    /// 消失了——那不是「狀態回到 created」，而是我們從來沒把它記下來。
+    pub(crate) fn emit_agent_session_state_for(&self, record: &AgentSessionRecord, state: &str) {
+        let id = record.session_id.as_str();
         self.events.emit(
             EventType::AgentSessionState,
-            json!({"agentSessionId": id, "agentId": agent_id, "state": state}),
+            json!({
+                "agentSessionId": id,
+                "agentId": record.agent_id,
+                // 相容欄位：既有消費者（桌面 workState、小樞、CLI）讀的是它。
+                "state": state,
+                // 執行階段（＝state，與 record.phase 同值）。
+                "phase": state,
+                // 授權狀態機的值：`fetched`／`working` 從來不在它裡面，
+                // 兩者是不同的維度，不得互相冒充。
+                "recordState": record.state,
+                "lifecycle": if record.state.is_open() { "open" } else { "closed" },
+            }),
         );
         // Character Protocol §11：同一批真實事件投影成 Character Intent
         // （correlationId = agentSessionId；verified 只會從這條人工驗證路徑來）。
         self.character_project_session(id, state);
+    }
+
+    /// 在還持有 entry 的地方使用：先把執行階段寫進 record 並落地，再回傳
+    /// 一份快照供發事件用。「先落地、後發事件」是 D10 的核心順序。
+    pub(crate) fn persist_phase(
+        &self,
+        entry: &mut AgentSessionEntry,
+        phase: &str,
+    ) -> AgentSessionRecord {
+        entry.record.phase = Some(phase.to_string());
+        self.persist_agent_session(&entry.record);
+        entry.record.clone()
     }
 
     /// 人工驗證 agent 的 claimed-completed（human token 專屬路由）。
@@ -1425,15 +1466,14 @@ impl Runtime {
                 note,
                 claim_id: entry.record.claim_id.clone(),
             });
-            self.persist_agent_session(&entry.record);
-            entry.record.clone()
+            self.persist_phase(entry, "verified")
         };
         self.store.audit(
             "agent-session.verified",
             "user",
             &json!({"agentSessionId": id}),
         )?;
-        self.emit_agent_session_state(id, &record.agent_id, "verified");
+        self.emit_agent_session_state_for(&record, "verified");
         // 手機的綠勾只能從這裡出發：human verify（不經 plan／policy／AI 路徑，
         // `map_wire_params` 對 `verified-success` 一律拒絕）。背景直送，
         // 沒有手機連線就誠實留在 debug log，不影響驗證本身。
@@ -1476,6 +1516,15 @@ impl Runtime {
                 )))
             }
         };
+        // 執行階段（phase／SSE 的 state）與授權狀態（record.state）是兩個維度：
+        // `working` 這些值從來不存在於後者裡。先算好，才能在同一個臨界區裡
+        // 把它落地——GET 看到的 phase 與 SSE 送出的 state 因此不會漂開。
+        let taxonomy = match event {
+            "task-started" | "progress" => "working",
+            "waiting-for-input" => "waiting-input",
+            "waiting-for-consent" => "waiting-consent",
+            other => other, // claimed-completed / failed / unknown / timed-out / cancelled
+        };
         let record = {
             let mut map = self.agent_sessions.write().await;
             let entry = map
@@ -1496,8 +1545,7 @@ impl Runtime {
                 entry.record.claim_id = Some(format!("claim-{}", uuid::Uuid::new_v4()));
             }
             entry.record.human_verified = None;
-            self.persist_agent_session(&entry.record);
-            entry.record.clone()
+            self.persist_phase(entry, taxonomy)
         };
 
         // 角色 taxonomy 事件（agent 的自我回報照實轉譯；claim 不升級）。
@@ -1525,15 +1573,9 @@ impl Runtime {
             }
             inferences.insert("report".to_string(), claim);
         }
-        let taxonomy = match event {
-            "task-started" | "progress" => "working",
-            "waiting-for-input" => "waiting-input",
-            "waiting-for-consent" => "waiting-consent",
-            other => other, // claimed-completed / failed / unknown / timed-out / cancelled
-        };
         // 狀態真相已落地：事件在觀察管線之前發出，receptor 停用／缺席時
         // 只影響下面的 ingest（誠實回 Err 給回報者），不會吞掉狀態事件。
-        self.emit_agent_session_state(id, &record.agent_id, taxonomy);
+        self.emit_agent_session_state_for(&record, taxonomy);
         // The FACT (a report arrived) is certain; the agent's CLAIM inside it is
         // not. Confidence describes the inferences, so a self-report carries a
         // deliberately moderate 0.5 — never 1.0 — so fusion/uncertainty gates
@@ -1601,10 +1643,11 @@ impl Runtime {
             entry.record.handoff = handoff;
             // Undelivered tasks are dead, honestly.
             entry.mailbox.retain(|m| m.delivered_at.is_some());
-            self.persist_agent_session(&entry.record);
+            let taxonomy = close_taxonomy(entry.record.state);
+            let snapshot = self.persist_phase(entry, taxonomy);
             // Gateway session：關閉即終止子程序樹（絕不留孤兒）。
             self.gateway_spawn_kill(id, "session-closed");
-            (entry.record.clone(), prior_state)
+            (snapshot, prior_state)
         };
         let (record, prior_state) = record;
         self.revoke_agent_session_capabilities(id).await;
@@ -1650,15 +1693,11 @@ impl Runtime {
             EventType::SessionStopped,
             json!({"agentSessionId": id, "reason": reason}),
         );
-        self.emit_agent_session_state(
-            id,
-            &record.agent_id,
-            if record.state == AgentSessionState::Cancelled {
-                "cancelled"
-            } else {
-                "closed"
-            },
-        );
+        // D10／階段 0 的 D2：終局不得在關閉時被壓成「已關閉」。record.state
+        // 早就保留了 Failed／Unknown／TimedOut／Cancelled，但 SSE 以前只有
+        // Cancelled 逃得掉——失敗與未知在畫面上一律變成「已關閉」，等於
+        // 誠實階梯的最後一段被關閉這個動作抹掉。
+        self.emit_agent_session_state_for(&record, close_taxonomy(record.state));
         Ok(record)
     }
 
@@ -1780,19 +1819,16 @@ impl Runtime {
                             ),
                             None => "runtime restarted".into(),
                         });
+                        // 角色 taxonomy：上一輪 daemon 沒走完，這些工作最後
+                        // 到底成了沒有——沒有人知道。誠實記 unknown，不讓
+                        // 重啟後的 UI 停在重啟前的假象（例如「工作中」）。
+                        record.phase = Some("unknown".to_string());
                         if let Ok(body) = serde_json::to_string(&record) {
                             let _ = self
                                 .store
                                 .save_agent_session(record.session_id.as_str(), &body);
                         }
-                        // 角色 taxonomy：上一輪 daemon 沒走完，這些工作最後
-                        // 到底成了沒有——沒有人知道。誠實發 unknown，不讓
-                        // 重啟後的 UI 停在重啟前的假象（例如「工作中」）。
-                        self.emit_agent_session_state(
-                            record.session_id.as_str(),
-                            &record.agent_id,
-                            "unknown",
-                        );
+                        self.emit_agent_session_state_for(&record, "unknown");
                     }
                     map.insert(
                         record.session_id.as_str().to_string(),
@@ -2183,6 +2219,7 @@ mod resume_workdir_tests {
             agent_id: agent_id.to_string(),
             label: None,
             state: AgentSessionState::Closed,
+            phase: None,
             lease: CapabilityLease {
                 issued_at: now,
                 expires_at: now + chrono::Duration::minutes(10),
