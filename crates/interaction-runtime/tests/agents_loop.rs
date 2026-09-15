@@ -882,10 +882,15 @@ async fn close_keeps_a_terminal_outcome_instead_of_rewriting_it_to_closed() {
             .unwrap();
         let closed = rt.close_agent_session(&sid, None, reason).await.unwrap();
         assert_eq!(closed.state, expected, "{event}: close keeps the outcome");
-        assert_eq!(
-            closed.detail.as_deref(),
-            Some(format!("{reason} (was {expected:?})").as_str())
-        );
+        // failed／unknown 的原因摘要（階段 0 的 D3）在關閉後仍留在 detail
+        // 尾端；timed-out／cancelled 沒有回報原因，只剩關閉註記。
+        let expected_detail = match expected {
+            AgentSessionState::Failed | AgentSessionState::Unknown => {
+                format!("{reason} (was {expected:?})：test")
+            }
+            _ => format!("{reason} (was {expected:?})"),
+        };
+        assert_eq!(closed.detail.as_deref(), Some(expected_detail.as_str()));
         assert!(closed.closed_at.is_some(), "{event}: close still closes");
         assert!(!closed.state.is_open());
         // 收件匣把結局當主要狀態呈現，不是「已關閉」。

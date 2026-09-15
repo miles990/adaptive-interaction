@@ -1702,8 +1702,11 @@ impl Runtime {
             other => other, // claimed-completed / failed / unknown / timed-out / cancelled
         };
         // 從回報裡取出要進紀錄的事實（payload 之後會被移走當成 claim）。
+        // failed 帶 `error`；unknown（連接器讀不出結局）帶 `reason`。兩者都是
+        // 安全摘要，不是 stderr 全文。
         let failure_reason = payload
             .get("error")
+            .or_else(|| payload.get("reason"))
             .and_then(Value::as_str)
             .map(safe_summary);
         let num_turns = payload.get("numTurns").and_then(Value::as_u64);
@@ -1739,7 +1742,10 @@ impl Runtime {
             }
             // 階段 0 的 D3：失敗的原因要留在 record 上（安全摘要），
             // 而不是只飄過事件流——`detail` 以前只有關閉時才會被寫。
-            if next_state == AgentSessionState::Failed {
+            if matches!(
+                next_state,
+                AgentSessionState::Failed | AgentSessionState::Unknown
+            ) {
                 if let Some(reason) = &failure_reason {
                     entry.record.detail = Some(reason.clone());
                 }
@@ -1852,7 +1858,9 @@ impl Runtime {
             // 「怎麼收尾的」，失敗說的是「為什麼失敗」，兩件事都要留得下來。
             let close_note = format!("{reason} (was {prior_state:?})");
             updated.detail = match (&entry.record.detail, prior_state) {
-                (Some(existing), AgentSessionState::Failed) if !existing.is_empty() => {
+                (Some(existing), AgentSessionState::Failed | AgentSessionState::Unknown)
+                    if !existing.is_empty() =>
+                {
                     Some(format!("{close_note}：{existing}"))
                 }
                 _ => Some(close_note),
