@@ -33,6 +33,11 @@ pub struct Store {
     /// are integration tests in *other* crates, which link this crate without
     /// `cfg(test)`. Nothing in the HTTP/CLI surface can reach it.
     forced_txn_error: Mutex<Option<String>>,
+    /// Same seam for the non-transactional [`Store::save_agent_session`]:
+    /// the restore path writes a single row outside any transaction, so
+    /// `forced_txn_error` cannot reach it. Arm with
+    /// [`Store::force_next_agent_session_save_error`]; inert otherwise.
+    forced_agent_session_save_error: Mutex<Option<String>>,
 }
 
 fn ts_to_str(ts: DateTime<Utc>) -> String {
@@ -214,6 +219,7 @@ impl Store {
             conn: Mutex::new(conn),
             txn_count: AtomicU64::new(0),
             forced_txn_error: Mutex::new(None),
+            forced_agent_session_save_error: Mutex::new(None),
         };
         store.migrate()?;
         Ok(store)
@@ -599,6 +605,14 @@ impl Store {
     }
 
     pub fn save_agent_session(&self, id: &str, body: &str) -> DomainResult<()> {
+        let forced = self
+            .forced_agent_session_save_error
+            .lock()
+            .expect("store lock")
+            .take();
+        if let Some(message) = forced {
+            return Err(DomainError::Storage(message));
+        }
         self.doc_upsert("agent_sessions", id, body)
     }
 
@@ -674,6 +688,19 @@ impl Store {
     #[doc(hidden)]
     pub fn force_next_transaction_error(&self, message: &str) {
         *self.forced_txn_error.lock().expect("store lock") = Some(message.to_string());
+    }
+
+    /// Test seam: make the next [`Store::save_agent_session`] fail once.
+    ///
+    /// The restore path persists outside a transaction, so the invariant
+    /// "a state write that does not land is counted, never swallowed" needs
+    /// its own armed fault to be verified deterministically.
+    #[doc(hidden)]
+    pub fn force_next_agent_session_save_error(&self, message: &str) {
+        *self
+            .forced_agent_session_save_error
+            .lock()
+            .expect("store lock") = Some(message.to_string());
     }
 
     /// Test seam: how many [`Store::transaction`] scopes have been opened.

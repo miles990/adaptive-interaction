@@ -1652,6 +1652,60 @@ async fn trace_retention_bounds_the_diagnostic_class_and_records_the_prune() {
     );
 }
 
+/// 重啟時把還開著的 session 標成 expired／unknown 的那一筆**狀態寫入**，
+/// 以前是 `let _ = store.save_agent_session(...)`：寫不進去完全靜默，
+/// 記憶體說 expired、磁碟還停在上一輪的 open，`/v1/status` 一個字都沒有。
+///
+/// 現在走 `persist_agent_session`（＝會 `note_storage_write_failure` 的那條）。
+/// 正常路徑不得誤報，失敗路徑必須算得出來。
+#[tokio::test]
+async fn a_failed_restore_write_is_counted_not_swallowed() {
+    let home = tempfile::tempdir().unwrap();
+    let rt = start_in(home.path()).await;
+    let open = rt
+        .create_agent_session(create_input("agent.restore"))
+        .await
+        .unwrap();
+    let sid = open.session_id.as_str().to_string();
+    // 一份真的「還開著」的紀錄（不手抄欄位，避免測試與序列化脫節）。
+    let open_body = rt
+        .store
+        .all_agent_sessions()
+        .unwrap()
+        .into_iter()
+        .next()
+        .expect("open session persisted");
+
+    // 重啟：restore 把它標成 expired／unknown 並落地。正常路徑不得誤報失敗。
+    let rt2 = start_in(home.path()).await;
+    assert_eq!(
+        rt2.status().await["traceWriteFailures"],
+        json!(0),
+        "正常的 restore 不得被算成寫入失敗"
+    );
+    let restored = rt2.get_agent_session(&sid).await.unwrap();
+    assert_eq!(restored.state, AgentSessionState::Expired);
+    assert_eq!(restored.phase.as_deref(), Some("unknown"));
+    let persisted: serde_json::Value =
+        serde_json::from_str(&rt2.store.all_agent_sessions().unwrap()[0]).unwrap();
+    assert_eq!(
+        persisted["state"],
+        json!("expired"),
+        "restore 的結果必須真的落地，不能只活在記憶體裡"
+    );
+
+    // 同一條路徑寫不進去時：以前完全靜默，現在要計數。
+    rt2.store.save_agent_session(&sid, &open_body).unwrap();
+    rt2.store
+        .force_next_agent_session_save_error("disk on fire");
+    rt2.restore_agent_sessions().await;
+    assert_eq!(
+        rt2.status().await["traceWriteFailures"],
+        json!(1),
+        "restore 的狀態寫入失敗必須進 /v1/status，不得被吞掉"
+    );
+}
+
 /// `/v1/status` 必須說得出「紀錄寫失敗過幾次」與「現在各有幾筆」。
 #[tokio::test]
 async fn status_reports_trace_write_failures_and_counts() {

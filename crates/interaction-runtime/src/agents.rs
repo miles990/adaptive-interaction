@@ -805,6 +805,11 @@ impl Runtime {
         // 真的被送進 connector 接上一個 provider session。純對話 session 的
         // `resumeProviderSessionId` 不會被任何 connector 使用，本身不授予
         // 任何東西。
+        // 接受的那一筆稽核**不能**在這裡就寫：後面還有委派與 open session
+        // 上限會把這次建立擋掉，寫早了就會在 DB 裡留下一筆「接續已核准」、
+        // 卻從來沒有對應 session 的紀錄（讀起來像成功續開了）。先把判定結果
+        // 收在這裡，等到真的過了所有上限、session 確定會被建立才寫。
+        let mut accepted_resume: Option<(AgentSessionRecord, String, ResumeComparison)> = None;
         if let Some(resume_id) = input.resume_provider_session_id.as_deref() {
             // D9：續開是一次**授權判定**——接受、拒絕、或找不到原紀錄，
             // 三種結局都必須留下稽核。以前三條路徑一筆都不寫，事後完全看不出
@@ -817,18 +822,8 @@ impl Runtime {
                         policy.delegation.max_messages_per_session,
                     ) {
                         Ok(comparison) => {
-                            // 接受是關鍵轉移：稽核寫不進去就不放行
-                            // （記不下來的授權不算授權）。
-                            self.store.record(&resume_audit_record(
-                                session_id.as_str(),
-                                &input,
-                                Some(&original),
-                                resume_id,
-                                TraceOutcome::Accepted,
-                                "resume.ok",
-                                &comparison,
-                                "與上一次的授權逐項比對後沒有任何放寬",
-                            ))?;
+                            // 只記下來，寫入延到所有上限檢查之後（見上面）。
+                            accepted_resume = Some((original, resume_id.to_string(), comparison));
                         }
                         Err(rejection) => {
                             let rejection = *rejection;
@@ -917,6 +912,21 @@ impl Runtime {
                 "too many open agent sessions ({open} ≥ {})",
                 policy.delegation.max_sessions
             )));
+        }
+
+        // 上限都過了、這個 session 一定會被建立，現在才寫「接受」那一筆。
+        // 接受是關鍵轉移：稽核寫不進去就不放行（記不下來的授權不算授權）。
+        if let Some((original, resume_id, comparison)) = accepted_resume {
+            self.store.record(&resume_audit_record(
+                session_id.as_str(),
+                &input,
+                Some(&original),
+                &resume_id,
+                TraceOutcome::Accepted,
+                "resume.ok",
+                &comparison,
+                "與上一次的授權逐項比對後沒有任何放寬",
+            ))?;
         }
 
         let now = Utc::now();
@@ -2040,7 +2050,13 @@ impl Runtime {
     }
 
     /// Restore persisted session records (closed history + expire leftovers).
-    pub(crate) async fn restore_agent_sessions(&self) {
+    ///
+    /// 公開（而不只是 `Runtime::start` 內部呼叫）好讓「restore 的狀態寫入
+    /// 失敗要被算進 `traceWriteFailures`」這條不變量能被確定性驗證——與
+    /// `prune_agent_sessions` 同一個理由。重複呼叫是安全的：已經標成
+    /// expired 的紀錄不再進入那條分支。
+    #[doc(hidden)]
+    pub async fn restore_agent_sessions(&self) {
         // 上一輪 daemon 可能沒走完 shutdown（崩潰／SIGKILL／斷電）：標
         // Expired 之前，先依已落地的 pgid 記錄終結還活著的孤兒子程序樹。
         let reaped = self.reap_recorded_gateway_pgids("restore").await;
@@ -2066,11 +2082,11 @@ impl Runtime {
                         // 到底成了沒有——沒有人知道。誠實記 unknown，不讓
                         // 重啟後的 UI 停在重啟前的假象（例如「工作中」）。
                         record.phase = Some("unknown".to_string());
-                        if let Ok(body) = serde_json::to_string(&record) {
-                            let _ = self
-                                .store
-                                .save_agent_session(record.session_id.as_str(), &body);
-                        }
+                        // 走共用的持久化：以前這裡是 `let _ =`，restore 時寫不
+                        // 進去完全靜默（磁碟滿／DB 鎖住都一樣），記憶體說
+                        // expired、磁碟還停在上一輪的 open，而 `/v1/status` 的
+                        // traceWriteFailures 一個字都沒有。
+                        self.persist_agent_session(&record);
                         self.emit_agent_session_state_for(&record, "unknown");
                         // 上一輪的 open session 到底成了沒有：沒有人知道。
                         // 以前只有事件，稽核裡完全沒有這一段。
