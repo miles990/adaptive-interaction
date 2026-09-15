@@ -122,14 +122,25 @@ TB-12（`prune_trace_records` 只在啟動與看門狗每 600 tick 執行，非�
 - **TB-1／TB-4／TB-5**：**已修**（`ba01c0a`／`711de77`），文件收尾前逐一重新核對並確認 commit
   落地（見 §3）；`agent-session.capability-issued` 順帶補強掛上 session／trace id（`9309028`）。
 - **TB-3／TB-7／TB-8／TB-12**：誠實記錄為已知限制，非本輪修復範圍。
-- **真 Agent 端到端驗收（`scripts/tests/phase1/trace_e2e.py`）**：（待填：主模型跑完後補——
-  六個情境 normal／cancel／resume／failure／approval／restart 的 `result.json` 逐項 verdict）。
-- **完整回歸**（`cargo fmt --all --check`／`cargo clippy --workspace --all-targets -- -D
-  warnings`／`cargo test -p interaction-runtime` 全量／`cd apps/interaction-desktop && pnpm
-  typecheck && pnpm test && pnpm build`／`pnpm test:e2e`／`./scripts/v03-cli-e2e.sh`）：（待填：
-  主模型跑完後補——本文件與各 commit message 引用的都是範圍受限的針對性測試，不構成完整回歸；
-  當前磁碟可用空間僅約 991 MiB，見 §7，跑 `pnpm tauri build`／完整 Rust 建置前必須先確認磁碟
-  空間足夠，否則會以 `ENOSPC` 中斷）。
+- **真 Agent 端到端驗收（`scripts/tests/phase1/trace_e2e.py`，2026-09-15，HEAD `c89a5c4`，daemon
+  sha256 `5bea07b8…`，macOS 26.2 arm64，Claude Code 2.1.272（實際模型 `claude-fable-5-1`）、Codex CLI 0.154.0
+  （實際模型 `gpt-6-astra`，皆由 provider 自報 `actualModel`））**：Claude Code **8／8 passed**（normal、cancel、
+  resume-reject、resume-accept、failure、restart、isolation、agent-token-forbidden；37.7 s）；Codex **9／9 passed**
+  （同上加 approval（人類 deny）；54.8 s）。原始證據：`docs/releases/evidence/2026-09-15-phase-1/real-agent/`。
+  前兩輪（HEAD `2b1572c`／`a24153e`）曾暴露兩個階段 0 的缺陷並在本輪修掉：真 Claude 的 interrupt 落 `failed`
+  （D1，`24ae45d`）；真 Codex 對 deny 的 wire 值 `reject` 回「unknown variant」——這條協定錯誤正是由 D16 的
+  stderr 診斷紀錄擷取到的（D4，`a24153e`）。
+- **驗收項目對照**（任務書 §11）：1 派工→claimed→verified（normal）✔；2 iPhone 發起→核心接受→回兩端：**fixture 層**
+  由既有 `mobile_loop`／`character_session_loop` 涵蓋，真 iPhone **blocked**（§7）；3 權限不足→拒絕→零副作用→稽核
+  （resume-reject＋agent-token-forbidden）✔；4 resume 接受／拒絕可追蹤 ✔；5 取消區分 requested／confirmed／unknown
+  （cancel：`interrupt-requested accepted` → `outcome cancelled`；codex failure：SIGKILL 子程序 → `unknown`）✔；
+  6 協定錯誤可追且不洩密（D4 由 diagnostic 紀錄抓到；leaks 掃描 0）✔；7 重複／過期／亂序／限流：AIP dedupe 與限流由既有
+  fixture 測試涵蓋、agent 自我回報重送的 idempotency 為已知限制 TB-8；8 重啟後查回最後可信狀態（restart：`expired`＋
+  `outcome unknown code=runtime.restarted`）✔；9 crash 不產生假成功（同上）✔；10 儲存失敗不被當成功（`force_next_*`
+  單元／整合測試）✔；11 保存期限與容量清理（storage `prune_trace` 測試＋啟動／600 tick）✔；12 一般模式找到失敗原因與
+  下一步（failure：headline／失敗原因／「可重新交代一件工作」；Playwright `work-activity.spec.ts`）✔。
+- **完整回歸**：見 §8.2（全部在 HEAD `c6dd64e`／`c89a5c4` 跑完：Rust workspace 1335／1／1（唯一失敗是未觸碰
+  crate 的既有 flaky 測試，單獨重跑 33／0）、Tauri 78／0、vitest 1925／0、Playwright 94／0、CLI e2e 102／0、Swift 58／0）。
 
 ## 6. 下一動作
 
@@ -170,9 +181,7 @@ TB-12（`prune_trace_records` 只在啟動與看門狗每 600 tick 執行，非�
 
 ## 8. 提交、合併與 tag
 
-（留白，待整合者填寫。內容至少應包含：本分支自 `18829cb` 起的完整 commit 清單與對應內容、
-提交前完整回歸的實際數字、`trace_e2e.py` 的執行結果、PR 編號、CI run、合併 commit、是否建立
-checkpoint tag。）
+整合者（主模型）填寫，2026-09-15。
 
 ### 8.1 分支 `phase-1/interaction-traceability` 的 commits（自 `18829cb`，本文件核對當下已知）
 
@@ -197,12 +206,33 @@ checkpoint tag。）
 | `711de77` | `fix(runtime): count restore-time persistence failures and audit resume only when a session is really created (TB-4, TB-5)` |
 | `2b1572c` | `fix(runtime): next-step copy does not point at advanced-only details` |
 | `9309028` | `feat(runtime): link capability issuance to its session trace and add the phase-1 real-agent trace harness`（同時正式 commit `scripts/tests/phase1/trace_e2e.py`） |
-| （本次文件整合） | `docs: phase-1 interaction tracing contract, coverage matrix, progress and policies` |
+| `24ae45d` | `fix(gateway): an interrupted Claude turn is cancelled, not failed (D1)`（真 Claude 驗收暴露；紅燈測試 `an_interrupted_claude_turn_is_cancelled_not_failed`） |
+| `a24153e` | `fix(gateway): send codex the enum value \`decline\` for a human deny (D4)`（由 D16 stderr 診斷紀錄擷取到的列舉） |
+| `c6dd64e` | `fix(runtime): keep the connector's reason for an unknown outcome on the record` |
+| `c89a5c4` | `docs: phase-1 interaction tracing contract, coverage matrix, progress and policies` |
+| （本 commit） | `docs: phase-1 real-agent evidence, regression numbers and D1/D4 status` |
 
 ### 8.2 提交前回歸
 
-（留白，待整合者在 `trace_e2e.py` 執行後統一跑並回填實際數字。
-以下是本輪各 commit 附帶、已經產生的範圍受限測試數字，**不構成完整回歸**，僅供參考：
+2026-09-15，HEAD `c6dd64e`（程式碼最終 commit）／`c89a5c4`（docs），macOS 26.2 arm64，`CARGO_INCREMENTAL=0`：
+
+| 命令 | 結果 | 耗時 | 證據層級 |
+|---|---|---|---|
+| `cargo fmt --all -- --check` | 0 diff | 1 s | static |
+| `cargo clippy --workspace --all-targets -- -D warnings` | 0 warning | 18 s（快取） | static |
+| `cargo test --workspace --no-fail-fast` | 100 個 `test result:` 行，**1335 passed／1 failed／1 ignored**；唯一失敗 `declarative_session_loop::reenable_rebinds_without_restart`（未觸碰的 crate；全 workspace 並行下 stop 等待逾時成 `stop-unknown`），單獨重跑 `--test declarative_session_loop` **33／0**、單測 1／0——判定為既有 flaky，非本輪回歸。第一次執行在連結 `api_e2e` 時因磁碟 `ENOSPC` 中斷，清出空間後重跑得到上述數字（log：`docs/releases/evidence/2026-09-15-phase-1/workspace-test.txt`） | 約 6 min | unit／integration／fixture |
+| `cargo test --manifest-path apps/interaction-desktop/src-tauri/Cargo.toml` | 78／0 | 0.5 s（快取） | unit |
+| `pnpm typecheck`／`pnpm test`／`pnpm build` | tsc 乾淨／**1925 passed（93 files）**／build OK | 4 s／23 s／2.4 s | unit（jsdom） |
+| `pnpm test:e2e`（Playwright，真 daemon＋fixture agent） | **94 passed／0 failed**（含新增 `work-activity.spec.ts` 2 支） | 5.3 min | browser |
+| `./scripts/v03-cli-e2e.sh` | **102 passed／0 failed** | 14 s | integration（真 daemon） |
+| `scripts/tests/architecture-checks.sh --docs`（docs commit 後） | docs-claims 261／0、release-scripts 58／0 | 3 s | static |
+| `scripts/tests/architecture-checks.sh --swift` | 58／0 | 6 s | native Swift 純模型 |
+| `scripts/tests/phase1/trace_e2e.py`（Claude Code／Codex） | 8／8、9／9（見 §5） | 38 s／55 s | real-agent |
+
+**未重跑**（理由：本輪零變更）：iOS 模擬器 XCTest、ESP32 `compile.sh`、`architecture-checks.sh --drills`；`--rust` 組的測試全部包含在上表的 workspace 測試內。
+**未做**：從 HEAD 重建原生 Tauri `.app` 與 AX 走查（磁碟；見 §7）、真 iPhone（§7）。
+
+以下是本輪各 commit 附帶、已經產生的範圍受限測試數字，僅供對照：
 
 - `cargo test -p interaction-storage --test trace_store`（S1）— 4 passed／0 failed／1 ignored；
   `-- --ignored --nocapture` 單獨跑過 `perf_trace_write_and_query_baseline`，數字見

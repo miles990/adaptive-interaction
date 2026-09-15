@@ -1,0 +1,10 @@
+interact-ai daemon listening on http://127.0.0.1:19141
+human token file: /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79ba5151-5f26-4639-88f8-71c12b013198/scratchpad/real-agent/final2-codex/home/state/api-token
+restricted agent token file: /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79ba5151-5f26-4639-88f8-71c12b013198/scratchpad/real-agent/final2-codex/home/state/api-agent-token
+press Ctrl-C to stop
+[2m2026-09-15T06:27:23.536632Z[0m [33m WARN[0m [2magent.stderr[0m[2m:[0m agent subprocess stderr [3msession[0m[2m=[0mcodex-app-server:work-approval [3mline[0m[2m=[0m2026-09-15T06:27:23.536122Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: "Rejected(\"rejected by user\")" }
+[2m2026-09-15T06:27:31.485564Z[0m [33m WARN[0m [2minteraction_runtime::lock[0m[2m:[0m reclaiming stale instance lock [3mpid[0m[2m=[0m89268
+interact-ai daemon listening on http://127.0.0.1:19141
+human token file: /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79ba5151-5f26-4639-88f8-71c12b013198/scratchpad/real-agent/final2-codex/home/state/api-token
+restricted agent token file: /private/tmp/claude-501/-Users-user-Workspace-claude-lab-adaptive-interaction/79ba5151-5f26-4639-88f8-71c12b013198/scratchpad/real-agent/final2-codex/home/state/api-agent-token
+press Ctrl-C to stop

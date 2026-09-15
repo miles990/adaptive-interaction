@@ -94,6 +94,18 @@
 - 階段 0 **D3**（`ce68181`）：`failed` 的 agent session 以前沒有原因；連接器錯誤前 200 字（`safe_summary`）
   現在同時寫入 audit `agent-session.outcome` 的 `detail.reason` 與 `AgentSessionRecord.detail`；
   `close_agent_session` 收尾時不再覆蓋這個原因（`<收尾方式>：<失敗原因>`）。
+- `crates/interaction-agent-gateway/src/claude.rs`（`24ae45d`，階段 0 的 **D1**，本輪真 Claude Code 2.1.272 驗收再次重現後修）：
+  人類 `POST /interrupt` 後 Claude 以 `result subtype=error_during_execution is_error=true` 收場，連接器以前一律記成
+  `failed`；現在 `interrupt()` 先立 `cancel_requested` 旗標，該旗標為真時的錯誤結局（含非零 exit／訊號結束而無 result）
+  改送 `TaskCancelled`，沒有 interrupt 請求的真失敗仍是 `failed`；fixture 新增 `long-task` 模式並在 trap 訊號時印出與真機
+  相同形狀的 result 行。紅燈測試 `an_interrupted_claude_turn_is_cancelled_not_failed`（`gateway_loop.rs`）。
+- `crates/interaction-agent-gateway/src/codex.rs`（`a24153e`，階段 0 的 **D4**）：人類 deny 送給 codex app-server 的
+  wire 值由 `reject` 改為列舉內的 `decline`。列舉本身（`accept`／`acceptForSession`／`acceptWithExecpolicyAmendment`／
+  `applyNetworkPolicyAmendment`／`decline`／`cancel`）是由 D16 新增的 stderr 診斷紀錄從真 codex 0.154.0 的反序列化錯誤裡
+  擷取到的；修後真機重跑 `daemon.log` 不再出現 `failed to deserialize`，deny 變成 codex 自己的語意拒絕
+  （`exec_command failed: … Rejected`）。
+- `crates/interaction-runtime/src/agents.rs`（`c6dd64e`）：連接器對「這一輪結束但讀不出結局」回報的 `reason` 現在同樣寫進
+  `AgentSessionRecord.detail` 與 outcome 紀錄，「這件工作的經過」的失敗原因不再退回關閉註記文字。
 - `crates/interaction-agent-gateway/src/diagnostics.rs`（`1070eca`，獨立懷疑者複核發現，非原始三個 finding
   之一）：`spawn_reader` 以前用 `BufReader::lines()` 逐行讀 stderr，一個非 UTF-8 位元組會讓 `next_line()`
   回 `InvalidData`、reader 靜默停讀，之後每一行都消失且 `truncated`／`lines_dropped` 停在「看完了全部」的
@@ -117,12 +129,12 @@
 
 - 本次是測試完成條件修正，受控重現使用pty模擬器；沒有新增真機／真人驗收，也不能據此定位先前缺少底層log的release-verify失敗。v0.8.0既有平台與安全驗收限制仍保留。
 - 階段 0 以真 Claude Code 2.1.263／Codex 0.153.4 實跑確認、**本輪未修**的產品缺陷（重現命令與證據見
-  `docs/releases/phase-0-known-issues-reproducibility.md` §4）：人類 interrupt 真 Claude Code session 的終態是 `failed`
-  而非 `cancelled`（D1）；~~close 的 SSE 投影把 failed／timed-out／unknown 壓成 `closed`（D2）~~（**階段 1 已修**，
+  `docs/releases/phase-0-known-issues-reproducibility.md` §4）：~~人類 interrupt 真 Claude Code session 的終態是 `failed`
+  而非 `cancelled`（D1）~~（**階段 1 已修**，`24ae45d`，真 Claude Code 2.1.272 重跑 cancel 情境終態 `cancelled`）；~~close 的 SSE 投影把 failed／timed-out／unknown 壓成 `closed`（D2）~~（**階段 1 已修**，
   `d8f934b`：`close_taxonomy()` 依終局逐一對應真實字串，見 `docs/aip/interaction-tracing.md` §4）；
   ~~failed 的 session record 與 mailbox 沒有原因（D3）~~（**階段 1 已修**，`ce68181`：連接器錯誤前 200 字寫進
-  `AgentSessionRecord.detail`，同上文件 §4）；Codex 核可拒絕送出的 wire 值 `"reject"` 不在 codex 0.153.4 的列舉內，拒絕靠 provider
-  端 fail-closed 而非語意上的 decline（D4）；Codex 連接器沒有等價於 Claude 的 MCP／plugin 封鎖，唯讀 session 仍啟動使用者
+  `AgentSessionRecord.detail`，同上文件 §4）；~~Codex 核可拒絕送出的 wire 值 `"reject"` 不在 codex 0.153.4 的列舉內，拒絕靠 provider
+  端 fail-closed 而非語意上的 decline（D4）~~（**階段 1 已修**，`a24153e`，改送 `decline`，真 Codex 0.154.0 重跑 approval 情境無反序列化錯誤）；Codex 連接器沒有等價於 Claude 的 MCP／plugin 封鎖，唯讀 session 仍啟動使用者
   `~/.codex` 設定的 MCP server，任務全文出現在 process argv（D5）；`allowWrite` 的 Codex session 不送 `writable_roots`，
   實際範圍併入使用者全域設定（D6）；`POST /interrupt` 在兩個 agent 上都是 session 級取消，沒有「停止這一輪但保留 session」（D8）；
   `waiting-for-input` 沒有任何連接器會自動產生，只能人工 `POST /report`（D11）；模型與推理設定不可經 gateway 指定也不可回報（K-01／K-02／K-03；
@@ -156,8 +168,11 @@
   `docs/aip/interaction-tracing.md` §9），不代表 release build 或生產負載表現；正式效能預算
   （單筆寫入 < 1 ms、查詢 < 5 ms、每 session trace 列 < 60）已由整合者核定，release build 量測
   留給後續階段。
-- 真 Agent 端到端追蹤驗收（`scripts/tests/phase1/trace_e2e.py`）與完整回歸尚未執行，見
-  `docs/releases/phase-1-progress.md` §5／§8（待填：主模型跑完後補）。
+- 真 Agent 端到端追蹤驗收（`scripts/tests/phase1/trace_e2e.py`）Claude Code 8／8、Codex 9／9 與完整回歸數字見
+  `docs/releases/phase-1-progress.md` §5／§8.2；真 iPhone 與原生 Tauri `.app` 走查本輪**未做**（blocked：Xcode Team
+  簽章需人類操作；磁碟空間不足以重建原生 App），fixture 與 simulator 結果不得視為真機驗收。
+- Rust workspace 全量測試中 `declarative_session_loop::reenable_rebinds_without_restart` 在全 workspace 並行下偶發
+  `stop-unknown`（本輪 1 次），單獨重跑 33／0；該 crate 本輪零變更，列為既有 flaky 待後續處理。
 
 ## [0.8.0] - 2026-09-06
 

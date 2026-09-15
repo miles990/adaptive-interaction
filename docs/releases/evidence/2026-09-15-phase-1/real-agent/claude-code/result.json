@@ -1,0 +1,1744 @@
+{
+ "agent": "claude-code",
+ "port": 19140,
+ "commit": "c89a5c4d864650aa1dafbe72cc59f1cf43d26e27",
+ "binarySha256": "5bea07b88575817c6d1daeffe46f5df21ee6a34ba7879919b9e7653788c32ec2",
+ "scenarios": {
+  "normal": {
+   "sessionId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2",
+   "traceStatus": 200,
+   "activityStatus": 200,
+   "kinds": [
+    [
+     "agent-session.closed",
+     "completed",
+     "close.requested"
+    ],
+    [
+     "agent-session.verified",
+     "verified",
+     "verify.human-confirmed"
+    ],
+    [
+     "agent-session.outcome",
+     "claimed",
+     "outcome.claimed-completed"
+    ],
+    [
+     "agent-session.provider-model",
+     null,
+     null
+    ],
+    [
+     "agent-session.task-delivered",
+     null,
+     null
+    ],
+    [
+     "agent-session.dispatched",
+     null,
+     null
+    ],
+    [
+     "agent-session.capability-issued",
+     "accepted",
+     "capability.issued"
+    ]
+   ],
+   "expected": [
+    [
+     "agent-session.capability-issued",
+     null,
+     null
+    ],
+    [
+     "agent-session.dispatched",
+     null,
+     null
+    ],
+    [
+     "agent-session.task-delivered",
+     null,
+     null
+    ],
+    [
+     "agent-session.outcome",
+     "claimed",
+     "outcome.claimed-completed"
+    ],
+    [
+     "agent-session.verified",
+     "verified",
+     null
+    ],
+    [
+     "agent-session.closed",
+     null,
+     null
+    ]
+   ],
+   "missing": [],
+   "activity": {
+    "headline": "已關閉",
+    "lifecycle": "closed",
+    "nextStep": "無需處理",
+    "phase": "closed",
+    "recordState": "closed",
+    "records": [
+     {
+      "actor": "human",
+      "at": "2026-09-15T06:26:47.409Z",
+      "class": "audit",
+      "code": "close.requested",
+      "detail": {
+       "agentSessionId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2",
+       "finalState": "closed",
+       "phase": "closed",
+       "priorState": "ClaimedCompleted",
+       "reason": "phase1 normal done"
+      },
+      "id": 19,
+      "kind": "agent-session.closed",
+      "outcome": "completed",
+      "schema": 1,
+      "sessionId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2",
+      "traceId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2"
+     },
+     {
+      "actor": "human",
+      "at": "2026-09-15T06:26:47.406Z",
+      "causationId": "claim-42894e09-9d13-4ac5-9865-50324a3a4994",
+      "class": "audit",
+      "code": "verify.human-confirmed",
+      "detail": {
+       "agentSessionId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2",
+       "claimId": "claim-42894e09-9d13-4ac5-9865-50324a3a4994",
+       "hasNote": true
+      },
+      "id": 15,
+      "kind": "agent-session.verified",
+      "outcome": "verified",
+      "schema": 1,
+      "sessionId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2",
+      "traceId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:47.148Z",
+      "class": "audit",
+      "code": "outcome.claimed-completed",
+      "detail": {
+       "agentId": "claude-code",
+       "claim": true,
+       "claimId": "claim-42894e09-9d13-4ac5-9865-50324a3a4994",
+       "costUsd": 0.08817375,
+       "durationMs": 7068,
+       "numTurns": 2,
+       "progressEventsAggregated": 4,
+       "reason": null,
+       "tokens": null
+      },
+      "id": 12,
+      "kind": "agent-session.outcome",
+      "outcome": "claimed",
+      "schema": 1,
+      "sessionId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2",
+      "traceId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:40.761Z",
+      "causationId": "84125b2f-f8c4-413b-b9a1-9cfe7d4ba5ad",
+      "class": "trace",
+      "detail": {
+       "actualModel": "claude-fable-5-1"
+      },
+      "id": 7,
+      "kind": "agent-session.provider-model",
+      "schema": 1,
+      "sessionId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2",
+      "traceId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:40.335Z",
+      "causationId": "msg-asession-fc77110b-89e8-4168-950a-c3316c92cbd2-1",
+      "class": "trace",
+      "detail": {
+       "contextBundle": {
+        "bundleId": "bundle-374d0d89-7a53-4ed3-b712-243449e20f6f",
+        "bytes": 651,
+        "contentHash": "4eb6a4246c599255f020cc719eae5bff9e129f901df8e382204209191c2d4eae",
+        "truncated": false
+       },
+       "kind": "task",
+       "messageId": "msg-asession-fc77110b-89e8-4168-950a-c3316c92cbd2-1"
+      },
+      "id": 5,
+      "kind": "agent-session.task-delivered",
+      "schema": 1,
+      "sessionId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2",
+      "traceId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:40.293Z",
+      "class": "trace",
+      "detail": {
+       "actualModel": null,
+       "agentId": "claude-code",
+       "connector": {
+        "binaryVersion": "2.1.272 (Claude Code)"
+       },
+       "consentScope": [],
+       "dataScope": [],
+       "maxCost": 0.0,
+       "maxMessages": 40,
+       "promptTemplate": null,
+       "providerKind": "claude-code",
+       "readOnly": true,
+       "requestedModel": "not-specifiable-via-gateway",
+       "resume": false,
+       "resumeOf": null,
+       "toolScope": [],
+       "toolsDisabled": false,
+       "ttlMinutes": 20,
+       "workdir": {
+        "basename": "work-normal",
+        "digest": "068df730dcbd"
+       },
+       "writeEnabled": false
+      },
+      "id": 4,
+      "kind": "agent-session.dispatched",
+      "schema": 1,
+      "sessionId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2",
+      "traceId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:40.080Z",
+      "class": "audit",
+      "code": "capability.issued",
+      "detail": {
+       "agentSessionId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2",
+       "expiresAt": "2026-09-15T06:46:40.079842Z"
+      },
+      "id": 2,
+      "kind": "agent-session.capability-issued",
+      "outcome": "accepted",
+      "schema": 1,
+      "sessionId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2",
+      "traceId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2"
+     }
+    ],
+    "sessionId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2",
+    "stateLabel": "已由你確認",
+    "timeline": [
+     {
+      "at": "2026-09-15T06:26:47.409Z",
+      "code": "close.requested",
+      "detailAvailable": true,
+      "id": 19,
+      "kind": "agent-session.closed",
+      "label": "已關閉",
+      "outcome": "completed"
+     },
+     {
+      "at": "2026-09-15T06:26:47.406Z",
+      "code": "verify.human-confirmed",
+      "detailAvailable": true,
+      "id": 15,
+      "kind": "agent-session.verified",
+      "label": "已由你確認",
+      "outcome": "verified"
+     },
+     {
+      "at": "2026-09-15T06:26:47.148Z",
+      "code": "outcome.claimed-completed",
+      "detailAvailable": true,
+      "id": 12,
+      "kind": "agent-session.outcome",
+      "label": "對方說已完成（尚未檢查）",
+      "outcome": "claimed"
+     },
+     {
+      "at": "2026-09-15T06:26:40.761Z",
+      "detailAvailable": true,
+      "id": 7,
+      "kind": "agent-session.provider-model",
+      "label": "工作助手回報了它實際使用的模型"
+     },
+     {
+      "at": "2026-09-15T06:26:40.335Z",
+      "detailAvailable": true,
+      "id": 5,
+      "kind": "agent-session.task-delivered",
+      "label": "任務已送達"
+     },
+     {
+      "at": "2026-09-15T06:26:40.293Z",
+      "detailAvailable": true,
+      "id": 4,
+      "kind": "agent-session.dispatched",
+      "label": "已交給 Claude Code"
+     },
+     {
+      "at": "2026-09-15T06:26:40.080Z",
+      "code": "capability.issued",
+      "detailAvailable": true,
+      "id": 2,
+      "kind": "agent-session.capability-issued",
+      "label": "核發了這次工作的通行證",
+      "outcome": "accepted"
+     }
+    ],
+    "truncated": false
+   },
+   "leaks": [],
+   "verdict": "passed",
+   "reason": "",
+   "finalState": "claimed-completed",
+   "actualModel": "claude-fable-5-1",
+   "providerSessionId": "84125b2f-f8c4-413b-b9a1-9cfe7d4ba5ad",
+   "phase": "verified"
+  },
+  "cancel": {
+   "sessionId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f",
+   "traceStatus": 200,
+   "activityStatus": 200,
+   "kinds": [
+    [
+     "agent-session.closed",
+     "completed",
+     "close.requested"
+    ],
+    [
+     "agent-session.outcome",
+     "cancelled",
+     "outcome.cancelled"
+    ],
+    [
+     "agent-session.interrupt-requested",
+     "accepted",
+     "interrupt.sent"
+    ],
+    [
+     "agent-session.provider-model",
+     null,
+     null
+    ],
+    [
+     "agent-session.task-delivered",
+     null,
+     null
+    ],
+    [
+     "agent-session.dispatched",
+     null,
+     null
+    ],
+    [
+     "agent-session.capability-issued",
+     "accepted",
+     "capability.issued"
+    ]
+   ],
+   "expected": [
+    [
+     "agent-session.interrupt-requested",
+     "accepted",
+     "interrupt.sent"
+    ],
+    [
+     "agent-session.outcome",
+     "cancelled",
+     "outcome.cancelled"
+    ]
+   ],
+   "missing": [],
+   "activity": {
+    "headline": "已關閉",
+    "lifecycle": "closed",
+    "nextStep": "無需處理",
+    "phase": "cancelled",
+    "recordState": "cancelled",
+    "records": [
+     {
+      "actor": "human",
+      "at": "2026-09-15T06:26:59.904Z",
+      "class": "audit",
+      "code": "close.requested",
+      "detail": {
+       "agentSessionId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f",
+       "finalState": "cancelled",
+       "phase": "cancelled",
+       "priorState": "Cancelled",
+       "reason": "phase1 cancel done"
+      },
+      "id": 34,
+      "kind": "agent-session.closed",
+      "outcome": "completed",
+      "schema": 1,
+      "sessionId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f",
+      "traceId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:57.978Z",
+      "class": "audit",
+      "code": "outcome.cancelled",
+      "detail": {
+       "agentId": "claude-code",
+       "claim": false,
+       "claimId": null,
+       "costUsd": null,
+       "durationMs": 10563,
+       "numTurns": null,
+       "progressEventsAggregated": 2,
+       "reason": null,
+       "tokens": null
+      },
+      "id": 31,
+      "kind": "agent-session.outcome",
+      "outcome": "cancelled",
+      "schema": 1,
+      "sessionId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f",
+      "traceId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f"
+     },
+     {
+      "actor": "human",
+      "at": "2026-09-15T06:26:57.888Z",
+      "class": "audit",
+      "code": "interrupt.sent",
+      "detail": {
+       "agentSessionId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f",
+       "deliveredToAgent": true,
+       "error": null,
+       "note": "requested ≠ confirmed：真的停了要由之後的 cancelled 結局來說"
+      },
+      "id": 29,
+      "kind": "agent-session.interrupt-requested",
+      "outcome": "accepted",
+      "schema": 1,
+      "sessionId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f",
+      "traceId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:48.349Z",
+      "causationId": "3207bb0f-25e5-4ae3-804b-db2e5f6b1f59",
+      "class": "trace",
+      "detail": {
+       "actualModel": "claude-fable-5-1"
+      },
+      "id": 27,
+      "kind": "agent-session.provider-model",
+      "schema": 1,
+      "sessionId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f",
+      "traceId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:47.753Z",
+      "causationId": "msg-asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f-1",
+      "class": "trace",
+      "detail": {
+       "contextBundle": {
+        "bundleId": "bundle-8af76621-c5fa-446c-8b97-f793b5c251c6",
+        "bytes": 1079,
+        "contentHash": "39e2a77c7a9c98f32fbc97e14f015d37ef17af7921d84b5523b66909729e4693",
+        "truncated": false
+       },
+       "kind": "task",
+       "messageId": "msg-asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f-1"
+      },
+      "id": 25,
+      "kind": "agent-session.task-delivered",
+      "schema": 1,
+      "sessionId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f",
+      "traceId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:47.670Z",
+      "class": "trace",
+      "detail": {
+       "actualModel": null,
+       "agentId": "claude-code",
+       "connector": {
+        "binaryVersion": "2.1.272 (Claude Code)"
+       },
+       "consentScope": [],
+       "dataScope": [],
+       "maxCost": 0.0,
+       "maxMessages": 40,
+       "promptTemplate": null,
+       "providerKind": "claude-code",
+       "readOnly": true,
+       "requestedModel": "not-specifiable-via-gateway",
+       "resume": false,
+       "resumeOf": null,
+       "toolScope": [],
+       "toolsDisabled": false,
+       "ttlMinutes": 20,
+       "workdir": {
+        "basename": "work-cancel",
+        "digest": "e3a6227495b9"
+       },
+       "writeEnabled": false
+      },
+      "id": 24,
+      "kind": "agent-session.dispatched",
+      "schema": 1,
+      "sessionId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f",
+      "traceId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:47.415Z",
+      "class": "audit",
+      "code": "capability.issued",
+      "detail": {
+       "agentSessionId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f",
+       "expiresAt": "2026-09-15T06:46:47.414861Z"
+      },
+      "id": 22,
+      "kind": "agent-session.capability-issued",
+      "outcome": "accepted",
+      "schema": 1,
+      "sessionId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f",
+      "traceId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f"
+     }
+    ],
+    "sessionId": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f",
+    "stateLabel": "已取消",
+    "timeline": [
+     {
+      "at": "2026-09-15T06:26:59.904Z",
+      "code": "close.requested",
+      "detailAvailable": true,
+      "id": 34,
+      "kind": "agent-session.closed",
+      "label": "已關閉",
+      "outcome": "completed"
+     },
+     {
+      "at": "2026-09-15T06:26:57.978Z",
+      "code": "outcome.cancelled",
+      "detailAvailable": true,
+      "id": 31,
+      "kind": "agent-session.outcome",
+      "label": "已取消",
+      "outcome": "cancelled"
+     },
+     {
+      "at": "2026-09-15T06:26:57.888Z",
+      "code": "interrupt.sent",
+      "detailAvailable": true,
+      "id": 29,
+      "kind": "agent-session.interrupt-requested",
+      "label": "你要求中斷（等待確認）",
+      "outcome": "accepted"
+     },
+     {
+      "at": "2026-09-15T06:26:48.349Z",
+      "detailAvailable": true,
+      "id": 27,
+      "kind": "agent-session.provider-model",
+      "label": "工作助手回報了它實際使用的模型"
+     },
+     {
+      "at": "2026-09-15T06:26:47.753Z",
+      "detailAvailable": true,
+      "id": 25,
+      "kind": "agent-session.task-delivered",
+      "label": "任務已送達"
+     },
+     {
+      "at": "2026-09-15T06:26:47.670Z",
+      "detailAvailable": true,
+      "id": 24,
+      "kind": "agent-session.dispatched",
+      "label": "已交給 Claude Code"
+     },
+     {
+      "at": "2026-09-15T06:26:47.415Z",
+      "code": "capability.issued",
+      "detailAvailable": true,
+      "id": 22,
+      "kind": "agent-session.capability-issued",
+      "label": "核發了這次工作的通行證",
+      "outcome": "accepted"
+     }
+    ],
+    "truncated": false
+   },
+   "leaks": [],
+   "verdict": "passed",
+   "reason": "",
+   "finalState": "cancelled",
+   "detail": "phase1 cancel done (was Cancelled)"
+  },
+  "resume-reject": {
+   "createStatus": 403,
+   "createError": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: 接續上次的工作不得放寬時間上限（上次 20 分鐘，這次要求 60 分鐘）"
+    }
+   },
+   "rejectedRows": [
+    [
+     "resume.ttl-widened",
+     "asession-fc77110b-89e8-4168-950a-c3316c92cbd2",
+     "asession-383f2993-0d7d-455c-84a8-6727de8da9aa"
+    ]
+   ],
+   "sessionCreated": false,
+   "traceStatus": 200,
+   "leaks": [],
+   "verdict": "passed",
+   "reason": ""
+  },
+  "resume-accept": {
+   "sessionId": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3",
+   "traceStatus": 200,
+   "activityStatus": 200,
+   "kinds": [
+    [
+     "agent-session.closed",
+     "completed",
+     "close.requested"
+    ],
+    [
+     "agent-session.outcome",
+     "claimed",
+     "outcome.claimed-completed"
+    ],
+    [
+     "agent-session.provider-model",
+     null,
+     null
+    ],
+    [
+     "agent-session.task-delivered",
+     null,
+     null
+    ],
+    [
+     "agent-session.dispatched",
+     null,
+     null
+    ],
+    [
+     "agent-session.capability-issued",
+     "accepted",
+     "capability.issued"
+    ],
+    [
+     "agent-session.resume-checked",
+     "accepted",
+     "resume.ok"
+    ]
+   ],
+   "expected": [
+    [
+     "agent-session.resume-checked",
+     "accepted",
+     "resume.ok"
+    ],
+    [
+     "agent-session.dispatched",
+     null,
+     null
+    ]
+   ],
+   "missing": [],
+   "activity": {
+    "headline": "已關閉",
+    "lifecycle": "closed",
+    "nextStep": "無需處理",
+    "phase": "closed",
+    "recordState": "closed",
+    "records": [
+     {
+      "actor": "human",
+      "at": "2026-09-15T06:27:05.764Z",
+      "class": "audit",
+      "code": "close.requested",
+      "detail": {
+       "agentSessionId": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3",
+       "finalState": "closed",
+       "phase": "closed",
+       "priorState": "ClaimedCompleted",
+       "reason": "phase1 resume done"
+      },
+      "id": 53,
+      "kind": "agent-session.closed",
+      "outcome": "completed",
+      "schema": 1,
+      "sessionId": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3",
+      "traceId": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:05.609Z",
+      "class": "audit",
+      "code": "outcome.claimed-completed",
+      "detail": {
+       "agentId": "claude-code",
+       "claim": true,
+       "claimId": "claim-2596653f-7a6b-487e-9640-b5c152fa43e2",
+       "costUsd": 0.04356825,
+       "durationMs": 5693,
+       "numTurns": 2,
+       "progressEventsAggregated": 4,
+       "reason": null,
+       "tokens": null
+      },
+      "id": 50,
+      "kind": "agent-session.outcome",
+      "outcome": "claimed",
+      "schema": 1,
+      "sessionId": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3",
+      "traceId": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:00.541Z",
+      "causationId": "84125b2f-f8c4-413b-b9a1-9cfe7d4ba5ad",
+      "class": "trace",
+      "detail": {
+       "actualModel": "claude-fable-5-1"
+      },
+      "id": 45,
+      "kind": "agent-session.provider-model",
+      "schema": 1,
+      "sessionId": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3",
+      "traceId": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:00.189Z",
+      "causationId": "msg-asession-b22310e6-3aae-4b39-9c37-356760aa75e3-1",
+      "class": "trace",
+      "detail": {
+       "contextBundle": {
+        "bundleId": "bundle-b068595a-76c3-4dfb-a525-29d07565f7ec",
+        "bytes": 1416,
+        "contentHash": "c4f1cdfbdfadd046a6f7e861a62ab3184883aa540118bc3c7703c0eaf7443740",
+        "truncated": false
+       },
+       "kind": "task",
+       "messageId": "msg-asession-b22310e6-3aae-4b39-9c37-356760aa75e3-1"
+      },
+      "id": 43,
+      "kind": "agent-session.task-delivered",
+      "schema": 1,
+      "sessionId": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3",
+      "traceId": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:00.134Z",
+      "class": "trace",
+      "detail": {
+       "actualModel": null,
+       "agentId": "claude-code",
+       "connector": {
+        "binaryVersion": "2.1.272 (Claude Code)"
+       },
+       "consentScope": [],
+       "dataScope": [],
+       "maxCost": 0.0,
+       "maxMessages": 40,
+       "promptTemplate": null,
+       "providerKind": "claude-code",
+       "readOnly": true,
+       "requestedModel": "not-specifiable-via-gateway",
+       "resume": true,
+       "resumeOf": "84125b2f-f8c4-413b-b9a1-9cfe7d4ba5ad",
+       "toolScope": [],
+       "toolsDisabled": false,
+       "ttlMinutes": 20,
+       "workdir": {
+        "basename": "work-normal",
+        "digest": "068df730dcbd"
+       },
+       "writeEnabled": false
+      },
+      "id": 42,
+      "kind": "agent-session.dispatched",
+      "schema": 1,
+      "sessionId": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3",
+      "traceId": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:26:59.916Z",
+      "class": "audit",
+      "code": "capability.issued",
+      "detail": {
+       "agentSessionId": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3",
+       "expiresAt": "2026-09-15T06:46:59.915815Z"
+      },
+      "id": 40,
+      "kind": "agent-session.capability-issued",
+      "outcome": "accepted",
+      "schema": 1,
+      "sessionId": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3",
+      "traceId": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3"
+     },
+     {
+      "actor": "human",
+      "at": "2026-09-15T06:26:59.915Z",
+      "causationId": "84125b2f-f8c4-413b-b9a1-9cfe7d4ba5ad",
+      "class": "audit",
+      "code": "resume.ok",
+      "detail": {
+       "agentId": "claude-code",
+       "comparison": {
+        "consentScopeAdded": [],
+        "costWidened": false,
+        "dataScopeAdded": [],
+        "messagesWidened": false,
+        "toolScopeAdded": [],
+        "toolsReEnabled": false,
+        "ttlWidened": false,
+        "writeEscalation": false
+       },
+       "originalSessionId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2",
+       "reason": "與上一次的授權逐項比對後沒有任何放寬",
+       "requested": {
+        "allowWrite": false,
+        "consentScope": [],
+        "dataScope": [],
+        "maxCost": null,
+        "maxMessages": 40,
+        "toolScope": [],
+        "ttlMinutes": 20,
+        "workdir": {
+         "basename": "work-normal",
+         "digest": "068df730dcbd"
+        }
+       },
+       "workdirCheck": "same"
+      },
+      "id": 38,
+      "kind": "agent-session.resume-checked",
+      "outcome": "accepted",
+      "schema": 1,
+      "sessionId": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3",
+      "traceId": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2"
+     }
+    ],
+    "sessionId": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3",
+    "stateLabel": "已取消",
+    "timeline": [
+     {
+      "at": "2026-09-15T06:27:05.764Z",
+      "code": "close.requested",
+      "detailAvailable": true,
+      "id": 53,
+      "kind": "agent-session.closed",
+      "label": "已關閉",
+      "outcome": "completed"
+     },
+     {
+      "at": "2026-09-15T06:27:05.609Z",
+      "code": "outcome.claimed-completed",
+      "detailAvailable": true,
+      "id": 50,
+      "kind": "agent-session.outcome",
+      "label": "對方說已完成（尚未檢查）",
+      "outcome": "claimed"
+     },
+     {
+      "at": "2026-09-15T06:27:00.541Z",
+      "detailAvailable": true,
+      "id": 45,
+      "kind": "agent-session.provider-model",
+      "label": "工作助手回報了它實際使用的模型"
+     },
+     {
+      "at": "2026-09-15T06:27:00.189Z",
+      "detailAvailable": true,
+      "id": 43,
+      "kind": "agent-session.task-delivered",
+      "label": "任務已送達"
+     },
+     {
+      "at": "2026-09-15T06:27:00.134Z",
+      "detailAvailable": true,
+      "id": 42,
+      "kind": "agent-session.dispatched",
+      "label": "已交給 Claude Code"
+     },
+     {
+      "at": "2026-09-15T06:26:59.916Z",
+      "code": "capability.issued",
+      "detailAvailable": true,
+      "id": 40,
+      "kind": "agent-session.capability-issued",
+      "label": "核發了這次工作的通行證",
+      "outcome": "accepted"
+     },
+     {
+      "at": "2026-09-15T06:26:59.915Z",
+      "code": "resume.ok",
+      "detailAvailable": true,
+      "id": 38,
+      "kind": "agent-session.resume-checked",
+      "label": "接續上次的工作：已接受",
+      "outcome": "accepted"
+     }
+    ],
+    "truncated": false
+   },
+   "leaks": [],
+   "verdict": "passed",
+   "reason": "",
+   "finalState": "claimed-completed",
+   "createStatus": 200
+  },
+  "failure": {
+   "sessionId": "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35",
+   "traceStatus": 200,
+   "activityStatus": 200,
+   "kinds": [
+    [
+     "agent-session.closed",
+     "completed",
+     "close.requested"
+    ],
+    [
+     "agent-session.outcome",
+     "failed",
+     "outcome.connector-error"
+    ],
+    [
+     "agent-session.provider-model",
+     null,
+     null
+    ],
+    [
+     "agent-session.task-delivered",
+     null,
+     null
+    ],
+    [
+     "agent-session.dispatched",
+     null,
+     null
+    ],
+    [
+     "agent-session.capability-issued",
+     "accepted",
+     "capability.issued"
+    ]
+   ],
+   "expected": [
+    [
+     "agent-session.outcome",
+     "failed",
+     "outcome.connector-error"
+    ]
+   ],
+   "missing": [],
+   "activity": {
+    "failureReason": "error_max_budget_usd",
+    "headline": "已關閉",
+    "lifecycle": "closed",
+    "nextStep": "可重新交代一件工作",
+    "phase": "failed",
+    "recordState": "failed",
+    "records": [
+     {
+      "actor": "human",
+      "at": "2026-09-15T06:27:08.645Z",
+      "class": "audit",
+      "code": "close.requested",
+      "detail": {
+       "agentSessionId": "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35",
+       "finalState": "failed",
+       "phase": "failed",
+       "priorState": "Failed",
+       "reason": "phase1 failure done"
+      },
+      "id": 65,
+      "kind": "agent-session.closed",
+      "outcome": "completed",
+      "schema": 1,
+      "sessionId": "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35",
+      "traceId": "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:08.238Z",
+      "class": "audit",
+      "code": "outcome.connector-error",
+      "detail": {
+       "agentId": "claude-code",
+       "claim": false,
+       "claimId": null,
+       "costUsd": null,
+       "durationMs": 2398,
+       "numTurns": null,
+       "progressEventsAggregated": 0,
+       "reason": "error_max_budget_usd",
+       "tokens": null
+      },
+      "id": 62,
+      "kind": "agent-session.outcome",
+      "outcome": "failed",
+      "schema": 1,
+      "sessionId": "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35",
+      "traceId": "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:06.443Z",
+      "causationId": "572208bb-eb44-4790-b20c-30e1f1f8a793",
+      "class": "trace",
+      "detail": {
+       "actualModel": "claude-fable-5-1"
+      },
+      "id": 61,
+      "kind": "agent-session.provider-model",
+      "schema": 1,
+      "sessionId": "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35",
+      "traceId": "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:06.111Z",
+      "causationId": "msg-asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35-1",
+      "class": "trace",
+      "detail": {
+       "contextBundle": {
+        "bundleId": "bundle-495b13b2-4c8e-4bd7-82b1-cfc6f1a14d40",
+        "bytes": 1859,
+        "contentHash": "eda32b2695cb6a87ca2dd3107f2d5b50908cb27b789dd0095f8367d03ca3a244",
+        "truncated": false
+       },
+       "kind": "task",
+       "messageId": "msg-asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35-1"
+      },
+      "id": 59,
+      "kind": "agent-session.task-delivered",
+      "schema": 1,
+      "sessionId": "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35",
+      "traceId": "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:06.065Z",
+      "class": "trace",
+      "detail": {
+       "actualModel": null,
+       "agentId": "claude-code",
+       "connector": {
+        "binaryVersion": "2.1.272 (Claude Code)"
+       },
+       "consentScope": [],
+       "dataScope": [],
+       "maxCost": 0.0001,
+       "maxMessages": 40,
+       "promptTemplate": null,
+       "providerKind": "claude-code",
+       "readOnly": true,
+       "requestedModel": "not-specifiable-via-gateway",
+       "resume": false,
+       "resumeOf": null,
+       "toolScope": [],
+       "toolsDisabled": false,
+       "ttlMinutes": 20,
+       "workdir": {
+        "basename": "work-failure",
+        "digest": "f0808f609b64"
+       },
+       "writeEnabled": false
+      },
+      "id": 58,
+      "kind": "agent-session.dispatched",
+      "schema": 1,
+      "sessionId": "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35",
+      "traceId": "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:05.840Z",
+      "class": "audit",
+      "code": "capability.issued",
+      "detail": {
+       "agentSessionId": "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35",
+       "expiresAt": "2026-09-15T06:47:05.839533Z"
+      },
+      "id": 56,
+      "kind": "agent-session.capability-issued",
+      "outcome": "accepted",
+      "schema": 1,
+      "sessionId": "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35",
+      "traceId": "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35"
+     }
+    ],
+    "sessionId": "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35",
+    "stateLabel": "失敗",
+    "timeline": [
+     {
+      "at": "2026-09-15T06:27:08.645Z",
+      "code": "close.requested",
+      "detailAvailable": true,
+      "id": 65,
+      "kind": "agent-session.closed",
+      "label": "已關閉",
+      "outcome": "completed"
+     },
+     {
+      "at": "2026-09-15T06:27:08.238Z",
+      "code": "outcome.connector-error",
+      "detailAvailable": true,
+      "id": 62,
+      "kind": "agent-session.outcome",
+      "label": "失敗：error_max_budget_usd",
+      "outcome": "failed"
+     },
+     {
+      "at": "2026-09-15T06:27:06.443Z",
+      "detailAvailable": true,
+      "id": 61,
+      "kind": "agent-session.provider-model",
+      "label": "工作助手回報了它實際使用的模型"
+     },
+     {
+      "at": "2026-09-15T06:27:06.111Z",
+      "detailAvailable": true,
+      "id": 59,
+      "kind": "agent-session.task-delivered",
+      "label": "任務已送達"
+     },
+     {
+      "at": "2026-09-15T06:27:06.065Z",
+      "detailAvailable": true,
+      "id": 58,
+      "kind": "agent-session.dispatched",
+      "label": "已交給 Claude Code"
+     },
+     {
+      "at": "2026-09-15T06:27:05.840Z",
+      "code": "capability.issued",
+      "detailAvailable": true,
+      "id": 56,
+      "kind": "agent-session.capability-issued",
+      "label": "核發了這次工作的通行證",
+      "outcome": "accepted"
+     }
+    ],
+    "truncated": false
+   },
+   "leaks": [],
+   "verdict": "passed",
+   "reason": "",
+   "finalState": "failed",
+   "detail": "error_max_budget_usd",
+   "failureReason": "error_max_budget_usd"
+  },
+  "restart": {
+   "sessionId": "asession-cfd527c9-5ada-432e-ac07-95703a2a52a4",
+   "traceStatus": 200,
+   "activityStatus": 200,
+   "kinds": [
+    [
+     "agent-session.outcome",
+     "unknown",
+     "runtime.restarted"
+    ],
+    [
+     "agent-session.provider-model",
+     null,
+     null
+    ],
+    [
+     "agent-session.task-delivered",
+     null,
+     null
+    ],
+    [
+     "agent-session.dispatched",
+     null,
+     null
+    ],
+    [
+     "agent-session.capability-issued",
+     "accepted",
+     "capability.issued"
+    ]
+   ],
+   "expected": [
+    [
+     "agent-session.outcome",
+     "unknown",
+     "runtime.restarted"
+    ]
+   ],
+   "missing": [],
+   "activity": {
+    "failureReason": "runtime 重新啟動；上一輪的工作結果未知",
+    "headline": "程式重新啟動過，這一輪的結果不確定",
+    "lifecycle": "closed",
+    "nextStep": "無需處理",
+    "phase": "unknown",
+    "recordState": "expired",
+    "records": [
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:17.151Z",
+      "class": "audit",
+      "code": "runtime.restarted",
+      "detail": {
+       "agentId": "claude-code",
+       "reapedPgid": null,
+       "reason": "runtime 重新啟動；上一輪的工作結果未知"
+      },
+      "id": 78,
+      "kind": "agent-session.outcome",
+      "outcome": "unknown",
+      "schema": 1,
+      "sessionId": "asession-cfd527c9-5ada-432e-ac07-95703a2a52a4",
+      "traceId": "asession-cfd527c9-5ada-432e-ac07-95703a2a52a4"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:09.265Z",
+      "causationId": "b86a75bc-fc21-4f42-9146-74cf0b3c8f08",
+      "class": "trace",
+      "detail": {
+       "actualModel": "claude-fable-5-1"
+      },
+      "id": 74,
+      "kind": "agent-session.provider-model",
+      "schema": 1,
+      "sessionId": "asession-cfd527c9-5ada-432e-ac07-95703a2a52a4",
+      "traceId": "asession-cfd527c9-5ada-432e-ac07-95703a2a52a4"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:08.933Z",
+      "causationId": "msg-asession-cfd527c9-5ada-432e-ac07-95703a2a52a4-1",
+      "class": "trace",
+      "detail": {
+       "contextBundle": {
+        "bundleId": "bundle-cc34b763-d79b-4dac-82bf-be02acc7e1d9",
+        "bytes": 2234,
+        "contentHash": "b67e3f6eab87261d023c15801fd8f83221f285047b90ee801257f076e30d6bdc",
+        "truncated": false
+       },
+       "kind": "task",
+       "messageId": "msg-asession-cfd527c9-5ada-432e-ac07-95703a2a52a4-1"
+      },
+      "id": 72,
+      "kind": "agent-session.task-delivered",
+      "schema": 1,
+      "sessionId": "asession-cfd527c9-5ada-432e-ac07-95703a2a52a4",
+      "traceId": "asession-cfd527c9-5ada-432e-ac07-95703a2a52a4"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:08.879Z",
+      "class": "trace",
+      "detail": {
+       "actualModel": null,
+       "agentId": "claude-code",
+       "connector": {
+        "binaryVersion": "2.1.272 (Claude Code)"
+       },
+       "consentScope": [],
+       "dataScope": [],
+       "maxCost": 0.0,
+       "maxMessages": 40,
+       "promptTemplate": null,
+       "providerKind": "claude-code",
+       "readOnly": true,
+       "requestedModel": "not-specifiable-via-gateway",
+       "resume": false,
+       "resumeOf": null,
+       "toolScope": [],
+       "toolsDisabled": false,
+       "ttlMinutes": 20,
+       "workdir": {
+        "basename": "work-restart",
+        "digest": "8427e5749ee9"
+       },
+       "writeEnabled": false
+      },
+      "id": 71,
+      "kind": "agent-session.dispatched",
+      "schema": 1,
+      "sessionId": "asession-cfd527c9-5ada-432e-ac07-95703a2a52a4",
+      "traceId": "asession-cfd527c9-5ada-432e-ac07-95703a2a52a4"
+     },
+     {
+      "actor": "runtime",
+      "at": "2026-09-15T06:27:08.669Z",
+      "class": "audit",
+      "code": "capability.issued",
+      "detail": {
+       "agentSessionId": "asession-cfd527c9-5ada-432e-ac07-95703a2a52a4",
+       "expiresAt": "2026-09-15T06:47:08.669132Z"
+      },
+      "id": 69,
+      "kind": "agent-session.capability-issued",
+      "outcome": "accepted",
+      "schema": 1,
+      "sessionId": "asession-cfd527c9-5ada-432e-ac07-95703a2a52a4",
+      "traceId": "asession-cfd527c9-5ada-432e-ac07-95703a2a52a4"
+     }
+    ],
+    "sessionId": "asession-cfd527c9-5ada-432e-ac07-95703a2a52a4",
+    "stateLabel": "結果不確定",
+    "timeline": [
+     {
+      "at": "2026-09-15T06:27:17.151Z",
+      "code": "runtime.restarted",
+      "detailAvailable": true,
+      "id": 78,
+      "kind": "agent-session.outcome",
+      "label": "程式重新啟動過，這一輪的結果不確定",
+      "outcome": "unknown"
+     },
+     {
+      "at": "2026-09-15T06:27:09.265Z",
+      "detailAvailable": true,
+      "id": 74,
+      "kind": "agent-session.provider-model",
+      "label": "工作助手回報了它實際使用的模型"
+     },
+     {
+      "at": "2026-09-15T06:27:08.933Z",
+      "detailAvailable": true,
+      "id": 72,
+      "kind": "agent-session.task-delivered",
+      "label": "任務已送達"
+     },
+     {
+      "at": "2026-09-15T06:27:08.879Z",
+      "detailAvailable": true,
+      "id": 71,
+      "kind": "agent-session.dispatched",
+      "label": "已交給 Claude Code"
+     },
+     {
+      "at": "2026-09-15T06:27:08.669Z",
+      "code": "capability.issued",
+      "detailAvailable": true,
+      "id": 69,
+      "kind": "agent-session.capability-issued",
+      "label": "核發了這次工作的通行證",
+      "outcome": "accepted"
+     }
+    ],
+    "truncated": false
+   },
+   "leaks": [],
+   "verdict": "passed",
+   "reason": "",
+   "stateAfterRestart": "expired",
+   "phaseAfterRestart": "unknown"
+  },
+  "isolation": {
+   "verdict": "passed",
+   "sessions": [
+    "asession-fc77110b-89e8-4168-950a-c3316c92cbd2",
+    "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f",
+    "asession-b22310e6-3aae-4b39-9c37-356760aa75e3",
+    "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35",
+    "asession-cfd527c9-5ada-432e-ac07-95703a2a52a4"
+   ],
+   "crossRows": []
+  },
+  "agent-token-forbidden": {
+   "status": 403,
+   "verdict": "passed"
+  }
+ },
+ "events": [
+  {
+   "t": "2026-09-15T06:26:39.816Z",
+   "mono": 0.202,
+   "k": "daemon-spawned",
+   "pid": 89844
+  },
+  {
+   "t": "2026-09-15T06:26:40.078Z",
+   "mono": 0.464,
+   "k": "daemon-ready"
+  },
+  {
+   "t": "2026-09-15T06:26:40.333Z",
+   "mono": 0.719,
+   "k": "create",
+   "scenario": "normal",
+   "status": 200,
+   "id": "asession-fc77110b-89e8-4168-950a-c3316c92cbd2",
+   "error": null
+  },
+  {
+   "t": "2026-09-15T06:26:40.336Z",
+   "mono": 0.722,
+   "k": "task-sent",
+   "scenario": "normal",
+   "status": 200,
+   "messageId": "msg-asession-fc77110b-89e8-4168-950a-c3316c92cbd2-1"
+  },
+  {
+   "t": "2026-09-15T06:26:40.337Z",
+   "mono": 0.723,
+   "k": "state",
+   "scenario": "normal",
+   "state": "created",
+   "phase": "fetched"
+  },
+  {
+   "t": "2026-09-15T06:26:44.371Z",
+   "mono": 4.758,
+   "k": "state",
+   "scenario": "normal",
+   "state": "active",
+   "phase": "working"
+  },
+  {
+   "t": "2026-09-15T06:26:47.405Z",
+   "mono": 7.791,
+   "k": "state",
+   "scenario": "normal",
+   "state": "claimed-completed",
+   "phase": "claimed-completed"
+  },
+  {
+   "t": "2026-09-15T06:26:47.407Z",
+   "mono": 7.793,
+   "k": "verify",
+   "status": 200,
+   "humanVerified": true
+  },
+  {
+   "t": "2026-09-15T06:26:47.410Z",
+   "mono": 7.796,
+   "k": "close",
+   "status": 200,
+   "state": "closed"
+  },
+  {
+   "t": "2026-09-15T06:26:47.413Z",
+   "mono": 7.799,
+   "k": "verdict",
+   "scenario": "normal",
+   "verdict": "passed",
+   "reason": ""
+  },
+  {
+   "t": "2026-09-15T06:26:47.749Z",
+   "mono": 8.136,
+   "k": "create",
+   "scenario": "cancel",
+   "status": 200,
+   "id": "asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f",
+   "error": null
+  },
+  {
+   "t": "2026-09-15T06:26:47.754Z",
+   "mono": 8.14,
+   "k": "task-sent",
+   "scenario": "cancel",
+   "status": 200,
+   "messageId": "msg-asession-0e8de516-bfb9-4c9d-9582-7aa4e61a484f-1"
+  },
+  {
+   "t": "2026-09-15T06:26:47.756Z",
+   "mono": 8.142,
+   "k": "state",
+   "scenario": "cancel",
+   "state": "created",
+   "phase": "fetched"
+  },
+  {
+   "t": "2026-09-15T06:26:54.839Z",
+   "mono": 15.225,
+   "k": "state",
+   "scenario": "cancel",
+   "state": "active",
+   "phase": "working"
+  },
+  {
+   "t": "2026-09-15T06:26:57.891Z",
+   "mono": 18.277,
+   "k": "interrupt",
+   "status": 200,
+   "resp": {
+    "interrupted": true
+   }
+  },
+  {
+   "t": "2026-09-15T06:26:57.894Z",
+   "mono": 18.28,
+   "k": "state",
+   "scenario": "cancel",
+   "state": "active",
+   "phase": "working"
+  },
+  {
+   "t": "2026-09-15T06:26:58.400Z",
+   "mono": 18.786,
+   "k": "state",
+   "scenario": "cancel",
+   "state": "cancelled",
+   "phase": "cancelled"
+  },
+  {
+   "t": "2026-09-15T06:26:59.906Z",
+   "mono": 20.292,
+   "k": "close",
+   "status": 200,
+   "state": "cancelled"
+  },
+  {
+   "t": "2026-09-15T06:26:59.910Z",
+   "mono": 20.296,
+   "k": "verdict",
+   "scenario": "cancel",
+   "verdict": "passed",
+   "reason": ""
+  },
+  {
+   "t": "2026-09-15T06:26:59.912Z",
+   "mono": 20.298,
+   "k": "create",
+   "scenario": "resume-reject",
+   "status": 403,
+   "id": null,
+   "error": {
+    "error": {
+     "code": "policy_blocked",
+     "message": "policy blocked: 接續上次的工作不得放寬時間上限（上次 20 分鐘，這次要求 60 分鐘）"
+    }
+   }
+  },
+  {
+   "t": "2026-09-15T06:26:59.914Z",
+   "mono": 20.3,
+   "k": "verdict",
+   "scenario": "resume-reject",
+   "verdict": "passed",
+   "reason": ""
+  },
+  {
+   "t": "2026-09-15T06:27:00.178Z",
+   "mono": 20.564,
+   "k": "create",
+   "scenario": "resume-accept",
+   "status": 200,
+   "id": "asession-b22310e6-3aae-4b39-9c37-356760aa75e3",
+   "error": null
+  },
+  {
+   "t": "2026-09-15T06:27:00.196Z",
+   "mono": 20.582,
+   "k": "task-sent",
+   "scenario": "resume-accept",
+   "status": 200,
+   "messageId": "msg-asession-b22310e6-3aae-4b39-9c37-356760aa75e3-1"
+  },
+  {
+   "t": "2026-09-15T06:27:00.198Z",
+   "mono": 20.584,
+   "k": "state",
+   "scenario": "resume-accept",
+   "state": "created",
+   "phase": "fetched"
+  },
+  {
+   "t": "2026-09-15T06:27:03.235Z",
+   "mono": 23.621,
+   "k": "state",
+   "scenario": "resume-accept",
+   "state": "active",
+   "phase": "working"
+  },
+  {
+   "t": "2026-09-15T06:27:05.763Z",
+   "mono": 26.148,
+   "k": "state",
+   "scenario": "resume-accept",
+   "state": "claimed-completed",
+   "phase": "claimed-completed"
+  },
+  {
+   "t": "2026-09-15T06:27:05.766Z",
+   "mono": 26.152,
+   "k": "close",
+   "status": 200,
+   "state": "closed"
+  },
+  {
+   "t": "2026-09-15T06:27:05.776Z",
+   "mono": 26.162,
+   "k": "verdict",
+   "scenario": "resume-accept",
+   "verdict": "passed",
+   "reason": ""
+  },
+  {
+   "t": "2026-09-15T06:27:06.109Z",
+   "mono": 26.494,
+   "k": "create",
+   "scenario": "failure",
+   "status": 200,
+   "id": "asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35",
+   "error": null
+  },
+  {
+   "t": "2026-09-15T06:27:06.112Z",
+   "mono": 26.498,
+   "k": "task-sent",
+   "scenario": "failure",
+   "status": 200,
+   "messageId": "msg-asession-b456c20d-0d7f-4811-8f4d-f22d566a5c35-1"
+  },
+  {
+   "t": "2026-09-15T06:27:06.113Z",
+   "mono": 26.499,
+   "k": "state",
+   "scenario": "failure",
+   "state": "created",
+   "phase": "fetched"
+  },
+  {
+   "t": "2026-09-15T06:27:08.640Z",
+   "mono": 29.026,
+   "k": "state",
+   "scenario": "failure",
+   "state": "failed",
+   "phase": "failed"
+  },
+  {
+   "t": "2026-09-15T06:27:08.653Z",
+   "mono": 29.038,
+   "k": "close",
+   "status": 200,
+   "state": "failed"
+  },
+  {
+   "t": "2026-09-15T06:27:08.667Z",
+   "mono": 29.053,
+   "k": "verdict",
+   "scenario": "failure",
+   "verdict": "passed",
+   "reason": ""
+  },
+  {
+   "t": "2026-09-15T06:27:08.930Z",
+   "mono": 29.316,
+   "k": "create",
+   "scenario": "restart",
+   "status": 200,
+   "id": "asession-cfd527c9-5ada-432e-ac07-95703a2a52a4",
+   "error": null
+  },
+  {
+   "t": "2026-09-15T06:27:08.934Z",
+   "mono": 29.32,
+   "k": "task-sent",
+   "scenario": "restart",
+   "status": 200,
+   "messageId": "msg-asession-cfd527c9-5ada-432e-ac07-95703a2a52a4-1"
+  },
+  {
+   "t": "2026-09-15T06:27:08.936Z",
+   "mono": 29.322,
+   "k": "state",
+   "scenario": "restart",
+   "state": "created",
+   "phase": "fetched"
+  },
+  {
+   "t": "2026-09-15T06:27:13.994Z",
+   "mono": 34.38,
+   "k": "state",
+   "scenario": "restart",
+   "state": "active",
+   "phase": "working"
+  },
+  {
+   "t": "2026-09-15T06:27:16.001Z",
+   "mono": 36.387,
+   "k": "daemon-stopped",
+   "signal": 9
+  },
+  {
+   "t": "2026-09-15T06:27:17.014Z",
+   "mono": 37.4,
+   "k": "daemon-spawned",
+   "pid": 97687
+  },
+  {
+   "t": "2026-09-15T06:27:17.271Z",
+   "mono": 37.657,
+   "k": "daemon-ready"
+  },
+  {
+   "t": "2026-09-15T06:27:17.272Z",
+   "mono": 37.658,
+   "k": "after-restart",
+   "state": "expired",
+   "phase": "unknown",
+   "detail": "runtime restarted"
+  },
+  {
+   "t": "2026-09-15T06:27:17.275Z",
+   "mono": 37.661,
+   "k": "verdict",
+   "scenario": "restart",
+   "verdict": "passed",
+   "reason": ""
+  },
+  {
+   "t": "2026-09-15T06:27:17.288Z",
+   "mono": 37.674,
+   "k": "verdict",
+   "scenario": "isolation",
+   "verdict": "passed"
+  },
+  {
+   "t": "2026-09-15T06:27:17.290Z",
+   "mono": 37.675,
+   "k": "verdict",
+   "scenario": "agent-token-forbidden",
+   "status": 403
+  },
+  {
+   "t": "2026-09-15T06:27:17.295Z",
+   "mono": 37.681,
+   "k": "daemon-stopped",
+   "signal": 15
+  }
+ ],
+ "worktreeDirty": false,
+ "versions": {
+  "interact-ai": "interact-ai 0.8.0",
+  "claude": "2.1.272 (Claude Code)",
+  "codex": "codex-cli 0.154.0",
+  "os": "26.2\narm64"
+ },
+ "statusAfter": {
+  "traceWriteFailures": 0,
+  "traceCounts": {
+   "audit": 63,
+   "diagnostic": 0,
+   "trace": 15
+  },
+  "version": "0.8.0",
+  "agentSessions": 0
+ },
+ "wallSeconds": 37.68
+}
