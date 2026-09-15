@@ -3070,6 +3070,9 @@ async fn the_status_an_agent_reads_carries_no_human_layer_records() {
 // 追蹤紀錄查詢面（`/v1/trace`、`/v1/agent-sessions/{id}/activity`）
 // ---------------------------------------------------------------------------
 
+/// 查詢面的測試只驗「誰讀得到、分頁與隔離、人話投影」，紀錄列由測試自己用
+/// `store.record` 寫入；**刻意不用** gateway agent（codex／claude-code）——那會真的
+/// 去找本機的 codex／claude 二進位（CI 沒有；開發機上更糟：會偷偷跑真 agent）。
 fn probe_session(agent: &'static str) -> interaction_runtime::agents::CreateAgentSession {
     interaction_runtime::agents::CreateAgentSession {
         provider_id: Some(format!("provider.ai-agent.{agent}")),
@@ -3095,7 +3098,7 @@ async fn trace_and_activity_are_human_only() {
     let server = TestServer::spawn().await;
     let session = server
         .runtime
-        .create_agent_session(probe_session("codex"))
+        .create_agent_session(probe_session("agent.probe-a"))
         .await
         .unwrap();
     let id = session.session_id.as_str().to_string();
@@ -3142,12 +3145,12 @@ async fn trace_query_clamps_pages_and_never_crosses_sessions() {
     let server = TestServer::spawn().await;
     let a = server
         .runtime
-        .create_agent_session(probe_session("codex"))
+        .create_agent_session(probe_session("agent.probe-a"))
         .await
         .unwrap();
     let b = server
         .runtime
-        .create_agent_session(probe_session("claude-code"))
+        .create_agent_session(probe_session("agent.probe-b"))
         .await
         .unwrap();
     let (a_id, b_id) = (
@@ -3244,7 +3247,7 @@ async fn activity_projects_records_into_plain_language() {
     let server = TestServer::spawn().await;
     let session = server
         .runtime
-        .create_agent_session(probe_session("codex"))
+        .create_agent_session(probe_session("agent.probe-a"))
         .await
         .unwrap();
     let id = session.session_id.as_str().to_string();
