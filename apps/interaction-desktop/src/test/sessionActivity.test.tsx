@@ -40,7 +40,7 @@ function activity(overrides: Partial<AgentSessionActivity> = {}): AgentSessionAc
     recordState: "failed",
     lifecycle: "closed",
     failureReason: "連接器沒有回應",
-    nextStep: "可重新交代一件工作；需要細節可展開技術詳情",
+    nextStep: "可重新交代一件工作",
     timeline: [
       {
         at: "2026-01-01T00:05:00Z",
@@ -120,7 +120,7 @@ describe("這件工作的經過（一般模式）", () => {
     expect(within(section).getByText("目前狀態：失敗")).toBeInTheDocument();
     expect(within(section).getByText("失敗原因：連接器沒有回應")).toBeInTheDocument();
     expect(
-      within(section).getByText("下一步：可重新交代一件工作；需要細節可展開技術詳情")
+      within(section).getByText("下一步：可重新交代一件工作")
     ).toBeInTheDocument();
 
     // 時間線是 <ol>，每一步都是後端給的人話 label。

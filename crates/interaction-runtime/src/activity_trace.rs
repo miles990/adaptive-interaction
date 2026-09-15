@@ -290,7 +290,9 @@ fn next_step_for(record: &AgentSessionRecord, verified: bool) -> Option<&'static
         AgentSessionState::WaitingForConsent => Some("請核准或拒絕"),
         AgentSessionState::WaitingForInput => Some("請回答"),
         AgentSessionState::Failed | AgentSessionState::Unknown | AgentSessionState::TimedOut => {
-            Some("可重新交代一件工作；需要細節可展開技術詳情")
+            // 「技術詳情」只在進階模式畫得出來：一般模式看到的人照著做會
+            // 找不到那個東西，所以這句話只說做得到的那一半。
+            Some("可重新交代一件工作")
         }
         AgentSessionState::Cancelled | AgentSessionState::Closed | AgentSessionState::Expired => {
             Some("無需處理")
