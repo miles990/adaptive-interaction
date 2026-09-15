@@ -2,6 +2,7 @@
 //! CLI, HTTP API and the Tauri desktop shell.
 
 pub mod activity;
+pub mod activity_trace;
 pub mod agents;
 pub mod character;
 pub mod character_session;
