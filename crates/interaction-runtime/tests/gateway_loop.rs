@@ -3212,11 +3212,11 @@ async fn a_full_turn_leaves_a_dispatch_delivery_and_outcome_trail() {
     assert_eq!(delivered.detail["kind"], json!("task"));
     assert!(delivered.detail["contextBundle"]["contentHash"].is_string());
 
-    // 終點：聲稱完成。claim≠verified——outcome 是 completed 而**不是**
+    // 終點：聲稱完成。claim≠verified≠completed——outcome 是 claimed 而**不是**
     // verified，code 又說了一次這只是聲稱。
     let outcome = row("agent-session.outcome");
     assert_eq!(outcome.class, TraceClass::Audit);
-    assert_eq!(outcome.outcome, Some(TraceOutcome::Completed));
+    assert_eq!(outcome.outcome, Some(TraceOutcome::Claimed));
     assert_eq!(outcome.code.as_deref(), Some("outcome.claimed-completed"));
     assert_eq!(outcome.detail["claim"], json!(true));
     assert!(outcome.detail["claimId"].is_string());

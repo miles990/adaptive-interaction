@@ -81,6 +81,9 @@ pub enum TraceOutcome {
     Ignored,
     Deferred,
     Completed,
+    /// Agent／adapter 的自我聲稱（claimed ≠ completed）；只有人工驗證才會
+    /// 變成 [`TraceOutcome::Verified`]。
+    Claimed,
     Failed,
     Cancelled,
     #[default]
@@ -93,12 +96,13 @@ pub enum TraceOutcome {
 }
 
 impl TraceOutcome {
-    pub const ALL: [TraceOutcome; 11] = [
+    pub const ALL: [TraceOutcome; 12] = [
         TraceOutcome::Accepted,
         TraceOutcome::Rejected,
         TraceOutcome::Ignored,
         TraceOutcome::Deferred,
         TraceOutcome::Completed,
+        TraceOutcome::Claimed,
         TraceOutcome::Failed,
         TraceOutcome::Cancelled,
         TraceOutcome::Unknown,
@@ -114,6 +118,7 @@ impl TraceOutcome {
             TraceOutcome::Ignored => "ignored",
             TraceOutcome::Deferred => "deferred",
             TraceOutcome::Completed => "completed",
+            TraceOutcome::Claimed => "claimed",
             TraceOutcome::Failed => "failed",
             TraceOutcome::Cancelled => "cancelled",
             TraceOutcome::Unknown => "unknown",
@@ -132,6 +137,7 @@ impl TraceOutcome {
             "ignored" => Some(TraceOutcome::Ignored),
             "deferred" => Some(TraceOutcome::Deferred),
             "completed" => Some(TraceOutcome::Completed),
+            "claimed" => Some(TraceOutcome::Claimed),
             "failed" => Some(TraceOutcome::Failed),
             "cancelled" => Some(TraceOutcome::Cancelled),
             "unknown" => Some(TraceOutcome::Unknown),

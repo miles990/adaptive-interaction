@@ -475,7 +475,7 @@ fn outcome_audit_record(
 ) -> Option<TraceRecord> {
     let (outcome, code, claim) = match record.state {
         AgentSessionState::ClaimedCompleted => {
-            (TraceOutcome::Completed, "outcome.claimed-completed", true)
+            (TraceOutcome::Claimed, "outcome.claimed-completed", true)
         }
         AgentSessionState::Failed => (TraceOutcome::Failed, "outcome.connector-error", false),
         AgentSessionState::Unknown => (TraceOutcome::Unknown, "outcome.no-result", false),
