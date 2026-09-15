@@ -403,8 +403,16 @@ pub fn parse_claude_line(line: &str) -> Vec<GatewayEvent> {
                 // system/init 只代表「子程序起來了」——此時還沒有任何任務
                 // 送進去，更沒有人在工作。誠實階梯：進度（working）必須等
                 // 第一個 assistant／tool 事件，不能由啟動訊息偽造。
+                //
+                // `model` 是 provider 自報的**實際**模型（可能與我們請求的
+                // 不同）。沒帶就 None——不用 SessionSpec::model 回填。
                 vec![GatewayEvent::SessionStarted {
                     provider_session_id: sid,
+                    model: v
+                        .get("model")
+                        .and_then(|m| m.as_str())
+                        .filter(|m| !m.is_empty())
+                        .map(|m| m.chars().take(200).collect()),
                 }]
             }
         }
@@ -516,7 +524,8 @@ mod tests {
         assert_eq!(
             events,
             vec![GatewayEvent::SessionStarted {
-                provider_session_id: "26af1963".into()
+                provider_session_id: "26af1963".into(),
+                model: Some("claude-haiku-4-5".into()),
             }]
         );
 
@@ -538,6 +547,50 @@ mod tests {
                 assert_eq!(summary.as_deref(), Some("OK"));
                 assert_eq!(*cost_usd, Some(0.02));
                 assert_eq!(*num_turns, Some(1));
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    /// D16 續：`system/init` 帶的 `model` 是 provider **自報的實際模型**，
+    /// 以前整個被丟掉（使用者看不到自己真正在跟誰講話）。沒帶就誠實 None
+    /// ——絕不用我們請求的 `SessionSpec::model` 回填假裝知道。
+    #[test]
+    fn init_reports_the_providers_actual_model_or_nothing_at_all() {
+        let with_model = parse_claude_line(
+            r#"{"type":"system","subtype":"init","session_id":"s1","model":"claude-sonnet-4-6"}"#,
+        );
+        assert_eq!(
+            with_model,
+            vec![GatewayEvent::SessionStarted {
+                provider_session_id: "s1".into(),
+                model: Some("claude-sonnet-4-6".into()),
+            }]
+        );
+
+        for line in [
+            r#"{"type":"system","subtype":"init","session_id":"s1"}"#,
+            r#"{"type":"system","subtype":"init","session_id":"s1","model":""}"#,
+            r#"{"type":"system","subtype":"init","session_id":"s1","model":42}"#,
+        ] {
+            assert_eq!(
+                parse_claude_line(line),
+                vec![GatewayEvent::SessionStarted {
+                    provider_session_id: "s1".into(),
+                    model: None,
+                }],
+                "unreadable model must stay unknown: {line}"
+            );
+        }
+
+        // 有界：畸形的超長 model 字串不得整串流進事件。
+        let huge = format!(
+            r#"{{"type":"system","subtype":"init","session_id":"s1","model":"{}"}}"#,
+            "m".repeat(5000)
+        );
+        match &parse_claude_line(&huge)[0] {
+            GatewayEvent::SessionStarted { model, .. } => {
+                assert_eq!(model.as_ref().map(|m| m.chars().count()), Some(200));
             }
             other => panic!("unexpected: {other:?}"),
         }
@@ -579,7 +632,7 @@ mod tests {
     /// 進度只能來自真正的 assistant／tool 事件。
     #[test]
     fn init_never_reports_work_before_the_first_assistant_or_tool_event() {
-        let init = r#"{"type":"system","subtype":"init","session_id":"s1"}"#;
+        let init = r#"{"type":"system","subtype":"init","session_id":"s1","model":"m"}"#;
         let events = parse_claude_line(init);
         assert!(
             !events.iter().any(|e| matches!(

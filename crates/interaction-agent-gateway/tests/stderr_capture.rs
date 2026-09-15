@@ -117,6 +117,13 @@ async fn a_flooding_subprocess_yields_a_bounded_redacted_stderr_capture() {
         "noisy stderr must never be turned into a business failure: {seen:?}"
     );
 
+    // provider 自報的實際模型有被讀出來。
+    let model = seen.iter().find_map(|e| match e {
+        GatewayEvent::SessionStarted { model, .. } => Some(model.clone()),
+        _ => None,
+    });
+    assert_eq!(model, Some(Some("fake-model-x".to_string())), "{seen:?}");
+
     // SessionClosed 的 detail 引用 stderr 時一樣是脫敏後的。
     let GatewayEvent::SessionClosed { detail, .. } = &seen[closed_at] else {
         unreachable!()

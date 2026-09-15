@@ -81,6 +81,12 @@ pub enum GatewayEvent {
     SessionStarted {
         /// Provider 端 session／thread id（進階詳情用；不是 runtime session id）。
         provider_session_id: String,
+        /// Provider **自報的實際模型**（claude 的 `system/init.model`、codex
+        /// app-server 的 thread 回應／`thread/started` 通知）。這是 provider
+        /// 說的，不是我們請求的 `SessionSpec::model`——兩者可能不同（別名、
+        /// 降級、帳號限制）。讀不到就是 `None`，絕不用請求值回填假裝知道。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
     },
     TaskAccepted,
     TaskProgress {
