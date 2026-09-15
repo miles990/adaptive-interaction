@@ -9,6 +9,11 @@
 //! - **脫敏**：[`redact`] 在 **push 當下**就跑完，所以記憶體裡不存在未脫敏
 //!   的原文——之後任何路徑（事件、log、SessionClosed detail）都不可能外洩。
 //! - **可截斷**：截斷／丟棄一律標 `truncated`，不假裝自己看完了全部。
+//! - **不因為看不懂就停讀**：stderr 是 bytes，不保證是 UTF-8（子程序可能吐
+//!   出 latin-1、二進位或半個 emoji）。讀取一律在 bytes 層逐行切，轉字串用
+//!   `from_utf8_lossy`（壞位元組 → U+FFFD）。**只有真正的 I/O 錯誤**才停，
+//!   而且停的時候要標 `truncated` 並留下 [`StderrSnapshot::read_error`]——
+//!   沉默地少讀後面的每一行是這裡最不可接受的失敗模式。
 //!
 //! 誠實階梯：stderr **不是**業務結局的證據。這個模組只負責「把 agent 說過
 //! 什麼誠實地留下來」，絕不因為裡面有 "error" 字樣就把一輪判成失敗——結局
@@ -18,7 +23,7 @@ use crate::GatewayEvent;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::ChildStderr;
 use tokio::task::JoinHandle;
 
@@ -39,6 +44,12 @@ const LINE_TRUNCATION_MARK: &str = "…[truncated]";
 /// 線性掃描，先有界化才不會被單行拖垮。遠大於 [`LINE_MAX_CHARS`]，所以
 /// 任何在行首附近出現的 secret 都還在掃描範圍內。
 const REDACT_INPUT_MAX_CHARS: usize = 4000;
+/// 單行在 **bytes** 層的硬上限。子程序可能一直不吐換行（二進位、壞掉的
+/// 進度條），所以 buffer 不能跟著它長：讀滿這麼多就把該行就地截斷、剩下的
+/// 位元組丟到換行為止，並標 `truncated`。
+pub const LINE_READ_MAX_BYTES: usize = 1024 * 1024;
+/// 丟棄超長行的剩餘位元組時，每次讀的量（丟棄路徑自己也要有界）。
+const DISCARD_CHUNK_BYTES: u64 = 64 * 1024;
 
 const REDACTED_TOKEN: &str = "[redacted-token]";
 const REDACTED_VALUE: &str = "[redacted]";
@@ -56,6 +67,10 @@ pub struct StderrSnapshot {
     pub lines_dropped: u64,
     /// 有任何行被截斷或丟棄。
     pub truncated: bool,
+    /// 讀取中止的原因（已脫敏）。`None` = 一路讀到 EOF。有值就代表**之後的
+    /// 輸出確定遺失了，但遺失幾行不知道**——所以不假造 `lines_dropped`，
+    /// 只誠實留下錯誤本身並把 `truncated` 標起來。
+    pub read_error: Option<String>,
 }
 
 impl StderrSnapshot {
@@ -104,6 +119,7 @@ struct TailState {
     bytes_seen: u64,
     lines_dropped: u64,
     truncated: bool,
+    read_error: Option<String>,
 }
 
 /// 共用的有界脫敏 stderr tail。`clone` 共用同一份狀態（reader task 與收攤
@@ -123,10 +139,18 @@ impl StderrTail {
     /// 呼叫端只會拿到序號，永遠拿不到未脫敏的原文——要記 log 請自己對原始
     /// 字串呼叫 [`redact`]（`spawn_reader` 就是這樣做的）。
     pub fn push_line(&self, raw: &str) -> u64 {
+        self.push_line_with_bytes(raw, raw.len() as u64)
+    }
+
+    /// 同 [`StderrTail::push_line`]，但由呼叫端說出這行在管線上**原本**佔了
+    /// 幾個位元組。lossy 轉換與超長行截斷都會讓字串長度不等於原始長度
+    /// （一個壞位元組 → 3 bytes 的 U+FFFD；被丟掉的尾巴根本不在字串裡），
+    /// 所以 `bytes_seen` 只能由讀取端提供，不能從字串回推。
+    pub fn push_line_with_bytes(&self, raw: &str, raw_bytes: u64) -> u64 {
         let (line, line_truncated) = bound_line(raw);
         let mut state = self.state.lock().expect("stderr tail lock");
         state.lines_seen = state.lines_seen.saturating_add(1);
-        state.bytes_seen = state.bytes_seen.saturating_add(raw.len() as u64);
+        state.bytes_seen = state.bytes_seen.saturating_add(raw_bytes);
         if line_truncated {
             state.truncated = true;
         }
@@ -143,6 +167,23 @@ impl StderrTail {
         state.lines_seen
     }
 
+    /// 標記「有東西沒被完整保留」（例如單行在 bytes 層就被砍掉）。
+    pub fn mark_truncated(&self) {
+        let mut state = self.state.lock().expect("stderr tail lock");
+        state.truncated = true;
+    }
+
+    /// 記下讀取中止的原因。第一個錯誤最有診斷價值，後面的不覆蓋；一律標
+    /// `truncated`，但**不**加 `lines_dropped`——我們不知道之後還有幾行。
+    pub fn note_read_error(&self, error: impl AsRef<str>) {
+        let redacted = redact(error.as_ref());
+        let mut state = self.state.lock().expect("stderr tail lock");
+        state.truncated = true;
+        if state.read_error.is_none() {
+            state.read_error = Some(redacted);
+        }
+    }
+
     pub fn snapshot(&self) -> StderrSnapshot {
         let state = self.state.lock().expect("stderr tail lock");
         let tail = state
@@ -157,6 +198,7 @@ impl StderrTail {
             bytes_seen: state.bytes_seen,
             lines_dropped: state.lines_dropped,
             truncated: state.truncated,
+            read_error: state.read_error.clone(),
         }
     }
 }
@@ -180,16 +222,106 @@ fn bound_line(raw: &str) -> (String, bool) {
     (kept, true)
 }
 
-/// 持續逐行讀 stderr 到 EOF（**永不塞管線**：子程序噴幾 MB 也不會卡住）。
+/// 讀一行的結果（**bytes 層**）。
+#[derive(Debug)]
+enum ReadLine {
+    /// 讀到一行。`bytes` 是這行在管線上的原始位元組數（含被丟棄的尾巴），
+    /// `truncated` = 這行在 bytes 層就被砍過。
+    Line {
+        text: String,
+        bytes: u64,
+        truncated: bool,
+    },
+    /// 讀到 EOF：子程序不會再說話了。
+    Eof,
+    /// 真正的 I/O 錯誤（**不含**「看不懂的位元組」，那不是錯誤）。
+    Failed(std::io::Error),
+}
+
+/// 讀一行 stderr：讀到 `\n`、EOF，或 [`LINE_READ_MAX_BYTES`] 為止。
+///
+/// 非 UTF-8 **不是**錯誤：位元組原樣收下，這裡用 `from_utf8_lossy` 轉字串
+/// （壞位元組 → U+FFFD）。以前用 `lines()` 時，一個 0xFF 會讓 `next_line()`
+/// 回 `InvalidData`，reader 就此停讀、之後每一行都靜默消失——這個函式存在
+/// 的理由就是不再發生那件事。
+async fn read_bounded_line<R>(reader: &mut R, buf: &mut Vec<u8>) -> ReadLine
+where
+    R: AsyncBufRead + Unpin,
+{
+    buf.clear();
+    let read = {
+        // `take` 讓 buffer 有界：不吐換行的輸出撐不大 `buf`。
+        let mut limited = (&mut *reader).take(LINE_READ_MAX_BYTES as u64);
+        match limited.read_until(b'\n', buf).await {
+            Ok(read) => read,
+            Err(error) => return ReadLine::Failed(error),
+        }
+    };
+    if read == 0 {
+        return ReadLine::Eof;
+    }
+    let mut bytes = read as u64;
+    let mut truncated = false;
+    if !buf.ends_with(b"\n") && read >= LINE_READ_MAX_BYTES {
+        // 這行超過上限：剩下的位元組讀掉但不保留，只把數量算進 bytes_seen。
+        truncated = true;
+        bytes = bytes.saturating_add(discard_to_eol(reader).await);
+    }
+    ReadLine::Line {
+        text: String::from_utf8_lossy(trim_eol(buf)).into_owned(),
+        bytes,
+        truncated,
+    }
+}
+
+/// 丟掉目前這行剩下的位元組（讀到換行或 EOF），回傳丟掉的位元組數。
+///
+/// 這裡吞掉 I/O 錯誤是刻意的：丟不完就算了，下一次 [`read_bounded_line`]
+/// 會再撞到同一個錯誤並照實記成 `read_error`。
+async fn discard_to_eol<R>(reader: &mut R) -> u64
+where
+    R: AsyncBufRead + Unpin,
+{
+    let mut scratch = Vec::new();
+    let mut dropped = 0u64;
+    loop {
+        scratch.clear();
+        let mut limited = (&mut *reader).take(DISCARD_CHUNK_BYTES);
+        let Ok(read) = limited.read_until(b'\n', &mut scratch).await else {
+            return dropped;
+        };
+        dropped = dropped.saturating_add(read as u64);
+        if read == 0 || scratch.ends_with(b"\n") {
+            return dropped;
+        }
+    }
+}
+
+/// 去掉行尾的 `\n` 與（Windows 風格的）`\r`。
+fn trim_eol(line: &[u8]) -> &[u8] {
+    let line = line.strip_suffix(b"\n").unwrap_or(line);
+    line.strip_suffix(b"\r").unwrap_or(line)
+}
+
+/// 持續逐行讀 stderr 到 EOF（**永不塞管線**：子程序噴幾 MB 也不會卡住；
+/// **永不因為看不懂而停**：非 UTF-8 的位元組會被 lossy 轉換而不是中止）。
 ///
 /// `session_hint` 只用於 log 關聯，不是可信身分。
 pub fn spawn_reader(stderr: ChildStderr, tail: StderrTail, session_hint: String) -> JoinHandle<()> {
     tokio::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
+        let mut reader = BufReader::new(stderr);
+        let mut buf: Vec<u8> = Vec::new();
         loop {
-            match lines.next_line().await {
-                Ok(Some(line)) => {
-                    let seq = tail.push_line(&line);
+            match read_bounded_line(&mut reader, &mut buf).await {
+                ReadLine::Line {
+                    text,
+                    bytes,
+                    truncated,
+                } => {
+                    if truncated {
+                        tail.mark_truncated();
+                    }
+                    let seq = tail.push_line_with_bytes(&text, bytes);
                     // 前幾行值得注意；之後降級，避免 agent 的診斷輸出淹沒 log。
                     // 兩條路徑都記脫敏後的文字（tracing 巨集只在該層級啟用時
                     // 才會求值，所以關掉 debug 不會付出重複脫敏的成本）。
@@ -197,25 +329,27 @@ pub fn spawn_reader(stderr: ChildStderr, tail: StderrTail, session_hint: String)
                         tracing::warn!(
                             target: "agent.stderr",
                             session = %session_hint,
-                            line = %redact(&line),
+                            line = %redact(&text),
                             "agent subprocess stderr"
                         );
                     } else {
                         tracing::debug!(
                             target: "agent.stderr",
                             session = %session_hint,
-                            line = %redact(&line),
+                            line = %redact(&text),
                             "agent subprocess stderr"
                         );
                     }
                 }
-                Ok(None) => break,
-                Err(error) => {
-                    tracing::debug!(
+                ReadLine::Eof => break,
+                ReadLine::Failed(error) => {
+                    // 真的讀不下去了：之後的輸出確定遺失，照實標記再停。
+                    tail.note_read_error(error.to_string());
+                    tracing::warn!(
                         target: "agent.stderr",
                         session = %session_hint,
                         error = %error,
-                        "agent subprocess stderr read ended"
+                        "agent subprocess stderr read failed; later output is lost"
                     );
                     break;
                 }
@@ -229,6 +363,7 @@ pub fn spawn_reader(stderr: ChildStderr, tail: StderrTail, session_hint: String)
             bytes_seen = snapshot.bytes_seen,
             lines_dropped = snapshot.lines_dropped,
             truncated = snapshot.truncated,
+            read_error = snapshot.read_error.as_deref().unwrap_or("none"),
             "agent subprocess stderr closed"
         );
     })
@@ -787,6 +922,161 @@ mod tests {
         assert!(
             event_tail.ends_with("the very last thing the agent said"),
             "{event_tail}"
+        );
+    }
+
+    /// 非 UTF-8 的位元組不是「讀完了」：壞掉的那一行變成 U+FFFD，**後面的
+    /// 每一行都還要讀到**（以前 `lines()` 在這裡就永久停讀且不標記）。
+    #[tokio::test]
+    async fn invalid_utf8_does_not_end_the_line_stream() {
+        let raw: &[u8] = b"before\n\xff\xfe bad\nafter\n";
+        let mut reader = raw;
+        let mut buf = Vec::new();
+        let mut lines = Vec::new();
+        loop {
+            match read_bounded_line(&mut reader, &mut buf).await {
+                ReadLine::Line { text, bytes, .. } => lines.push((text, bytes)),
+                ReadLine::Eof => break,
+                ReadLine::Failed(error) => panic!("bad bytes are not an I/O error: {error}"),
+            }
+        }
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert_eq!(lines[0].0, "before");
+        assert!(lines[1].0.contains('\u{fffd}'), "{:?}", lines[1].0);
+        assert_eq!(lines[2].0, "after");
+        // bytes_seen 用的是管線上的原始長度，不是 lossy 之後的字串長度。
+        assert_eq!(lines[1].1, 7, "{:?}", lines[1]);
+    }
+
+    /// `\r\n` 與最後一行沒有換行都要正確切行。
+    #[tokio::test]
+    async fn line_endings_and_a_missing_final_newline_are_handled() {
+        let raw: &[u8] = b"one\r\ntwo\n\nthree";
+        let mut reader = raw;
+        let mut buf = Vec::new();
+        let mut lines = Vec::new();
+        while let ReadLine::Line { text, .. } = read_bounded_line(&mut reader, &mut buf).await {
+            lines.push(text);
+        }
+        assert_eq!(lines, vec!["one", "two", "", "three"]);
+    }
+
+    /// 沒有換行的超長輸入：該行在 bytes 層被砍掉並標記，**後面的行照樣讀到**。
+    #[tokio::test]
+    async fn a_line_without_a_newline_is_capped_and_the_next_line_survives() {
+        let mut raw = vec![b'y'; LINE_READ_MAX_BYTES + 200_000];
+        raw.extend_from_slice(b"\nafter the flood\n");
+        let mut reader = raw.as_slice();
+        let mut buf = Vec::new();
+
+        let ReadLine::Line {
+            text,
+            bytes,
+            truncated,
+        } = read_bounded_line(&mut reader, &mut buf).await
+        else {
+            panic!("expected a line");
+        };
+        assert!(truncated, "capping a line must be disclosed");
+        assert_eq!(text.len(), LINE_READ_MAX_BYTES);
+        // 被丟掉的尾巴（含那個換行）仍然算進 bytes_seen。
+        assert_eq!(bytes, (LINE_READ_MAX_BYTES + 200_000 + 1) as u64);
+
+        let ReadLine::Line { text, .. } = read_bounded_line(&mut reader, &mut buf).await else {
+            panic!("the line after an over-long one must still arrive");
+        };
+        assert_eq!(text, "after the flood");
+    }
+
+    /// 端到端（真子程序）：壞位元組夾在中間，前後兩行都要進 tail，脫敏照舊，
+    /// 而且這**不算** truncated（沒有任何一行被丟掉或截斷）。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_subprocess_emitting_invalid_utf8_still_yields_every_line() {
+        let mut child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg(r"printf 'before\n\377\376 bad\nafter Authorization: Bearer abc123def456\n' >&2")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn sh");
+        let stderr = child.stderr.take().expect("piped stderr");
+        let tail = StderrTail::new();
+        let reader = spawn_reader(stderr, tail.clone(), "test-session".to_string());
+        child.wait().await.expect("child exits");
+        let snapshot = drain_stderr(&tail, Some(reader)).await;
+
+        assert_eq!(snapshot.lines_seen, 3, "{snapshot:?}");
+        assert_eq!(snapshot.lines_dropped, 0, "{snapshot:?}");
+        assert!(
+            !snapshot.truncated,
+            "three short lines are not truncated: {snapshot:?}"
+        );
+        assert!(snapshot.read_error.is_none(), "{snapshot:?}");
+        assert!(snapshot.tail.contains("before"), "{}", snapshot.tail);
+        assert!(
+            snapshot.tail.contains('\u{fffd}'),
+            "the undecodable line must be kept as U+FFFD: {}",
+            snapshot.tail
+        );
+        assert!(
+            snapshot
+                .tail
+                .contains("after Authorization: Bearer [redacted]"),
+            "the line *after* the bad bytes must still be captured and redacted: {}",
+            snapshot.tail
+        );
+        assert!(!snapshot.tail.contains("abc123def456"), "{}", snapshot.tail);
+    }
+
+    /// 端到端（真子程序）：1 MiB 不換行之後才來的正常行，仍然讀得到，
+    /// 而且截斷這件事有被標出來。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_subprocess_without_newlines_is_capped_but_keeps_being_read() {
+        let mut child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg(r#"printf '%*s' 1200000 '' | tr ' ' 'y' >&2; printf '\nafter the flood\n' >&2"#)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn sh");
+        let stderr = child.stderr.take().expect("piped stderr");
+        let tail = StderrTail::new();
+        let reader = spawn_reader(stderr, tail.clone(), "test-session".to_string());
+        child.wait().await.expect("child exits");
+        let snapshot = drain_stderr(&tail, Some(reader)).await;
+
+        assert_eq!(snapshot.lines_seen, 2, "{snapshot:?}");
+        assert!(
+            snapshot.truncated,
+            "capping must be disclosed: {snapshot:?}"
+        );
+        assert!(snapshot.read_error.is_none(), "{snapshot:?}");
+        assert!(snapshot.bytes_seen >= 1_200_000, "{snapshot:?}");
+        assert!(
+            snapshot.tail.ends_with("after the flood"),
+            "the line after the over-long one must still arrive: {}",
+            snapshot.tail
+        );
+    }
+
+    /// 讀取錯誤要留下痕跡：`truncated` 標起來、`read_error` 說出原因，
+    /// 但**不**假造 `lines_dropped`（遺失幾行我們並不知道）。
+    #[test]
+    fn a_read_error_is_disclosed_without_inventing_a_dropped_count() {
+        let tail = StderrTail::new();
+        tail.push_line("before the failure");
+        tail.note_read_error("Input/output error reading /Users/someone/pipe");
+        tail.note_read_error("a later error does not overwrite the first");
+        let snapshot = tail.snapshot();
+        assert!(snapshot.truncated);
+        assert_eq!(snapshot.lines_dropped, 0);
+        let error = snapshot.read_error.expect("read_error is recorded");
+        assert!(error.starts_with("Input/output error"), "{error}");
+        assert!(
+            !error.contains("someone"),
+            "read_error must be redacted too: {error}"
         );
     }
 
