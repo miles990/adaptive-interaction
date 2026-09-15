@@ -135,9 +135,9 @@ impl Default for ResumeComparison {
 impl ResumeComparison {
     fn to_detail(&self) -> Value {
         json!({
-            "dataScopeAdded": self.data_scope_added,
-            "toolScopeAdded": self.tool_scope_added,
-            "consentScopeAdded": self.consent_scope_added,
+            "dataScopeAdded": safe_scope_list(&self.data_scope_added),
+            "toolScopeAdded": safe_scope_list(&self.tool_scope_added),
+            "consentScopeAdded": safe_scope_list(&self.consent_scope_added),
             "ttlWidened": self.ttl_widened,
             "costWidened": self.cost_widened,
             "messagesWidened": self.messages_widened,
@@ -154,6 +154,18 @@ pub(crate) struct ResumeRejection {
     code: &'static str,
     comparison: ResumeComparison,
     error: DomainError,
+    /// 寫進稽核的那一句話。預設就是 `error`；只有「範圍放寬」那三種的
+    /// 對外文案會帶著呼叫端原樣送來的 scope 標籤（裡面是完整路徑），
+    /// 那時候這裡放脫敏過的版本——對外文案一字不變，紀錄不留路徑。
+    audit_reason: Option<String>,
+}
+
+impl ResumeRejection {
+    fn audit_reason(&self) -> String {
+        self.audit_reason
+            .clone()
+            .unwrap_or_else(|| self.error.to_string())
+    }
 }
 
 fn reject(
@@ -167,6 +179,7 @@ fn reject(
         code,
         comparison: comparison.clone(),
         error,
+        audit_reason: None,
     })
 }
 
@@ -251,11 +264,15 @@ fn check_resume_not_wider(
                 "接續上次的工作不得放寬{what}：{} 不在上次的授權範圍裡",
                 added.join("、")
             );
-            return Err(reject(
-                code,
-                &comparison,
-                DomainError::PolicyBlocked(message),
-            ));
+            // 對外的文案帶原樣的 scope（呼叫端本來就知道自己送了什麼路徑）；
+            // 進稽核的那一份過 `safe_scope_list`。
+            let audited = format!(
+                "接續上次的工作不得放寬{what}：{} 不在上次的授權範圍裡",
+                safe_scope_list(added).join("、")
+            );
+            let mut rejection = reject(code, &comparison, DomainError::PolicyBlocked(message));
+            rejection.audit_reason = Some(audited);
+            return Err(rejection);
         }
     }
     if comparison.write_escalation {
@@ -348,17 +365,55 @@ fn canonical_workdir(raw: &str) -> String {
 /// 最後一段檔名。稽核要能比對「是不是同一個資料夾」，不需要整條路徑
 /// （那會把使用者的目錄結構留在紀錄裡）。
 pub(crate) fn workdir_digest(raw: &str) -> Value {
+    let (digest, basename) = path_digest_parts(raw);
+    json!({ "digest": digest, "basename": basename })
+}
+
+/// `workdir_digest` 與 `safe_scope_list` 共用的路徑摘要計算：正規化後的
+/// sha256 前 12 位，加上最後一段檔名（可能沒有，例如根目錄）。
+fn path_digest_parts(raw: &str) -> (String, Option<String>) {
     let canonical = canonical_workdir(raw);
     let digest: String = format!("{:x}", Sha256::digest(canonical.as_bytes()))
         .chars()
         .take(12)
         .collect();
-    json!({
-        "digest": digest,
-        "basename": std::path::Path::new(&canonical)
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned()),
-    })
+    let basename = std::path::Path::new(&canonical)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned());
+    (digest, basename)
+}
+
+/// scope 標籤進紀錄前的路徑脫敏。
+///
+/// `dataScope` 是呼叫端自己附加的人話標籤，而實際送進來的就是
+/// `workspace:<完整絕對路徑>`（桌面端的 `AiPage` 一直這樣組）。原樣寫進
+/// detail 等於把使用者的目錄結構留在紀錄裡——契約規則 5 說路徑只放
+/// digest＋basename，`workdir` 已經照做了，scope 這一格以前漏掉。
+///
+/// `workspace:` 前綴（以及任何帶 `/` 的值）改寫成和 `workdir_digest` 同一套
+/// 規則的 `{digest 12 hex}/{basename}`：比對得出「是不是同一個資料夾」，
+/// 也還說得出是哪一個專案。`domain:health` 這種不含路徑的標籤照抄，
+/// 否則稽核就看不出「宣告的範圍是什麼」了。
+pub(crate) fn safe_scope_list(scopes: &[String]) -> Vec<String> {
+    scopes.iter().map(|scope| safe_scope(scope)).collect()
+}
+
+fn safe_scope(scope: &str) -> String {
+    fn label(raw: &str) -> String {
+        match path_digest_parts(raw) {
+            (digest, Some(basename)) => format!("{digest}/{basename}"),
+            // 根目錄之類沒有最後一段的路徑：只留 digest。
+            (digest, None) => digest,
+        }
+    }
+    match scope.split_once(':') {
+        Some((prefix, value)) if prefix == "workspace" || value.contains('/') => {
+            format!("{prefix}:{}", label(value))
+        }
+        // 沒有前綴、但本身就是一條路徑。
+        _ if !scope.contains(':') && scope.contains('/') => label(scope),
+        _ => scope.to_string(),
+    }
 }
 
 /// 續開不得換工作目錄。回傳 `(檢查結果, 上次實際掛載的路徑)`。
@@ -407,8 +462,9 @@ fn check_resume_same_workdir(
 /// `agent_request_allowed` 不放行 `POST /v1/agent-sessions`，
 /// session-scoped capability token 也只放行自己 session 的 interrupt 與工具呼叫。
 ///
-/// `detail` 不含 token；`workdir` 只留 `{digest, basename}`（不把使用者的
-/// 目錄結構寫進紀錄）。
+/// `detail` 不含 token；`workdir` 只留 `{digest, basename}`，`dataScope` 等
+/// scope 標籤裡的路徑也一律過 `safe_scope_list`（不把使用者的目錄結構寫進
+/// 紀錄）。
 #[allow(clippy::too_many_arguments)]
 fn resume_audit_record(
     session_id: &str,
@@ -437,9 +493,9 @@ fn resume_audit_record(
                 "maxCost": input.max_cost,
                 "maxMessages": input.max_messages,
                 "allowWrite": input.allow_write,
-                "dataScope": input.data_scope,
-                "toolScope": input.tool_scope,
-                "consentScope": input.consent_scope,
+                "dataScope": safe_scope_list(&input.data_scope),
+                "toolScope": safe_scope_list(&input.tool_scope),
+                "consentScope": safe_scope_list(&input.consent_scope),
                 "workdir": input.workdir.as_deref().map(workdir_digest),
             },
             "comparison": comparison.to_detail(),
@@ -779,7 +835,7 @@ impl Runtime {
                             // 拒絕路徑**沒有任何副作用**：不註冊 provider、
                             // 不持久化、不 spawn 子程序、不發事件。稽核寫失敗
                             // 也不得把拒絕變成放行，所以只計數、照樣回錯。
-                            let message = rejection.error.to_string();
+                            let message = rejection.audit_reason();
                             self.record_trace(resume_audit_record(
                                 session_id.as_str(),
                                 &input,
@@ -2601,5 +2657,48 @@ mod resume_workdir_tests {
         let digest = workdir_digest(&path);
         assert_eq!(digest["digest"].as_str().map(str::len), Some(12));
         assert!(!digest.to_string().contains(&path));
+    }
+
+    /// scope 標籤裡的路徑一樣不進紀錄：`dataScope` 的真實用法是
+    /// `workspace:<完整絕對路徑>`，原樣寫進 detail 就把使用者的目錄結構
+    /// 留下來了。脫敏後仍要說得出「是哪一個專案」（basename）與
+    /// 「是不是同一個」（digest）。
+    #[test]
+    fn scope_labels_keep_paths_out_of_the_record() {
+        let scopes = vec![
+            "workspace:/Users/x/proj".to_string(),
+            "domain:health".to_string(),
+        ];
+        let safe = safe_scope_list(&scopes);
+        assert_eq!(safe.len(), 2);
+
+        let workspace = &safe[0];
+        assert!(
+            !workspace.contains("/Users"),
+            "使用者的目錄結構不得進紀錄：{workspace}"
+        );
+        assert!(workspace.starts_with("workspace:"), "{workspace}");
+        assert!(
+            workspace.ends_with("/proj"),
+            "仍要說得出是哪一個專案：{workspace}"
+        );
+        let digest = workspace
+            .trim_start_matches("workspace:")
+            .split('/')
+            .next()
+            .unwrap();
+        assert_eq!(digest.len(), 12, "{workspace}");
+        assert!(digest.chars().all(|c| c.is_ascii_hexdigit()), "{workspace}");
+
+        // 不含路徑的標籤照抄——不然稽核就看不出宣告了什麼範圍。
+        assert_eq!(safe[1], "domain:health");
+
+        // 同一條路徑兩次要得到同一個值（稽核靠它比對「是不是同一個」）。
+        assert_eq!(safe_scope_list(&scopes), safe);
+        // 不同路徑不得撞成同一個。
+        assert_ne!(
+            safe_scope_list(&["workspace:/Users/y/proj".to_string()])[0],
+            *workspace
+        );
     }
 }

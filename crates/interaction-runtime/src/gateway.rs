@@ -401,9 +401,11 @@ impl Runtime {
                     "writeEnabled": record.allow_write,
                     "toolsDisabled": spec_tools_disabled,
                     "workdir": crate::agents::workdir_digest(&resolved_workdir),
-                    "dataScope": record.data_scope,
-                    "toolScope": record.tool_scope,
-                    "consentScope": record.consent_scope,
+                    // scope 標籤裡的 `workspace:<路徑>` 只留 digest＋basename
+                    // （與 `workdir` 同一套規則）：紀錄不留使用者的目錄結構。
+                    "dataScope": crate::agents::safe_scope_list(&record.data_scope),
+                    "toolScope": crate::agents::safe_scope_list(&record.tool_scope),
+                    "consentScope": crate::agents::safe_scope_list(&record.consent_scope),
                     "ttlMinutes": record.budget.max_duration_ms / 60_000,
                     "maxCost": record.budget.max_cost,
                     "maxMessages": record.budget.max_messages,
