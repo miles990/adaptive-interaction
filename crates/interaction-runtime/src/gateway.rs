@@ -18,7 +18,7 @@ use interaction_agent_gateway::{
 use interaction_core::{
     AgentSessionRecord, DomainError, DomainResult, MailboxDirection, MailboxMessage,
     ProviderDescriptor, ProviderId, ProviderIdentity, ProviderKind, ProviderState, Timestamp,
-    TraceRecord, TrustLevel,
+    TraceOutcome, TraceRecord, TrustLevel,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
@@ -332,12 +332,14 @@ impl Runtime {
         }
         let workdir = self.resolve_gateway_workdir(workdir)?;
         let resolved_workdir = workdir.to_string_lossy().into_owned();
+        let resume_of = resume_provider_session.clone();
         let mut spec = if record.allow_write {
             interaction_agent_gateway::SessionSpec::write_enabled_in(workdir)
         } else {
             interaction_agent_gateway::SessionSpec::read_only_in(workdir)
         };
         spec.disable_tools = tools_disabled(&record.tool_scope);
+        let spec_tools_disabled = spec.disable_tools;
         // 續開：沿用 provider 端 thread/session；sandbox 與權限旗標由
         // connector 在 resume 時重新上鎖（不繼承、不放寬）。
         spec.resume_provider_session = resume_provider_session;
@@ -375,6 +377,40 @@ impl Runtime {
             events,
             approvals,
             turn_settled,
+        );
+        // 派送紀錄：這一段互動的起點。只寫**實際成立**的事實——沒有的欄位
+        // 寫 null，不補造（`requestedModel` 那一格特別明說原因：這條路徑
+        // 沒有任何地方可以指定模型，所以「我們請求了什麼」不存在）。
+        let session = record.session_id.as_str();
+        self.record_trace(
+            TraceRecord::trace("agent-session.dispatched")
+                .actor("runtime")
+                .trace_id(session)
+                .session(session)
+                .detail(json!({
+                    "agentId": record.agent_id,
+                    "providerKind": kind.agent_id(),
+                    "connector": {"binaryVersion": discovery.version},
+                    "requestedModel": "not-specifiable-via-gateway",
+                    // Provider 自報的模型之後由 SessionStarted 補一筆
+                    // `agent-session.provider-model`；這一刻還不知道。
+                    "actualModel": Value::Null,
+                    "resume": resume_of.is_some(),
+                    "resumeOf": resume_of,
+                    "readOnly": !record.allow_write,
+                    "writeEnabled": record.allow_write,
+                    "toolsDisabled": spec_tools_disabled,
+                    "workdir": crate::agents::workdir_digest(&resolved_workdir),
+                    "dataScope": record.data_scope,
+                    "toolScope": record.tool_scope,
+                    "consentScope": record.consent_scope,
+                    "ttlMinutes": record.budget.max_duration_ms / 60_000,
+                    "maxCost": record.budget.max_cost,
+                    "maxMessages": record.budget.max_messages,
+                    // 這條路徑沒有任何 prompt 模板組裝（任務原文走 mailbox），
+                    // 所以沒有版本可寫——不捏造一個。
+                    "promptTemplate": Value::Null,
+                })),
         );
         Ok(GatewayAttached {
             provider_session_id,
@@ -885,6 +921,34 @@ impl Runtime {
         if let Some(record) = &snapshot {
             self.emit_agent_session_state_for(record, "fetched");
         }
+        // 送達紀錄（trace）。**沒有 outcome**：這一筆只說「訊息真的寫進了
+        // agent 子程序」，不描述任務的結果——送達≠完成。
+        let context_bundle = snapshot.as_ref().and_then(|record| {
+            record
+                .context_bundles
+                .iter()
+                .find(|bundle| bundle.message_id == message.message_id)
+                .map(|bundle| {
+                    json!({
+                        "bundleId": bundle.bundle_id,
+                        "contentHash": bundle.content_hash,
+                        "bytes": serde_json::to_vec(&bundle.bundle).map(|v| v.len()).unwrap_or(0),
+                        "truncated": bundle.bundle.get("truncated").and_then(Value::as_bool),
+                    })
+                })
+        });
+        self.record_trace(
+            TraceRecord::trace("agent-session.task-delivered")
+                .actor("runtime")
+                .trace_id(session_id)
+                .session(session_id)
+                .caused_by(&message.message_id)
+                .detail(json!({
+                    "messageId": message.message_id,
+                    "kind": message.kind,
+                    "contextBundle": context_bundle,
+                })),
+        );
         if let Some(Some(action_id)) = acked {
             let _ = self
                 .acknowledge_delegated_action_public(&action_id, &message.message_id)
@@ -1023,16 +1087,32 @@ impl Runtime {
                 }),
             )
             .await;
-        self.store.audit(
-            "agent.approval",
-            by,
-            &json!({
-                "sessionId": session_id,
-                "requestId": request_id,
-                "approved": approve,
-                "by": by,
-                "summary": summary,
-            }),
+        // 裁決是授權變更：不取樣、不漏（維持既有的 `?`——寫不進去就回錯）。
+        // summary 是 agent 自報的文字，截 200 字後才進紀錄。
+        let code = match (by, approve) {
+            ("watchdog", false) => "approval.watchdog-denied",
+            (_, true) => "approval.human-approved",
+            (_, false) => "approval.human-denied",
+        };
+        self.store.record(
+            &TraceRecord::audit("agent.approval")
+                .actor(by)
+                .outcome(if approve {
+                    TraceOutcome::Accepted
+                } else {
+                    TraceOutcome::Rejected
+                })
+                .code(code)
+                .trace_id(session_id)
+                .session(session_id)
+                .caused_by(request_id)
+                .detail(json!({
+                    "sessionId": session_id,
+                    "requestId": request_id,
+                    "approved": approve,
+                    "by": by,
+                    "summary": crate::agents::safe_summary(&summary),
+                })),
         )?;
         Ok(json!({
             "resolved": request_id,
@@ -1061,20 +1141,55 @@ impl Runtime {
 
     /// 中斷目前 turn（不關 session）。鎖取得有界：send 卡死時誠實回
     /// Unavailable（此時只有 close/estop 的鎖外 kill 能救），不掛住呼叫端。
-    pub async fn gateway_interrupt(&self, session_id: &str) -> DomainResult<Value> {
+    ///
+    /// `actor` 是**已驗證**的身分類別：`human`（控制中心／CLI）或
+    /// `agent-session:<id>`（session-scoped capability token，只能中斷自己）。
+    /// 呼叫端自報的任何 id 都不會被寫進紀錄——身分由 API 層的 principal 決定。
+    ///
+    /// 誠實階梯：留下的是 `interrupt-requested`（requested ≠ confirmed）。
+    /// 「真的停了」要由之後的 `cancelled` 結局來說，這一筆不代它宣稱。
+    pub async fn gateway_interrupt(&self, session_id: &str, actor: &str) -> DomainResult<Value> {
         let managed = self
             .gateway
             .managed(session_id)
             .ok_or_else(|| DomainError::NotFound(format!("gateway session {session_id}")))?;
-        let mut handle = tokio::time::timeout(SEND_TIMEOUT, managed.handle.lock())
-            .await
-            .map_err(|_| {
-                DomainError::Unavailable("agent 子程序無回應（stdin 阻塞）；請關閉 session".into())
-            })?;
-        handle
-            .interrupt()
-            .await
-            .map_err(|e| DomainError::Unavailable(e.to_string()))?;
+        let requested = async {
+            let mut handle = tokio::time::timeout(SEND_TIMEOUT, managed.handle.lock())
+                .await
+                .map_err(|_| {
+                    DomainError::Unavailable(
+                        "agent 子程序無回應（stdin 阻塞）；請關閉 session".into(),
+                    )
+                })?;
+            handle
+                .interrupt()
+                .await
+                .map_err(|e| DomainError::Unavailable(e.to_string()))
+        }
+        .await;
+        let (outcome, code, detail) = match &requested {
+            Ok(()) => (TraceOutcome::Accepted, "interrupt.sent", Value::Null),
+            Err(error) => (
+                TraceOutcome::Failed,
+                "interrupt.undeliverable",
+                json!(crate::agents::safe_summary(&error.to_string())),
+            ),
+        };
+        self.record_trace(
+            TraceRecord::audit("agent-session.interrupt-requested")
+                .actor(actor)
+                .outcome(outcome)
+                .code(code)
+                .trace_id(session_id)
+                .session(session_id)
+                .detail(json!({
+                    "agentSessionId": session_id,
+                    "deliveredToAgent": requested.is_ok(),
+                    "error": detail,
+                    "note": "requested ≠ confirmed：真的停了要由之後的 cancelled 結局來說",
+                })),
+        );
+        requested?;
         Ok(json!({"interrupted": true}))
     }
 

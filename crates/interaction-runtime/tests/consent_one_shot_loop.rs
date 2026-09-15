@@ -408,6 +408,55 @@ async fn max_uses_zero_is_refused_instead_of_creating_a_dead_consent() {
     assert!(matches!(err, DomainError::Validation(_)), "{err:?}");
     let session = rt.current_session().await.unwrap();
     assert!(session.consents.is_empty(), "不得留下一筆永遠用不了的同意");
+
+    // 被拒絕的授權請求也是授權史的一部分：以前這條路徑一個字都不留。
+    let rows = rt
+        .store
+        .query_trace(&TraceQuery {
+            kind: Some("consent.rejected".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].class, TraceClass::Audit);
+    assert_eq!(rows[0].outcome, Some(TraceOutcome::Rejected));
+    assert_eq!(rows[0].code.as_deref(), Some("consent.max-uses-zero"));
+    assert_eq!(rows[0].detail["scope"], json!("actuator:one-shot.probe"));
+}
+
+/// 「只這一次」的那一次被花掉時，必須留下稽核。
+///
+/// 以前完全沒有：`consent.granted` 有紀錄、撤銷有紀錄，唯獨**消耗**是靜默的
+/// ——事後看不出那一格是什麼時候、被哪一個計畫用掉的。
+#[tokio::test]
+async fn spending_a_one_shot_consent_is_audited() {
+    let (_g, rt, _executions) = one_shot_runtime(false).await;
+    rt.grant_consent_with_uses("actuator:one-shot.probe", None, Some(1))
+        .await
+        .unwrap();
+    let receipt = run_probe(&rt).await;
+    assert!(!blocked_on_consent(&receipt), "第一次必須通過：{receipt:?}");
+
+    let rows = rt
+        .store
+        .query_trace(&TraceQuery {
+            kind: Some("consent.consumed".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 1, "消耗必須恰好留下一筆");
+    let row = &rows[0];
+    assert_eq!(row.class, TraceClass::Audit);
+    assert_eq!(row.outcome, Some(TraceOutcome::Completed));
+    assert_eq!(row.code.as_deref(), Some("consent.one-shot-spent"));
+    assert_eq!(row.detail["scope"], json!("actuator:one-shot.probe"));
+    assert_eq!(row.detail["remaining"], json!(0));
+    // causation 是**當下真的存在**的那個 id：動作在扣減之後才組裝，
+    // 所以這裡寫的是計畫 id，而不是一個還不存在的 actionId。
+    assert!(row
+        .causation_id
+        .as_deref()
+        .is_some_and(|id| id == row.detail["planId"].as_str().unwrap()));
 }
 
 /// 高風險動器即使沒有標 `requiresConsent`，Governor 也是靠「動器範圍的人類

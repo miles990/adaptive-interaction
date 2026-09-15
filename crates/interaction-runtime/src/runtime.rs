@@ -15,7 +15,7 @@ use interaction_core::{
     ActionId, ActionReceipt, ActionStatus, CapabilityConstraint, CapabilitySnapshot, ConsentScope,
     DiscoveryContext, DomainError, DomainResult, EventType, MessageStrategy, Observation,
     ObservationQuery, Plan, PlanId, PlanStatus, PolicyConfig, ReceptorId, RuntimeEvent,
-    SemanticIntent, Session, SessionId, Timestamp, TraceRecord, VerificationEvidence,
+    SemanticIntent, Session, SessionId, Timestamp, TraceOutcome, TraceRecord, VerificationEvidence,
     VerificationVerdict,
 };
 use interaction_events::EventBus;
@@ -1398,8 +1398,25 @@ impl Runtime {
         max_uses: Option<u32>,
     ) -> DomainResult<Session> {
         let scope = parse_scope(scope_str)?;
+        // 被拒絕的授權請求也是授權史的一部分：以前這兩條路徑一個字都不留，
+        // 事後看不出「使用者（或介面）試過給一個後端強制不了的授權」。
+        let refuse = |code: &'static str, message: String| -> DomainError {
+            self.record_trace(
+                TraceRecord::audit("consent.rejected")
+                    .actor("human")
+                    .outcome(TraceOutcome::Rejected)
+                    .code(code)
+                    .detail(json!({
+                        "scope": scope_str,
+                        "maxUses": max_uses,
+                        "reason": message,
+                    })),
+            );
+            DomainError::Validation(message)
+        };
         if max_uses == Some(0) {
-            return Err(DomainError::Validation(
+            return Err(refuse(
+                "consent.max-uses-zero",
                 "maxUses must be at least 1; a consent that can never be used is not a consent"
                     .into(),
             ));
@@ -1415,11 +1432,14 @@ impl Runtime {
                 ConsentScope::Receptor(_) | ConsentScope::ToolOperation(_)
             )
         {
-            return Err(DomainError::Validation(format!(
-                "scope {scope_str:?} does not support maxUses: nothing spends a use on this scope, \
-                 so a count here would be a promise the runtime cannot keep. Use a short-lived \
-                 expiry (expiresMinutes) instead."
-            )));
+            return Err(refuse(
+                "consent.max-uses-unenforceable",
+                format!(
+                    "scope {scope_str:?} does not support maxUses: nothing spends a use on this scope, \
+                     so a count here would be a promise the runtime cannot keep. Use a short-lived \
+                     expiry (expiresMinutes) instead."
+                ),
+            ));
         }
         let mut guard = self.session.write().await;
         let session = guard

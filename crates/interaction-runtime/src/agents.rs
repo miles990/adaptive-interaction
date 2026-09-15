@@ -453,6 +453,62 @@ fn resume_audit_record(
     }
 }
 
+/// 外部文字（連接器錯誤、agent 摘要）進紀錄前的安全摘要：只留前 200 字。
+/// 紀錄不是 transcript——原文全長留在事件流／信箱裡，這裡只要「說得出是什麼」。
+pub(crate) fn safe_summary(raw: &str) -> String {
+    raw.trim().chars().take(200).collect()
+}
+
+/// 終態紀錄：`agent-session.outcome`。
+///
+/// 誠實階梯在 `outcome` 上分得很開：`completed` 是「這一輪結束於 agent
+/// **聲稱**完成」（code 再說一次 `outcome.claimed-completed`，detail 帶
+/// `claim: true`），`verified` 是另一個值、只由人工驗證產生。兩者永遠不會
+/// 被寫成同一格。
+fn outcome_audit_record(
+    record: &AgentSessionRecord,
+    progress_events: u32,
+    total_tokens: Option<u64>,
+    num_turns: Option<u64>,
+    reason: Option<&str>,
+    now: chrono::DateTime<Utc>,
+) -> Option<TraceRecord> {
+    let (outcome, code, claim) = match record.state {
+        AgentSessionState::ClaimedCompleted => {
+            (TraceOutcome::Completed, "outcome.claimed-completed", true)
+        }
+        AgentSessionState::Failed => (TraceOutcome::Failed, "outcome.connector-error", false),
+        AgentSessionState::Unknown => (TraceOutcome::Unknown, "outcome.no-result", false),
+        AgentSessionState::TimedOut => (TraceOutcome::Expired, "outcome.timed-out", false),
+        AgentSessionState::Cancelled => (TraceOutcome::Cancelled, "outcome.cancelled", false),
+        AgentSessionState::Expired => (TraceOutcome::Expired, "lease.expired", false),
+        // 還在進行中的狀態不是終態，不寫紀錄。
+        _ => return None,
+    };
+    let id = record.session_id.as_str();
+    Some(
+        TraceRecord::audit("agent-session.outcome")
+            .actor("runtime")
+            .outcome(outcome)
+            .code(code)
+            .trace_id(id)
+            .session(id)
+            .detail(json!({
+                "agentId": record.agent_id,
+                "claimId": record.claim_id,
+                "claim": claim,
+                "durationMs": (now - record.created_at).num_milliseconds(),
+                "costUsd": (record.budget.spent_cost > 0.0).then_some(record.budget.spent_cost),
+                "tokens": total_tokens,
+                "numTurns": num_turns,
+                // 進度事件不逐筆寫（高頻）：只帶這一個彙整數字，
+                // 「有多少沒被逐筆留下」因此仍然數得出來。
+                "progressEventsAggregated": progress_events,
+                "reason": reason,
+            })),
+    )
+}
+
 /// 關閉時要投影出去的 taxonomy：**終局優先**。
 ///
 /// 階段 0 的 D2／D10：`record.state` 早就保留了 Failed／Unknown／TimedOut／
@@ -473,6 +529,16 @@ pub struct AgentSessionEntry {
     pub record: AgentSessionRecord,
     pub mailbox: VecDeque<MailboxMessage>,
     next_message: u64,
+    /// 這個 session 收到過幾則進度回報（`task-started`／`progress`）。
+    ///
+    /// 進度是高頻的：逐筆寫成紀錄會讓儲存層無界成長。契約只要求保留
+    /// 起點／轉折／終點**與丟棄計數**——所以這裡只在記憶體累加，終態的
+    /// audit 帶一個 `progressEventsAggregated`。記憶體計數不跨重啟存活
+    /// （重啟後的 session 一律是終態，不會再有終態紀錄要帶它）。
+    progress_events: u32,
+    /// Provider 最近一次回報的累計 token 數（codex 只給 token、不給金額）。
+    /// 沒回報過就是 `None`——不換算、不補造。
+    last_total_tokens: Option<u64>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -883,6 +949,8 @@ impl Runtime {
                 record: record.clone(),
                 mailbox: VecDeque::new(),
                 next_message: 1,
+                progress_events: 0,
+                last_total_tokens: None,
             },
         );
         self.events.emit(
@@ -995,6 +1063,12 @@ impl Runtime {
             // 必須跟 session.stopped 一起發出，否則小樞會停在最後一個假象
             // 狀態（例如永遠的「工作中」），感測／狀態就靜默了。
             self.emit_agent_session_state_for(&snapshot, "timed-out");
+            // 到期也是一個終局：以前只有事件，稽核上完全看不見。
+            if let Some(record) =
+                outcome_audit_record(&snapshot, 0, None, None, Some("lease expired"), now)
+            {
+                self.record_trace(record);
+            }
             self.revoke_agent_session_capabilities(entry.record.session_id.as_str())
                 .await;
         }
@@ -1525,7 +1599,17 @@ impl Runtime {
             "waiting-for-consent" => "waiting-consent",
             other => other, // claimed-completed / failed / unknown / timed-out / cancelled
         };
-        let record = {
+        // 從回報裡取出要進紀錄的事實（payload 之後會被移走當成 claim）。
+        let failure_reason = payload
+            .get("error")
+            .and_then(Value::as_str)
+            .map(safe_summary);
+        let num_turns = payload.get("numTurns").and_then(Value::as_u64);
+        let reported_tokens = payload
+            .pointer("/tokenUsage/totalTokens")
+            .and_then(Value::as_u64);
+        let now = Utc::now();
+        let (record, outcome_record) = {
             let mut map = self.agent_sessions.write().await;
             let entry = map
                 .get_mut(id)
@@ -1545,8 +1629,35 @@ impl Runtime {
                 entry.record.claim_id = Some(format!("claim-{}", uuid::Uuid::new_v4()));
             }
             entry.record.human_verified = None;
-            self.persist_phase(entry, taxonomy)
+            if matches!(event, "task-started" | "progress") {
+                entry.progress_events = entry.progress_events.saturating_add(1);
+            }
+            if let Some(total) = reported_tokens {
+                entry.last_total_tokens = Some(total);
+            }
+            // 階段 0 的 D3：失敗的原因要留在 record 上（安全摘要），
+            // 而不是只飄過事件流——`detail` 以前只有關閉時才會被寫。
+            if next_state == AgentSessionState::Failed {
+                if let Some(reason) = &failure_reason {
+                    entry.record.detail = Some(reason.clone());
+                }
+            }
+            let snapshot = self.persist_phase(entry, taxonomy);
+            let outcome_record = outcome_audit_record(
+                &snapshot,
+                entry.progress_events,
+                entry.last_total_tokens,
+                num_turns,
+                failure_reason.as_deref(),
+                now,
+            );
+            (snapshot, outcome_record)
         };
+        // 終態是授權與狀態變更：不取樣、不漏。寫不進去只計數，**不得**
+        // 把「這一輪結束了」這件已經發生的事回滾成沒發生。
+        if let Some(outcome_record) = outcome_record {
+            self.record_trace(outcome_record);
+        }
 
         // 角色 taxonomy 事件（agent 的自我回報照實轉譯；claim 不升級）。
         //
@@ -1781,10 +1892,16 @@ impl Runtime {
             entry.next_message += 1;
             entry.mailbox.push_back(message);
         }
-        let _ = self.store.audit(
-            "agent-session.emergency-stop",
-            "runtime",
-            &json!({"agentSessionId": id, "deliveredToAgent": false}),
+        // 先停再記（緊急停止一律如此）：程序樹在 close_agent_session 裡已經
+        // 被終止，這一筆只是留下「為什麼停」。寫失敗只計數，不阻擋停止。
+        self.record_trace(
+            TraceRecord::audit("agent-session.emergency-stop")
+                .actor("runtime")
+                .outcome(TraceOutcome::Cancelled)
+                .code("estop.engaged")
+                .trace_id(id)
+                .session(id)
+                .detail(json!({"agentSessionId": id, "deliveredToAgent": false})),
         );
     }
 
@@ -1829,6 +1946,22 @@ impl Runtime {
                                 .save_agent_session(record.session_id.as_str(), &body);
                         }
                         self.emit_agent_session_state_for(&record, "unknown");
+                        // 上一輪的 open session 到底成了沒有：沒有人知道。
+                        // 以前只有事件，稽核裡完全沒有這一段。
+                        let id = record.session_id.as_str();
+                        self.record_trace(
+                            TraceRecord::audit("agent-session.outcome")
+                                .actor("runtime")
+                                .outcome(TraceOutcome::Unknown)
+                                .code("runtime.restarted")
+                                .trace_id(id)
+                                .session(id)
+                                .detail(json!({
+                                    "agentId": record.agent_id,
+                                    "reason": "runtime 重新啟動；上一輪的工作結果未知",
+                                    "reapedPgid": reaped.get(id),
+                                })),
+                        );
                     }
                     map.insert(
                         record.session_id.as_str().to_string(),
@@ -1836,6 +1969,8 @@ impl Runtime {
                             record,
                             mailbox: VecDeque::new(),
                             next_message: 1,
+                            progress_events: 0,
+                            last_total_tokens: None,
                         },
                     );
                 }

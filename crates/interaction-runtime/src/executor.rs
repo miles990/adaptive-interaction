@@ -410,6 +410,7 @@ impl Runtime {
     async fn consume_one_shot_consent(
         &self,
         scopes: &[interaction_core::ConsentScope],
+        cause: &str,
     ) -> DomainResult<Option<interaction_core::ConsentScope>> {
         let now = Utc::now();
         let mut guard = self.session.write().await;
@@ -424,6 +425,24 @@ impl Runtime {
                 self.store.upsert_session(session)?;
                 let session_id = session.session_id.as_str().to_string();
                 drop(guard);
+                // 「只這一次」的那一次被花掉了——這是授權變更，必須留下紀錄。
+                // 以前完全沒有：事後看不出這一格是什麼時候、被哪一個計畫用掉的。
+                // causation 是**當下真的存在**的那個 id：actionId 這一刻還沒
+                // 產生（動作在扣減之後才組裝），所以寫計畫 id，不補造。
+                self.record_trace(
+                    interaction_core::TraceRecord::audit("consent.consumed")
+                        .actor("runtime")
+                        .outcome(interaction_core::TraceOutcome::Completed)
+                        .code("consent.one-shot-spent")
+                        .trace_id(&session_id)
+                        .caused_by(cause)
+                        .detail(json!({
+                            "sessionId": session_id,
+                            "scope": scope_label(&scope),
+                            "remaining": remaining,
+                            "planId": cause,
+                        })),
+                );
                 if remaining == 0 {
                     // 用完就是失效：狀態列／安全頁不得繼續顯示「已授權」。
                     self.events.emit(
@@ -705,7 +724,8 @@ impl Runtime {
         let consumed_scope = if consumable.is_empty() {
             None
         } else {
-            self.consume_one_shot_consent(&consumable).await?
+            self.consume_one_shot_consent(&consumable, plan.plan_id.as_str())
+                .await?
         };
 
         // Build the immutable bounded action.

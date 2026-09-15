@@ -2044,7 +2044,18 @@ pub async fn agent_session_interrupt(
     if !crate::interrupt_principal_allowed(&auth.principal, &id) {
         return Err(ApiError::forbidden_scope());
     }
-    Ok(Json(state.runtime.gateway_interrupt(&id).await?))
+    // 稽核的 actor 只寫**已驗證**的身分類別，絕不寫呼叫端自報的任何 id。
+    let actor = match &auth.principal {
+        AuthPrincipal::Human => "human".to_string(),
+        AuthPrincipal::AgentSession(capability) => {
+            format!("agent-session:{}", capability.session_id)
+        }
+        // 其餘 principal 在上面已經被擋掉；這裡不替它們編一個身分。
+        AuthPrincipal::LegacyAgent | AuthPrincipal::CharacterAdapter { .. } => {
+            return Err(ApiError::forbidden_scope())
+        }
+    };
+    Ok(Json(state.runtime.gateway_interrupt(&id, &actor).await?))
 }
 
 #[derive(serde::Deserialize, Default)]

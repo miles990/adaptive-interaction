@@ -56,6 +56,9 @@ impl Runtime {
     pub async fn memory_update(&self, id: &str, patch: Value) -> DomainResult<MemoryItem> {
         let mut item = self.memory_get(id).await?;
         let mut v = serde_json::to_value(&item).unwrap_or_default();
+        // 稽核只記「改了哪些欄位名」，不記內容：記憶的內容本身可能是使用者
+        // 最私密的資料，稽核紀錄不是它的第二份副本。
+        let mut changed: Vec<String> = Vec::new();
         if let (Some(obj), Some(p)) = (v.as_object_mut(), patch.as_object()) {
             for key in [
                 "title",
@@ -68,6 +71,9 @@ impl Runtime {
                 "confidence",
             ] {
                 if let Some(val) = p.get(key) {
+                    if obj.get(key) != Some(val) {
+                        changed.push(key.to_string());
+                    }
                     obj.insert(key.to_string(), val.clone());
                 }
             }
@@ -83,6 +89,19 @@ impl Runtime {
         validate_memory_item(&updated).map_err(DomainError::Validation)?;
         item = updated;
         self.persist_memory(&item)?;
+        // 記憶的修改是狀態變更（`memory.created`／`memory.deleted` 一直都有
+        // 紀錄，只有修改是靜默的——改掉一筆記憶的內容因此完全查不出來）。
+        self.record_trace(
+            interaction_core::TraceRecord::audit("memory.updated")
+                .actor("human")
+                .outcome(interaction_core::TraceOutcome::Completed)
+                .code("memory.patched")
+                .detail(json!({
+                    "memoryId": item.memory_id.as_str(),
+                    "layer": item.layer,
+                    "fields": changed,
+                })),
+        );
         Ok(item)
     }
 
