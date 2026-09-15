@@ -24,6 +24,7 @@ pub mod policy;
 pub mod provider;
 pub mod receipt;
 pub mod session;
+pub mod trace;
 pub mod traits;
 
 pub use action::*;
@@ -45,6 +46,7 @@ pub use policy::*;
 pub use provider::*;
 pub use receipt::*;
 pub use session::*;
+pub use trace::*;
 pub use traits::*;
 
 /// Version stamped on every serialized domain object.
