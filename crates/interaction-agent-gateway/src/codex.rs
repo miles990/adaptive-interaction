@@ -8,6 +8,7 @@
 //! - 協定形狀取自 `codex app-server generate-json-schema`（0.149.1 鎖定），
 //!   不手寫猜測。舊版不支援 app-server 時自動走受限 exec fallback。
 
+use crate::diagnostics::{drain_stderr, spawn_reader, StderrTail};
 use crate::process::{
     apply_session_capability_env, interrupt_tree, kill_tree, remove_runtime_auth_env,
     spawn_grouped, ProcessGroup,
@@ -172,13 +173,24 @@ impl AgentConnector for CodexConnector {
         let group = ProcessGroup::of(&child);
         let stdout = child.stdout.take().ok_or(GatewayError::Closed)?;
         let stdin = child.stdin.take().ok_or(GatewayError::Closed)?;
-        // stderr：診斷輸出，吞掉避免管線塞住。
-        if let Some(stderr) = child.stderr.take() {
-            tokio::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
-                while let Ok(Some(_)) = lines.next_line().await {}
-            });
-        }
+        // stderr：以前讀了就直接丟（D16）——app-server 的協定錯誤、憑證問題、
+        // panic 全都看不見。改為有界、脫敏地留存，收場時當作 diagnostic 事件
+        // 送出；一路讀到 EOF，管線一樣不會塞住。
+        // hint 只放 workdir 的 basename，不放完整路徑。
+        let stderr_tail = StderrTail::new();
+        let stderr_reader = child.stderr.take().map(|stderr| {
+            spawn_reader(
+                stderr,
+                stderr_tail.clone(),
+                format!(
+                    "codex-app-server:{}",
+                    spec.workdir
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| "?".to_string())
+                ),
+            )
+        });
 
         let (event_tx, event_rx) = mpsc::channel::<GatewayEvent>(EVENT_CHANNEL_CAP);
         let (out_tx, mut out_rx) = mpsc::channel::<OutLine>(64);
@@ -220,7 +232,9 @@ impl AgentConnector for CodexConnector {
         {
             let shared = shared.clone();
             let event_tx = event_tx.clone();
+            let stderr_tail = stderr_tail.clone();
             tokio::spawn(async move {
+                let mut stderr_reader = stderr_reader;
                 let mut lines = BufReader::new(stdout).lines();
                 // 進行中 agent 訊息的彙整緩衝（delta 太吵，完成時一次進度）。
                 while let Ok(Some(line)) = lines.next_line().await {
@@ -277,6 +291,13 @@ impl AgentConnector for CodexConnector {
                                 .await;
                         }
                     }
+                }
+                // 收攤前把 stderr reader 收乾（有界 1 s），並在 SessionClosed
+                // **之前**把診斷送出去。它只是紀錄：既有的結局判定規則
+                // （協定事件為準）一個字都不因為 stderr 的內容而改變。
+                let snapshot = drain_stderr(&stderr_tail, stderr_reader.take()).await;
+                if let Some(event) = snapshot.into_event() {
+                    let _ = event_tx.send(event).await;
                 }
                 let resumable = shared.thread_id.lock().expect("tid lock").is_some();
                 let _ = event_tx
