@@ -40,9 +40,12 @@ pub async fn start(
     let (event_tx, event_rx) = mpsc::channel(EVENT_CHANNEL_CAP);
     let session_id = Arc::new(Mutex::new(spec.resume_provider_session.clone()));
     if let Some(provider_session_id) = &spec.resume_provider_session {
+        // 續開既有 thread：模型由 provider 決定，exec fallback 的輸出裡讀
+        // 不到（`codex exec --json` 沒有這個欄位）——誠實留 None，不猜。
         let _ = event_tx
             .send(GatewayEvent::SessionStarted {
                 provider_session_id: provider_session_id.clone(),
+                model: None,
             })
             .await;
     }
@@ -360,8 +363,11 @@ pub fn parse_exec_line(line: &str) -> Vec<GatewayEvent> {
     };
     match v.get("type").and_then(Value::as_str).unwrap_or("") {
         "thread.started" => match v.get("thread_id").and_then(Value::as_str) {
+            // `codex exec --json` 的 thread.started 沒有模型欄位：讀不到就是
+            // 不知道（不用請求值回填）。
             Some(id) if !id.is_empty() => vec![GatewayEvent::SessionStarted {
                 provider_session_id: id.to_string(),
+                model: None,
             }],
             _ => vec![GatewayEvent::Unparsed {
                 raw: "thread.started without thread_id".into(),
@@ -506,7 +512,8 @@ mod tests {
         assert_eq!(
             parse_exec_line(r#"{"type":"thread.started","thread_id":"abc"}"#),
             vec![GatewayEvent::SessionStarted {
-                provider_session_id: "abc".into()
+                provider_session_id: "abc".into(),
+                model: None,
             }]
         );
         assert_eq!(

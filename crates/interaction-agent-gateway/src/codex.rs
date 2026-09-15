@@ -199,6 +199,7 @@ impl AgentConnector for CodexConnector {
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             thread_id: Mutex::new(None),
+            thread_model: Mutex::new(None),
             current_turn: Mutex::new(None),
             last_agent_message: Mutex::new(None),
             approvals: Mutex::new(HashMap::new()),
@@ -376,9 +377,20 @@ impl AgentConnector for CodexConnector {
             )));
         };
         *shared.thread_id.lock().expect("tid lock") = Some(tid.clone());
+        // 實際模型：優先讀 thread/start・thread/resume 的回應；回應沒帶就用
+        // 先前 `thread/started` 通知記下的值。兩邊都讀不到就是 None——
+        // 絕不用 SessionSpec::model（我們**請求**的值）冒充 provider 自報。
+        let model = thread_model(&thread).or_else(|| {
+            shared
+                .thread_model
+                .lock()
+                .expect("thread model lock")
+                .clone()
+        });
         let _ = event_tx
             .send(GatewayEvent::SessionStarted {
                 provider_session_id: tid,
+                model,
             })
             .await;
 
@@ -400,6 +412,8 @@ struct CodexShared {
     pending: Mutex<HashMap<u64, oneshot::Sender<Value>>>,
     next_id: AtomicU64,
     thread_id: Mutex<Option<String>>,
+    /// Provider 自報的實際模型（`thread/started` 通知帶到時記下來）。
+    thread_model: Mutex<Option<String>>,
     current_turn: Mutex<Option<String>>,
     /// 最後一則 agentMessage 全文（turn/completed 的聲稱摘要來源）。
     last_agent_message: Mutex<Option<String>>,
@@ -448,6 +462,22 @@ async fn rpc_request(
         .await
         .map_err(|_| GatewayError::Protocol(format!("{method} timed out")))?
         .map_err(|_| GatewayError::Closed)
+}
+
+/// 從 `thread/start`・`thread/resume` 回應或 `thread/started` 通知裡讀出
+/// provider 自報的模型。0.149.1 的 schema 沒有保證這個欄位存在，所以只檢查
+/// 幾個已知位置；**讀不到就回 None**，不猜、不用請求值回填。
+fn thread_model(value: &Value) -> Option<String> {
+    ["/thread/model", "/model", "/thread/modelId", "/modelId"]
+        .iter()
+        .find_map(|pointer| {
+            let node = value.pointer(pointer)?;
+            let text = node
+                .as_str()
+                .or_else(|| node.pointer("/id").and_then(Value::as_str))
+                .or_else(|| node.pointer("/name").and_then(Value::as_str))?;
+            (!text.is_empty()).then(|| text.chars().take(200).collect())
+        })
 }
 
 fn approval_summary(method: &str, params: Option<&Value>) -> String {
@@ -596,12 +626,19 @@ fn normalize_codex_notification(
                     .and_then(|t| t.as_u64()),
             }]
         }
+        "thread/started" => {
+            // 通知本身不是進度（SessionStarted 由 thread/start 的回應送出），
+            // 但它可能帶著 provider 自報的實際模型——記下來給 SessionStarted。
+            if let Some(model) = params.and_then(thread_model) {
+                *shared.thread_model.lock().expect("thread model lock") = Some(model);
+            }
+            vec![]
+        }
         "thread/status/changed"
         | "item/agentMessage/delta"
         | "item/reasoning/textDelta"
         | "item/reasoning/summaryTextDelta"
         | "item/commandExecution/outputDelta"
-        | "thread/started"
         | "account/rateLimits/updated" => {
             vec![] // 高頻／重複資訊：進度已由 item/completed 傳遞
         }
@@ -727,6 +764,7 @@ mod tests {
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             thread_id: Mutex::new(None),
+            thread_model: Mutex::new(None),
             current_turn: Mutex::new(None),
             last_agent_message: Mutex::new(None),
             approvals: Mutex::new(HashMap::new()),
@@ -910,6 +948,58 @@ mod tests {
                 last_turn_tokens: None,
             }]
         );
+    }
+
+    /// codex app-server 有沒有自報模型是 provider 的事：帶了就照實填，
+    /// 沒帶就是 None。絕不用我們請求的 `SessionSpec::model` 冒充。
+    #[test]
+    fn the_thread_model_is_read_when_present_and_left_unknown_otherwise() {
+        assert_eq!(
+            thread_model(&serde_json::json!({"thread": {"id": "t", "model": "gpt-5-codex"}})),
+            Some("gpt-5-codex".to_string())
+        );
+        assert_eq!(
+            thread_model(&serde_json::json!({"model": {"id": "gpt-5-codex"}})),
+            Some("gpt-5-codex".to_string())
+        );
+        for shapeless in [
+            serde_json::json!({"thread": {"id": "t"}}),
+            serde_json::json!({"thread": {"id": "t", "model": ""}}),
+            serde_json::json!({"thread": {"id": "t", "model": 7}}),
+            serde_json::json!({}),
+        ] {
+            assert_eq!(thread_model(&shapeless), None, "{shapeless}");
+        }
+        // 有界：畸形的超長字串不得整串流進事件。
+        let huge = serde_json::json!({"model": "m".repeat(5000)});
+        assert_eq!(thread_model(&huge).map(|m| m.chars().count()), Some(200));
+    }
+
+    /// `thread/started` 通知仍然不是進度（SessionStarted 由 thread/start 的
+    /// 回應送出），但它帶的模型要被記下來給 SessionStarted 用。
+    #[test]
+    fn thread_started_records_the_model_without_reporting_progress() {
+        let s = shared();
+        let events = normalize_codex_notification(
+            "thread/started",
+            Some(&serde_json::json!({"thread": {"id": "t-1", "model": "gpt-5-codex"}})),
+            &s,
+        );
+        assert!(events.is_empty(), "{events:?}");
+        assert_eq!(
+            s.thread_model.lock().unwrap().as_deref(),
+            Some("gpt-5-codex")
+        );
+
+        // 沒帶模型的通知不得把已知的值蓋掉，也不得憑空造一個。
+        let fresh = shared();
+        assert!(normalize_codex_notification(
+            "thread/started",
+            Some(&serde_json::json!({"thread": {"id": "t-2"}})),
+            &fresh,
+        )
+        .is_empty());
+        assert_eq!(fresh.thread_model.lock().unwrap().as_deref(), None);
     }
 
     #[test]
