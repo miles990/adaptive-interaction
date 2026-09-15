@@ -665,10 +665,17 @@ impl Runtime {
         capabilities
             .retain(|_, existing| existing.session_id != id && existing.expires_at > Utc::now());
         capabilities.insert(capability_digest(&token), capability);
-        self.store.audit(
-            "agent-session.capability-issued",
-            "runtime",
-            &json!({"agentSessionId": id, "expiresAt": record.lease.expires_at}),
+        // 憑證簽發是授權事件：與其他 session 稽核一樣掛上 session id，才能
+        // 從同一條 trace 查回；寫不進去就不簽發（fail-closed）。token 本身
+        // 永遠不進紀錄。
+        self.store.record(
+            &TraceRecord::audit("agent-session.capability-issued")
+                .actor("runtime")
+                .outcome(TraceOutcome::Accepted)
+                .code("capability.issued")
+                .trace_id(id)
+                .session(id)
+                .detail(json!({"agentSessionId": id, "expiresAt": record.lease.expires_at})),
         )?;
         Ok(token)
     }
