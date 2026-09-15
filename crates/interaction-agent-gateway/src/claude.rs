@@ -176,6 +176,10 @@ impl AgentConnector for ClaudeConnector {
         // 第一輪的 result 不能替第二輪擔保。送出新訊息時（handle）重置，
         // 讀到 result（stdout task）才設。
         let saw_result = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        // 「人類要求停下來」也是**每一輪**的問題（同 saw_result）：interrupt
+        // 設、送出新訊息時重置。它只降級結局的判讀（把被我們打斷的收場記成
+        // cancelled 而不是 failed），從不把沒人要求中斷的真失敗變成取消。
+        let cancel_requested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         // stderr：有界、脫敏地留存（diagnostic 類紀錄），並持續讀到 EOF——
         // 讀得慢就會塞住子程序的管線，所以 reader 永遠不停在中途。
@@ -202,6 +206,7 @@ impl AgentConnector for ClaudeConnector {
             let session_id = session_id.clone();
             let tail = stderr_tail.clone();
             let saw_result = saw_result.clone();
+            let cancel_requested = cancel_requested.clone();
             tokio::spawn(async move {
                 let mut child = child;
                 let mut stderr_reader = Some(stderr_reader);
@@ -218,10 +223,27 @@ impl AgentConnector for ClaudeConnector {
                                     *session_id.lock().expect("sid lock") =
                                         Some(provider_session_id.clone());
                                 }
+                                // 這一輪被人類中斷過：Claude Code 收到 SIGINT
+                                // 後吐的是 `result`／`is_error:true`／
+                                // `subtype:"error_during_execution"`（實測：
+                                // 2.1.272），照字面就會變成「失敗」。它其實是
+                                // **我們要求它停下來**的結果——降級成 cancelled。
+                                // 判定留在呼叫端：`parse_claude_line` 仍是只看
+                                // 一行文字的純函式，不認得 session 狀態。
+                                let ev = match ev {
+                                    GatewayEvent::TaskFailed { .. }
+                                        if cancel_requested
+                                            .load(std::sync::atomic::Ordering::SeqCst) =>
+                                    {
+                                        GatewayEvent::TaskCancelled
+                                    }
+                                    other => other,
+                                };
                                 if matches!(
                                     ev,
                                     GatewayEvent::TaskClaimedCompleted { .. }
                                         | GatewayEvent::TaskFailed { .. }
+                                        | GatewayEvent::TaskCancelled
                                 ) {
                                     saw_result.store(true, std::sync::atomic::Ordering::SeqCst);
                                 }
@@ -272,7 +294,12 @@ impl AgentConnector for ClaudeConnector {
                     let _ = tx.send(event).await;
                 }
                 if !saw_result.load(std::sync::atomic::Ordering::SeqCst) {
-                    if let Some(code) = exit_code.filter(|code| *code != 0) {
+                    if cancel_requested.load(std::sync::atomic::Ordering::SeqCst) {
+                        // 人類要求停下來，程序就這樣收場了（被我們的訊號終止、
+                        // 或自己以非零 exit 退出而沒吐結果）：這是取消，不是
+                        // 它壞掉——與 codex_exec::drain_outcome_event 同一條階梯。
+                        let _ = tx.send(GatewayEvent::TaskCancelled).await;
+                    } else if let Some(code) = exit_code.filter(|code| *code != 0) {
                         let error: String = match &stderr_tail {
                             Some(t) => format!("agent 程序以 exit {code} 結束而未回報結果：{t}"),
                             None => format!("agent 程序以 exit {code} 結束而未回報結果"),
@@ -296,6 +323,7 @@ impl AgentConnector for ClaudeConnector {
             events: Some(rx),
             session_id,
             saw_result,
+            cancel_requested,
         };
         if let Some(prompt) = &spec.prompt {
             handle.send_user_message(prompt).await?;
@@ -313,6 +341,8 @@ pub struct ClaudeHandle {
     session_id: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     /// 本輪是否已讀到 result／error（與 stdout task 共用；每次送出新訊息重置）。
     saw_result: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// 本輪是否被人類中斷過（與 stdout task 共用；每次送出新訊息重置）。
+    cancel_requested: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[async_trait::async_trait]
@@ -332,6 +362,10 @@ impl AgentSessionHandle for ClaudeHandle {
         // 舊的 true。寫入失敗時子程序也已經在收場，reader 依 exit code
         // 誠實判定即可。
         self.saw_result
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        // 中斷也只綁上一輪：新的一輪重新開始，不得沿用上一輪的取消旗標
+        // 把這一輪的真失敗蓋成「取消」。
+        self.cancel_requested
             .store(false, std::sync::atomic::Ordering::SeqCst);
         stdin
             .write_all(format!("{msg}\n").as_bytes())
@@ -353,6 +387,10 @@ impl AgentSessionHandle for ClaudeHandle {
     }
 
     async fn interrupt(&mut self) -> Result<(), GatewayError> {
+        // 先立旗再送訊號：訊號一出去子程序隨時可能吐出收場的那一行，
+        // reader 不得先看到 false 而把「我們要求它停下來」記成失敗。
+        self.cancel_requested
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         self.group.interrupt();
         Ok(())
     }

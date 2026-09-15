@@ -1839,6 +1839,102 @@ async fn an_interrupted_codex_turn_is_cancelled_not_claimed_completed() {
     std::env::remove_var("INTERACT_AI_CODEX_BIN");
 }
 
+/// regression（階段 0 的 D1；real-agent 證據：Claude Code 2.1.272 的 trace
+/// harness）：長任務進行中 `POST /interrupt`，真 Claude Code 會先吐一行
+/// `result`（`is_error:true`、`subtype:"error_during_execution"`）才收場。
+/// 連接器照字面把它翻成 `TaskFailed`，於是使用者按「取消」看到的是
+/// **「失敗」**（record.state=failed、detail `error_during_execution`、trace
+/// `outcome.connector-error`）——同一條流程的 Codex 得到的卻是 cancelled。
+/// 「我們要求它停下來」不是 agent 壞掉：中斷過的這一輪必須是 cancelled。
+#[tokio::test]
+async fn an_interrupted_claude_turn_is_cancelled_not_failed() {
+    let _env = ENV_LOCK.lock().await;
+    std::env::set_var("INTERACT_AI_CLAUDE_BIN", fixture_path());
+    let (_g, rt) = runtime().await;
+    let dir = scenario_workdir("long-task");
+    let mut input = claude_input("會跑很久的工作", None);
+    input.workdir = Some(dir.path().to_string_lossy().into_owned());
+    let sid = rt
+        .create_agent_session(input)
+        .await
+        .unwrap()
+        .session_id
+        .as_str()
+        .to_string();
+
+    rt.mailbox_send(
+        &sid,
+        MailboxDirection::ToSession,
+        "task",
+        task("寫一篇很長的文章"),
+        None,
+    )
+    .await
+    .unwrap();
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::Active)
+                .unwrap_or(false)
+        },
+        "長任務進入 working",
+    )
+    .await;
+
+    let out = rt.gateway_interrupt(&sid, "human").await.unwrap();
+    assert_eq!(out["interrupted"], json!(true));
+
+    wait_for(
+        async || {
+            rt.get_agent_session(&sid)
+                .await
+                .map(|r| r.state == AgentSessionState::Cancelled)
+                .unwrap_or(false)
+        },
+        "中斷過的這一輪收場為 cancelled",
+    )
+    .await;
+    let states = session_states(&rt, &sid);
+    assert!(states.iter().any(|s| s == "cancelled"), "{states:?}");
+    assert!(
+        !states
+            .iter()
+            .any(|s| s == "failed" || s == "claimed-completed"),
+        "我們要求它停下來不是 agent 壞掉，也不是它做完了：{states:?}"
+    );
+    let record = rt.get_agent_session(&sid).await.unwrap();
+    assert!(record.claim_id.is_none(), "nothing was ever claimed");
+
+    // trace 上的終局也必須是 cancelled——「中斷已送達」之後只能接 cancelled。
+    let rows = rt
+        .store
+        .query_trace(&TraceQuery {
+            session_id: Some(sid.clone()),
+            limit: 500,
+            ..Default::default()
+        })
+        .unwrap();
+    let requested = rows
+        .iter()
+        .find(|r| r.kind == "agent-session.interrupt-requested")
+        .expect("中斷請求要留稽核");
+    assert_eq!(requested.outcome, Some(TraceOutcome::Accepted));
+    assert_eq!(requested.code.as_deref(), Some("interrupt.sent"));
+    let outcome = rows
+        .iter()
+        .find(|r| r.kind == "agent-session.outcome")
+        .expect("終局紀錄");
+    assert_eq!(outcome.outcome, Some(TraceOutcome::Cancelled));
+    assert_eq!(outcome.code.as_deref(), Some("outcome.cancelled"));
+
+    // 關閉只收尾：cancelled 這個結局留在主要狀態。
+    let closed = rt.close_agent_session(&sid, None, "closed").await.unwrap();
+    assert_eq!(closed.state, AgentSessionState::Cancelled);
+    assert_eq!(closed.detail.as_deref(), Some("closed (was Cancelled)"));
+    std::env::remove_var("INTERACT_AI_CLAUDE_BIN");
+}
+
 /// regression（agent-honesty：終局狀態不得被觀察管線吃掉）：`report_agent_session`
 /// 曾把 `ingest("agent.session", …).await?` 排在 `emit_agent_session_state` 前面。
 /// `agent.session` push receptor 只要不可用（被停用／不存在——例如中斷的同時感測層
