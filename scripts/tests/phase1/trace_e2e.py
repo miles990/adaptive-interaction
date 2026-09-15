@@ -153,8 +153,9 @@ def approve_pending(sid, name):
     s3, msgs = api("GET", f"/v1/agent-sessions/{sid}/messages?direction=from-session")
     for m in (msgs or []):
         rid = (m.get("body") or {}).get("requestId")
-        if m.get("kind") == "approval-request" and rid and rid not in APPROVED:
-            APPROVED.add(rid)
+        # codex app-server 的 request id 每個子程序都從 0 重數：去重要連 session 一起看。
+        if m.get("kind") == "approval-request" and rid and (sid, rid) not in APPROVED:
+            APPROVED.add((sid, rid))
             s4, r4 = api("POST", f"/v1/agent-sessions/{sid}/approve", {"requestId": rid, "approve": True})
             mark("approve", scenario=name, requestId=rid, status=s4, summary=((m.get("body") or {}).get("summary") or "")[:80])
 
@@ -324,6 +325,7 @@ if "resume" in scen and prov.get("normal") and prov["normal"].get("providerSessi
 
 if "failure" in scen:
     # claude：maxCost 極小 → provider 端預算錯誤（真 provider 失敗路徑）；codex：對子程序樹送 SIGKILL → 無結局＝unknown（誠實）。
+    PGIDS_BEFORE_FAILURE = set(sh("ps -axo pgid,command | grep -E 'codex app-server|codex exec' | grep -v grep | awk '{print $1}'").split())
     if a.agent == "claude-code":
         s, rec, _ = create("failure", {"maxCost": 0.0001}, task=LONG_TASK)
         expect_state = {"failed"}
@@ -336,10 +338,14 @@ if "failure" in scen:
     if a.agent != "claude-code":
         cur = wait_state(sid, lambda c: c.get("state") in TERMINAL or c.get("state") == "active", a.timeout, "failure")
         time.sleep(2)
-        pg = sh("ps -axo pid,pgid,command | grep -E 'codex app-server|codex exec' | grep -v grep | awk '{print $2}' | sort -u | head -1")
-        if pg:
-            os.killpg(int(pg), signal.SIGKILL)
-            mark("subprocess-killed", pgid=pg)
+        # 只殺這個 session 的子程序樹：取「建立後新出現」的 codex 程序群組，不碰前一個情境殘留的。
+        after = set(sh("ps -axo pgid,command | grep -E 'codex app-server|codex exec' | grep -v grep | awk '{print $1}'").split())
+        new_groups = sorted(after - PGIDS_BEFORE_FAILURE)
+        if new_groups:
+            os.killpg(int(new_groups[-1]), signal.SIGKILL)
+            mark("subprocess-killed", pgid=new_groups[-1], candidates=new_groups)
+        else:
+            mark("subprocess-not-found", before=sorted(PGIDS_BEFORE_FAILURE), after=sorted(after))
     fin = wait_state(sid, lambda c: c.get("state") in TERMINAL, a.timeout, "failure")
     s, rec2 = api("GET", f"/v1/agent-sessions/{sid}")
     close(sid, "phase1 failure done")

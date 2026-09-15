@@ -697,9 +697,16 @@ impl AgentSessionHandle for CodexHandle {
                 "unknown approval request {request_id}"
             )));
         };
+        // wire 值必須是 app-server 列舉裡的字：0.154.0 的
+        // `CommandExecutionRequestApprovalResponse` 只接受 accept／
+        // acceptForSession／acceptWithExecpolicyAmendment／
+        // applyNetworkPolicyAmendment／decline／cancel（來源：真 codex 子程序
+        // stderr 的反序列化錯誤，由 D16 的 stderr 診斷紀錄擷取）。舊值 `reject`
+        // 會讓 codex 回 "approval request failed"——結果仍是拒絕（provider
+        // fail-closed），但那是協定錯誤而不是人類的語意拒絕（階段 0 D4）。
         let decision_str = match decision {
             ApprovalDecision::Approve => "accept",
-            ApprovalDecision::Deny => "reject",
+            ApprovalDecision::Deny => "decline",
         };
         let line = json!({
             "jsonrpc": "2.0",

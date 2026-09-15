@@ -1196,7 +1196,7 @@ async fn an_unanswered_approval_is_denied_by_the_watchdog_and_the_deny_reaches_t
     wait_for(
         async || {
             std::fs::read_to_string(&decision_file)
-                .map(|body| body.contains("reject"))
+                .map(|body| body.contains("decline"))
                 .unwrap_or(false)
         },
         "deny actually delivered to the agent subprocess",
