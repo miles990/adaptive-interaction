@@ -623,6 +623,45 @@ async fn audit_tail(state: State<'_, AppState>, limit: u32) -> Result<Value, Str
         .map_err(err_s)?))
 }
 
+/// 追蹤紀錄查詢（audit／trace／diagnostic 三個 class 的統一查詢面）。
+///
+/// 查詢的形狀與解析規則都來自 runtime（`activity_trace::TraceQueryInput`），
+/// 與 HTTP `/v1/trace` 是**同一條**規則：認不得的 class／outcome／時間一律
+/// 回錯，不悄悄忽略。桌面走 Tauri IPC 時只有本機人類使用者，沒有 token
+/// 分層要再檢查一次。
+#[tauri::command]
+async fn trace_query(
+    state: State<'_, AppState>,
+    query: Option<interaction_runtime::activity_trace::TraceQueryInput>,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let page = runtime
+        .query_trace_page(query.unwrap_or_default())
+        .map_err(err_s)?;
+    serde_json::to_value(page).map_err(err_s)
+}
+
+/// 「這件工作的經過」：人話 headline／狀態／失敗原因／下一步／時間線，
+/// 外加技術層的原始紀錄。投影在 runtime，不在前端 JS。
+#[tauri::command]
+async fn agent_session_activity(
+    state: State<'_, AppState>,
+    id: String,
+    before: Option<i64>,
+    limit: Option<u32>,
+) -> Result<Value, String> {
+    let runtime = rt(&state)?;
+    let activity = runtime
+        .agent_session_activity(
+            &id,
+            before,
+            limit.unwrap_or(interaction_core::TRACE_QUERY_DEFAULT_LIMIT),
+        )
+        .await
+        .map_err(err_s)?;
+    serde_json::to_value(activity).map_err(err_s)
+}
+
 #[tauri::command]
 async fn events_recent(state: State<'_, AppState>, limit: u32) -> Result<Value, String> {
     let runtime = rt(&state)?;
@@ -3615,6 +3654,8 @@ pub fn run() {
             tools_export,
             outbox_recent,
             audit_tail,
+            trace_query,
+            agent_session_activity,
             events_recent,
             events_recent_raw,
             set_receptor_enabled,

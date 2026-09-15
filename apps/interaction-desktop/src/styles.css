@@ -557,6 +557,16 @@ html.companion-window, html.companion-window body, html.companion-window #root {
 .provider-card.focused { border-color: var(--accent, #4f7cff); box-shadow: 0 0 0 2px var(--accent-soft, #4f7cff33); }
 .plain-list { list-style: none; padding-left: 0; display: flex; flex-direction: column; gap: 6px; }
 .session-detail { margin-top: 8px; border-top: 1px dashed var(--border, #33415c33); padding-top: 8px; }
+/* 「這件工作的經過」：工作卡片展開區裡的一個區塊。沿用既有 token，
+   不設固定寬度——窄螢幕（390px）時間線自己換行。 */
+.work-activity { margin-top: 10px; border-top: 1px dashed var(--border, #33415c33); padding-top: 8px; }
+.work-activity h4 { margin: 0 0 6px; font-size: 13px; }
+.work-activity p { margin: 2px 0; }
+.activity-headline { font-size: 13.5px; }
+.activity-next { font-size: 13px; color: var(--accent); }
+.activity-timeline { list-style: none; margin: 8px 0 6px; padding-left: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.activity-timeline li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.activity-step-label { min-width: 0; overflow-wrap: anywhere; }
 .consent-sheet { display: flex; flex-direction: column; gap: 8px; }
 .preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
 .preview-cell { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; border: 1px solid var(--border, #33415c22); border-radius: 10px; padding: 8px; }

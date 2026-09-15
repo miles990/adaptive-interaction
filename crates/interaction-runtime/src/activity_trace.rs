@@ -15,8 +15,8 @@
 
 use crate::runtime::Runtime;
 use interaction_core::{
-    AgentSessionRecord, AgentSessionState, DomainResult, Timestamp, TraceClass, TraceOutcome,
-    TraceQuery, TraceRow,
+    AgentSessionRecord, AgentSessionState, DomainError, DomainResult, Timestamp, TraceClass,
+    TraceOutcome, TraceQuery, TraceRow,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -67,6 +67,90 @@ pub struct AgentSessionActivity {
     pub truncated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<i64>,
+}
+
+/// 查詢字串／IPC 參數的原始形狀（全部是字串與數字，還沒驗過）。
+///
+/// 為什麼放在 runtime 而不是各自的介面層：HTTP、Tauri IPC 與 CLI 必須是
+/// **同一條**解析規則。三個地方各寫一次 `TraceClass::parse`，遲早會有一個
+/// 悄悄把不認得的值當成「沒有篩選」——那會讓查詢者以為「沒有這種紀錄」。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TraceQueryInput {
+    pub trace_id: Option<String>,
+    pub session_id: Option<String>,
+    pub kind: Option<String>,
+    pub class: Option<String>,
+    pub actor: Option<String>,
+    pub outcome: Option<String>,
+    /// 含下界（RFC3339）。
+    pub since: Option<String>,
+    /// 不含上界（RFC3339）。
+    pub until: Option<String>,
+    /// 往回翻頁的 cursor：只回 `id < before`。
+    pub before: Option<i64>,
+    pub limit: Option<u32>,
+}
+
+impl TraceQueryInput {
+    /// 驗證並轉成儲存層的 [`TraceQuery`]。
+    ///
+    /// 認不得的 class／outcome／時間字串一律回 `Validation`，**不**悄悄忽略：
+    /// 忽略一個篩選條件比報錯危險得多——查詢者會以為「沒有這種紀錄」。
+    pub fn into_query(self) -> DomainResult<TraceQuery> {
+        fn reject<T>(what: &str, value: &str) -> DomainResult<T> {
+            Err(DomainError::Validation(format!("unknown {what}: {value}")))
+        }
+        let class = match &self.class {
+            None => None,
+            Some(raw) => match TraceClass::parse(raw) {
+                Some(class) => Some(class),
+                None => return reject("class", raw),
+            },
+        };
+        let outcome = match &self.outcome {
+            None => None,
+            Some(raw) => match TraceOutcome::parse(raw) {
+                Some(outcome) => Some(outcome),
+                None => return reject("outcome", raw),
+            },
+        };
+        let time = |raw: &Option<String>, what: &str| -> DomainResult<Option<Timestamp>> {
+            match raw {
+                None => Ok(None),
+                Some(value) => match chrono::DateTime::parse_from_rfc3339(value) {
+                    Ok(parsed) => Ok(Some(parsed.with_timezone(&chrono::Utc))),
+                    Err(_) => reject(what, value),
+                },
+            }
+        };
+        Ok(TraceQuery {
+            trace_id: self.trace_id,
+            session_id: self.session_id,
+            kind: self.kind,
+            class,
+            actor: self.actor,
+            outcome,
+            since: time(&self.since, "since")?,
+            until: time(&self.until, "until")?,
+            before_id: self.before,
+            // 上限由儲存層 clamp（`effective_limit`）：只有一個地方說了算。
+            limit: self
+                .limit
+                .unwrap_or(interaction_core::TRACE_QUERY_DEFAULT_LIMIT),
+        })
+    }
+}
+
+/// 一頁追蹤紀錄。`next_cursor` 有值＝還可能有更早的紀錄。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TracePage {
+    pub items: Vec<TraceRow>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<i64>,
+    /// 這一頁實際套用的上限（clamp 之後）。
+    pub limit: u32,
 }
 
 /// 工作狀態 → 人話。**與桌面 `statusProjection/workState.ts` 的
@@ -225,6 +309,22 @@ fn verified_for_current_claim(record: &AgentSessionRecord) -> bool {
 }
 
 impl Runtime {
+    /// 一頁追蹤紀錄。三個介面（HTTP／Tauri IPC／CLI 經 HTTP）共用同一份
+    /// clamp 與分頁規則：回滿一頁才給 cursor，沒回滿就是到底了。
+    pub fn query_trace_page(&self, input: TraceQueryInput) -> DomainResult<TracePage> {
+        let query = input.into_query()?;
+        let limit = query.effective_limit();
+        let items = self.store.query_trace(&query)?;
+        let next_cursor = (items.len() as u32 == limit)
+            .then(|| items.last().map(|row| row.id))
+            .flatten();
+        Ok(TracePage {
+            items,
+            next_cursor,
+            limit,
+        })
+    }
+
     /// 一個 agent session 的「經過」：人話摘要＋時間線＋原始紀錄。
     ///
     /// `before` 是往回翻頁的 cursor（只回 `id < before`）；`limit` 由儲存層

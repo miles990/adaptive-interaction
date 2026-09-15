@@ -273,6 +273,56 @@ describe("一般模式不外洩治理術語", () => {
     expect(text).toContain("沿用既有對話脈絡");
   });
 
+  it("展開後的「這件工作的經過」同樣不外洩紀錄層術語", async () => {
+    vi.spyOn(api, "agentsDiscoveries").mockResolvedValue({ agents: [] });
+    vi.spyOn(api, "agentSessionsList").mockResolvedValue([SESSION]);
+    vi.spyOn(api, "agentSessionMessages").mockResolvedValue([]);
+    vi.spyOn(api, "agentSessionActivity").mockResolvedValue({
+      sessionId: SESSION.sessionId,
+      headline: "任務已送達",
+      stateLabel: "處理中",
+      phase: "working",
+      recordState: "active",
+      lifecycle: "open",
+      timeline: [
+        {
+          at: "2026-01-01T00:01:00Z",
+          id: 3,
+          kind: "agent-session.subprocess-stderr",
+          label: "工作助手有診斷輸出（可展開）",
+          detailAvailable: true,
+        },
+      ],
+      records: [
+        {
+          id: 3,
+          at: "2026-01-01T00:01:00Z",
+          class: "diagnostic",
+          kind: "agent-session.subprocess-stderr",
+          actor: "runtime",
+          detail: { tail: "warn: noisy", truncated: false, linesDropped: 0 },
+        },
+      ],
+      truncated: false,
+    });
+    const { container } = render(
+      <AppStateProvider ready={false} refreshKey={0}>
+        <AiPage refreshKey={0} onNavigate={() => {}} />
+      </AppStateProvider>
+    );
+    await screen.findByText("整理測試報告");
+    await userEvent.click(screen.getByRole("button", { name: "查看結果／訊息" }));
+    await screen.findByRole("region", { name: "這件工作的經過" });
+    const text = container.textContent ?? "";
+    // 紀錄層的術語一個都不准出現在一般模式（v0.8 階段 1 擴充的黑名單）。
+    for (const banned of ["trace", "Trace", "stderr", "SSE", "diagnostic", "audit"]) {
+      expect(text, `一般模式不得出現「${banned}」`).not.toContain(banned);
+    }
+    expect(text).not.toContain("agent-session.");
+    expect(text).not.toContain("warn: noisy");
+    expect(text).toContain("工作助手有診斷輸出（可展開）");
+  });
+
   it("進階模式才顯示 provider session 技術識別碼", async () => {
     vi.spyOn(api, "agentsDiscoveries").mockResolvedValue({ agents: [] });
     vi.spyOn(api, "agentSessionsList").mockResolvedValue([SESSION]);
