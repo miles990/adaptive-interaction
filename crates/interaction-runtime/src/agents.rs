@@ -1535,18 +1535,47 @@ impl Runtime {
             }
             // 驗證綁定「當下這個 claim」：新任務送達／新一輪工作／新的聲稱
             // 都會清掉它，所以第二輪的聲稱永遠得重新驗證。
-            entry.record.human_verified = Some(interaction_core::HumanVerification {
+            //
+            // 「狀態＋稽核」同一個 transaction（契約規則 4）：verified 是誠實
+            // 階梯的最高一階，稽核寫不進去就整筆回滾、操作回 Err——先在記憶體
+            // 裡算好新的 record，transaction 成功之後才寫回 map，所以失敗時
+            // 記憶體裡也不會留下一個「已驗證」的假象。
+            let mut updated = entry.record.clone();
+            let has_note = note.is_some();
+            updated.human_verified = Some(interaction_core::HumanVerification {
                 at: Utc::now(),
                 note,
                 claim_id: entry.record.claim_id.clone(),
             });
-            self.persist_phase(entry, "verified")
+            updated.phase = Some("verified".to_string());
+            let body = serde_json::to_string(&updated)
+                .map_err(|e| DomainError::Internal(format!("serialize agent session: {e}")))?;
+            let claim_id = updated.claim_id.clone();
+            self.store.transaction(|tx| {
+                tx.save_agent_session(id, &body)?;
+                let mut record = TraceRecord::audit("agent-session.verified")
+                    .actor("human")
+                    .outcome(TraceOutcome::Verified)
+                    .code("verify.human-confirmed")
+                    .trace_id(id)
+                    .session(id)
+                    .detail(json!({
+                        "agentSessionId": id,
+                        "claimId": claim_id,
+                        // 備註的**內容**不進稽核（那是人類寫給自己看的）；
+                        // 只記「有沒有留」。
+                        "hasNote": has_note,
+                    }));
+                // 驗證的直接原因就是被確認的那一個 claim（沒有就不補造）。
+                if let Some(claim) = &claim_id {
+                    record = record.caused_by(claim);
+                }
+                tx.record(&record)?;
+                Ok(())
+            })?;
+            entry.record = updated;
+            entry.record.clone()
         };
-        self.store.audit(
-            "agent-session.verified",
-            "user",
-            &json!({"agentSessionId": id}),
-        )?;
         self.emit_agent_session_state_for(&record, "verified");
         // 手機的綠勾只能從這裡出發：human verify（不經 plan／policy／AI 路徑，
         // `map_wire_params` 對 `verified-success` 一律拒絕）。背景直送，
@@ -1732,7 +1761,10 @@ impl Runtime {
             // 事實，關閉不得把它改寫成「已關閉」——否則失敗／未知這個結局
             // 從主要狀態消失，只剩 detail 裡一行 `(was Failed)`。close 只負責
             // 收尾（closed_at、consent、provider、經驗記錄）。
-            entry.record.state = match (reason, prior_state) {
+            // 先在記憶體裡算好新的 record，transaction 成功之後才寫回 entry：
+            // commit 失敗時記憶體裡也不會留下一個其實沒落地的「已關閉」。
+            let mut updated = entry.record.clone();
+            updated.state = match (reason, prior_state) {
                 (
                     _,
                     AgentSessionState::Failed
@@ -1743,22 +1775,54 @@ impl Runtime {
                 ("cancelled", _) => AgentSessionState::Cancelled,
                 _ => AgentSessionState::Closed,
             };
-            entry.record.detail = Some(format!("{reason} (was {prior_state:?})"));
-            entry.record.closed_at = Some(now);
+            // 失敗的原因摘要（階段 0 的 D3）不得被關閉這一行蓋掉：關閉說的是
+            // 「怎麼收尾的」，失敗說的是「為什麼失敗」，兩件事都要留得下來。
+            let close_note = format!("{reason} (was {prior_state:?})");
+            updated.detail = match (&entry.record.detail, prior_state) {
+                (Some(existing), AgentSessionState::Failed) if !existing.is_empty() => {
+                    Some(format!("{close_note}：{existing}"))
+                }
+                _ => Some(close_note),
+            };
+            updated.closed_at = Some(now);
             // Consents die with the session unless the lease explicitly opts
             // out (revoke_on_session_end). Default is true, so this honors the
             // lease flag rather than leaving it a dead knob.
-            if entry.record.lease.revoke_on_session_end {
-                entry.record.consent_scope.clear();
+            if updated.lease.revoke_on_session_end {
+                updated.consent_scope.clear();
             }
-            entry.record.handoff = handoff;
+            updated.handoff = handoff;
+            let taxonomy = close_taxonomy(updated.state);
+            updated.phase = Some(taxonomy.to_string());
+            // 「狀態＋稽核」同一個 transaction（契約規則 4）：關閉是終局轉移，
+            // 寫不進去就整筆回滾、操作回 Err，記憶體與事件也不會演出一個
+            // 其實沒有落地的關閉。
+            let body = serde_json::to_string(&updated)
+                .map_err(|e| DomainError::Internal(format!("serialize agent session: {e}")))?;
+            let audit = TraceRecord::audit("agent-session.closed")
+                .actor("human")
+                .outcome(TraceOutcome::Completed)
+                .code("close.requested")
+                .trace_id(id)
+                .session(id)
+                .detail(json!({
+                    "agentSessionId": id,
+                    "reason": reason,
+                    "priorState": format!("{prior_state:?}"),
+                    "finalState": updated.state,
+                    "phase": taxonomy,
+                }));
+            self.store.transaction(|tx| {
+                tx.save_agent_session(id, &body)?;
+                tx.record(&audit)?;
+                Ok(())
+            })?;
+            entry.record = updated;
             // Undelivered tasks are dead, honestly.
             entry.mailbox.retain(|m| m.delivered_at.is_some());
-            let taxonomy = close_taxonomy(entry.record.state);
-            let snapshot = self.persist_phase(entry, taxonomy);
             // Gateway session：關閉即終止子程序樹（絕不留孤兒）。
             self.gateway_spawn_kill(id, "session-closed");
-            (snapshot, prior_state)
+            (entry.record.clone(), prior_state)
         };
         let (record, prior_state) = record;
         self.revoke_agent_session_capabilities(id).await;
@@ -1795,11 +1859,6 @@ impl Runtime {
             .providers
             .transition(&pid, ProviderState::Closed, Some(reason.to_string()))
             .await;
-        self.store.audit(
-            "agent-session.closed",
-            "user",
-            &json!({"agentSessionId": id, "reason": reason}),
-        )?;
         self.events.emit(
             EventType::SessionStopped,
             json!({"agentSessionId": id, "reason": reason}),
@@ -1906,10 +1965,21 @@ impl Runtime {
     }
 
     pub(crate) fn persist_agent_session(&self, record: &AgentSessionRecord) {
-        if let Ok(body) = serde_json::to_string(record) {
-            let _ = self
-                .store
-                .save_agent_session(record.session_id.as_str(), &body);
+        match serde_json::to_string(record) {
+            Ok(body) => {
+                if let Err(error) = self
+                    .store
+                    .save_agent_session(record.session_id.as_str(), &body)
+                {
+                    // 以前是 `let _ =`：磁碟寫不進去完全靜默，狀態就悄悄
+                    // 只活在記憶體裡（重啟後憑空回到上一個版本）。
+                    self.note_storage_write_failure("agent-session", &error);
+                }
+            }
+            Err(error) => self.note_storage_write_failure(
+                "agent-session",
+                &DomainError::Internal(format!("serialize agent session: {error}")),
+            ),
         }
     }
 
