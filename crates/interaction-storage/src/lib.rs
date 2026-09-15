@@ -8,14 +8,16 @@
 use chrono::{DateTime, Utc};
 use interaction_core::{
     ActionId, ActionReceipt, DomainError, DomainResult, Observation, ObservationQuery, Plan,
-    PlanId, Session, SessionId,
+    PlanId, Session, SessionId, TraceClass, TraceOutcome, TracePruned, TraceQuery, TraceRecord,
+    TraceRetention, TraceRow, TRACE_RECORD_SCHEMA,
 };
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
-const CURRENT_SCHEMA: i64 = 8;
+const CURRENT_SCHEMA: i64 = 9;
 
 pub struct Store {
     conn: Mutex<Connection>,
@@ -42,6 +44,116 @@ fn map_err(e: rusqlite::Error) -> DomainError {
 
 fn map_json(e: serde_json::Error) -> DomainError {
     DomainError::Storage(format!("json: {e}"))
+}
+
+/// 寬鬆解析時間字串：先試 RFC3339（`ts_to_str` 的格式），再試沒有時區的
+/// SQLite 常見寫法。解析不出來就回 `None`——由呼叫端決定是「未知」還是錯誤。
+fn parse_ts(raw: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(raw)
+        .ok()
+        .map(|t| t.with_timezone(&Utc))
+        .or_else(|| {
+            chrono::NaiveDateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S%.f")
+                .ok()
+                .map(|n| n.and_utc())
+        })
+}
+
+/// 追蹤紀錄契約 v1 的欄位順序（`audit` 表；`id`／`at` 由儲存層決定）。
+const TRACE_COLUMNS: &str = "id, at, COALESCE(class,'audit'), \"schema\", kind, actor, outcome, \
+     code, trace_id, causation_id, session_id, source_at, detail";
+
+/// 舊 `audit()` 的寫入路徑：一律是 `class='audit'`，schema = 本輪版本。
+fn insert_audit(
+    conn: &Connection,
+    kind: &str,
+    actor: &str,
+    detail: &serde_json::Value,
+) -> DomainResult<()> {
+    conn.execute(
+        "INSERT INTO audit(at, kind, actor, detail, class, \"schema\")
+         VALUES (?1,?2,?3,?4,'audit',?5)",
+        params![
+            ts_to_str(Utc::now()),
+            kind,
+            actor,
+            detail.to_string(),
+            TRACE_RECORD_SCHEMA
+        ],
+    )
+    .map_err(map_err)?;
+    Ok(())
+}
+
+/// 寫一筆 [`TraceRecord`]；`at` 是**核心接收時間**（來源自報的時間另存
+/// `source_at`，不可信）。回傳 row id。
+fn insert_record(conn: &Connection, record: &TraceRecord) -> DomainResult<i64> {
+    conn.execute(
+        "INSERT INTO audit(at, kind, actor, detail, class, \"schema\", trace_id, causation_id,
+                           session_id, outcome, code, source_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+        params![
+            ts_to_str(Utc::now()),
+            record.kind,
+            record.actor,
+            record.detail.to_string(),
+            record.class.as_str(),
+            TRACE_RECORD_SCHEMA,
+            record.trace_id,
+            record.causation_id,
+            record.session_id,
+            record.outcome.map(|o| o.as_str()),
+            record.code,
+            record.source_at.map(ts_to_str),
+        ],
+    )
+    .map_err(map_err)?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// 讀一列成 [`TraceRow`]（欄位順序見 [`TRACE_COLUMNS`]）。
+///
+/// 誠實降級：`class` 為 NULL／不認得 → `audit`（最保守，保存最久）；`outcome`
+/// 不認得 → `unknown`（我們確實不知道那是什麼結果）；`source_at` 解析不出來
+/// → `None`（本來就不可信）。`at` 解析不出來才是真的壞資料，回 Err。
+fn trace_row_from(row: &rusqlite::Row<'_>) -> rusqlite::Result<TraceRow> {
+    let id: i64 = row.get(0)?;
+    let at_raw: String = row.get(1)?;
+    let class_raw: String = row.get(2)?;
+    let schema: Option<i64> = row.get(3)?;
+    let kind: String = row.get(4)?;
+    let actor: String = row.get(5)?;
+    let outcome_raw: Option<String> = row.get(6)?;
+    let code: Option<String> = row.get(7)?;
+    let trace_id: Option<String> = row.get(8)?;
+    let causation_id: Option<String> = row.get(9)?;
+    let session_id: Option<String> = row.get(10)?;
+    let source_at_raw: Option<String> = row.get(11)?;
+    let detail_raw: String = row.get(12)?;
+    let at = parse_ts(&at_raw).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            1,
+            rusqlite::types::Type::Text,
+            Box::new(DomainError::Storage(format!(
+                "audit row {id}: unparseable at {at_raw:?}"
+            ))),
+        )
+    })?;
+    Ok(TraceRow {
+        id,
+        at,
+        class: TraceClass::parse(&class_raw).unwrap_or(TraceClass::Audit),
+        schema,
+        kind,
+        actor,
+        outcome: outcome_raw.map(|o| TraceOutcome::parse(&o).unwrap_or(TraceOutcome::Unknown)),
+        code,
+        trace_id,
+        causation_id,
+        session_id,
+        source_at: source_at_raw.as_deref().and_then(parse_ts),
+        detail: serde_json::from_str(&detail_raw).unwrap_or(serde_json::Value::String(detail_raw)),
+    })
 }
 
 impl Store {
@@ -275,6 +387,43 @@ impl Store {
                     body       TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                "#,
+            )
+            .map_err(map_err)?;
+        }
+        if version < 9 {
+            // v9：追蹤紀錄契約 v1。沿用既有 `audit` 表，**只加 nullable 欄位與
+            // 索引**——舊列的新欄位一律 NULL，讀出時是 None／視為 class='audit'，
+            // 不回頭補造從來不存在的因果資料。
+            let existing: std::collections::BTreeSet<String> = {
+                let mut stmt = conn.prepare("PRAGMA table_info(audit)").map_err(map_err)?;
+                let rows = stmt
+                    .query_map([], |r| r.get::<_, String>(1))
+                    .map_err(map_err)?;
+                rows.collect::<Result<_, _>>().map_err(map_err)?
+            };
+            for (name, ty) in [
+                ("class", "TEXT"),
+                ("schema", "INTEGER"),
+                ("trace_id", "TEXT"),
+                ("causation_id", "TEXT"),
+                ("session_id", "TEXT"),
+                ("outcome", "TEXT"),
+                ("code", "TEXT"),
+                ("source_at", "TEXT"),
+            ] {
+                if existing.contains(name) {
+                    continue;
+                }
+                conn.execute_batch(&format!("ALTER TABLE audit ADD COLUMN \"{name}\" {ty}"))
+                    .map_err(map_err)?;
+            }
+            conn.execute_batch(
+                r#"
+                CREATE INDEX IF NOT EXISTS idx_audit_trace ON audit(trace_id, id);
+                CREATE INDEX IF NOT EXISTS idx_audit_session ON audit(session_id, id);
+                CREATE INDEX IF NOT EXISTS idx_audit_kind ON audit(kind, id);
+                CREATE INDEX IF NOT EXISTS idx_audit_class_at ON audit(class, at);
                 "#,
             )
             .map_err(map_err)?;
@@ -964,41 +1113,195 @@ impl Store {
         Ok(n as u32)
     }
 
-    // ---- audit ----
+    // ---- audit / trace（追蹤紀錄契約 v1）----
 
+    /// 相容入口：等同 `record(&TraceRecord::audit(kind).actor(actor).detail(detail))`，
+    /// 只是不回 row id。寫入 `class='audit'`、`schema=1`，其餘追蹤欄位 NULL。
     pub fn audit(&self, kind: &str, actor: &str, detail: &serde_json::Value) -> DomainResult<()> {
         let conn = self.conn.lock().expect("store lock");
-        conn.execute(
-            "INSERT INTO audit(at, kind, actor, detail) VALUES (?1,?2,?3,?4)",
-            params![ts_to_str(Utc::now()), kind, actor, detail.to_string()],
-        )
-        .map_err(map_err)?;
-        Ok(())
+        insert_audit(&conn, kind, actor, detail)
     }
 
-    pub fn audit_tail(&self, limit: u32) -> DomainResult<Vec<serde_json::Value>> {
+    /// 寫一筆追蹤紀錄，回傳 row id（`id` 就是核心接收序，也是排序權威）。
+    pub fn record(&self, record: &TraceRecord) -> DomainResult<i64> {
         let conn = self.conn.lock().expect("store lock");
-        let mut stmt = conn
-            .prepare("SELECT at, kind, actor, detail FROM audit ORDER BY id DESC LIMIT ?1")
-            .map_err(map_err)?;
+        insert_record(&conn, record)
+    }
+
+    /// 查詢追蹤紀錄：每個 filter 都是可選的 AND 條件，排序永遠 `id DESC`
+    /// （不看裝置時鐘），limit clamp 到 `1..=500`，不載入全部歷史。
+    ///
+    /// 時間範圍比對 `at`（RFC3339 毫秒 UTC，字串可直接比較）：`since` 含下界、
+    /// `until` 不含上界。`before_id` 是分頁 cursor（只回 `id < before_id`）。
+    pub fn query_trace(&self, query: &TraceQuery) -> DomainResult<Vec<TraceRow>> {
+        let limit = query.effective_limit();
+        let conn = self.conn.lock().expect("store lock");
+        let mut sql = format!("SELECT {TRACE_COLUMNS} FROM audit WHERE 1=1");
+        let mut args: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        if let Some(v) = &query.trace_id {
+            sql.push_str(" AND trace_id = ?");
+            args.push(Box::new(v.clone()));
+        }
+        if let Some(v) = &query.session_id {
+            sql.push_str(" AND session_id = ?");
+            args.push(Box::new(v.clone()));
+        }
+        if let Some(v) = &query.kind {
+            sql.push_str(" AND kind = ?");
+            args.push(Box::new(v.clone()));
+        }
+        if let Some(v) = query.class {
+            // 舊列 class IS NULL 視為 'audit'。
+            sql.push_str(" AND COALESCE(class,'audit') = ?");
+            args.push(Box::new(v.as_str().to_string()));
+        }
+        if let Some(v) = &query.actor {
+            sql.push_str(" AND actor = ?");
+            args.push(Box::new(v.clone()));
+        }
+        if let Some(v) = query.outcome {
+            sql.push_str(" AND outcome = ?");
+            args.push(Box::new(v.as_str().to_string()));
+        }
+        if let Some(since) = query.since {
+            sql.push_str(" AND at >= ?");
+            args.push(Box::new(ts_to_str(since)));
+        }
+        if let Some(until) = query.until {
+            sql.push_str(" AND at < ?");
+            args.push(Box::new(ts_to_str(until)));
+        }
+        if let Some(before_id) = query.before_id {
+            sql.push_str(" AND id < ?");
+            args.push(Box::new(before_id));
+        }
+        sql.push_str(" ORDER BY id DESC LIMIT ?");
+        args.push(Box::new(limit));
+        let mut stmt = conn.prepare(&sql).map_err(map_err)?;
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            args.iter().map(|b| b.as_ref()).collect();
         let rows = stmt
-            .query_map(params![limit], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                    r.get::<_, String>(3)?,
-                ))
-            })
+            .query_map(params_ref.as_slice(), trace_row_from)
             .map_err(map_err)?;
         let mut out = Vec::new();
         for row in rows {
-            let (at, kind, actor, detail) = row.map_err(map_err)?;
+            out.push(row.map_err(map_err)?);
+        }
+        Ok(out)
+    }
+
+    /// 有界保存：逐 class 先刪超過天數的，再刪超過筆數上限的最舊列（留最新）。
+    /// 真的刪了才寫一筆 `class=audit, kind=trace.pruned`；空刪不寫（不遞迴、
+    /// 不讓 prune 自己變成無限增長的來源）。
+    ///
+    /// 整批刪除與那筆 `trace.pruned` 在同一個 transaction 裡提交：回報的數字
+    /// 與實際刪掉的列永遠一致。
+    pub fn prune_trace(
+        &self,
+        retention: &TraceRetention,
+        now: DateTime<Utc>,
+    ) -> DomainResult<TracePruned> {
+        let mut conn = self.conn.lock().expect("store lock");
+        let tx = conn.transaction().map_err(map_err)?;
+        let mut pruned = TracePruned::default();
+        for class in TraceClass::ALL {
+            let (days, max) = retention.limits(class);
+            let mut removed = 0u64;
+            // 天數為負＝不限天數（只受筆數上限約束）。
+            if let Some(window) = (days >= 0)
+                .then(|| chrono::Duration::try_days(days))
+                .flatten()
+            {
+                removed += tx
+                    .execute(
+                        "DELETE FROM audit WHERE COALESCE(class,'audit') = ?1 AND at < ?2",
+                        params![class.as_str(), ts_to_str(now - window)],
+                    )
+                    .map_err(map_err)? as u64;
+            }
+            removed += tx
+                .execute(
+                    "DELETE FROM audit WHERE COALESCE(class,'audit') = ?1 AND id NOT IN
+                     (SELECT id FROM audit WHERE COALESCE(class,'audit') = ?1
+                      ORDER BY id DESC LIMIT ?2)",
+                    params![class.as_str(), max as i64],
+                )
+                .map_err(map_err)? as u64;
+            pruned.add(class, removed);
+        }
+        if !pruned.is_empty() {
+            let record = TraceRecord::audit("trace.pruned")
+                .actor("runtime")
+                .outcome(TraceOutcome::Pruned)
+                .detail(serde_json::json!({
+                    "removed": {
+                        "audit": pruned.audit,
+                        "trace": pruned.trace,
+                        "diagnostic": pruned.diagnostic,
+                    },
+                    "policy": {
+                        "auditDays": retention.audit_days,
+                        "auditMax": retention.audit_max,
+                        "traceDays": retention.trace_days,
+                        "traceMax": retention.trace_max,
+                        "diagnosticDays": retention.diagnostic_days,
+                        "diagnosticMax": retention.diagnostic_max,
+                    },
+                }));
+            insert_record(&tx, &record)?;
+        }
+        tx.commit().map_err(map_err)?;
+        Ok(pruned)
+    }
+
+    /// 各 class 的筆數（供 status 與效能量測）。三個已知 class 一定有 key
+    /// （沒有資料就是 0）；資料庫裡若出現不認得的 class 字串也會照實回報。
+    pub fn trace_counts(&self) -> DomainResult<BTreeMap<String, u64>> {
+        let conn = self.conn.lock().expect("store lock");
+        let mut out: BTreeMap<String, u64> = TraceClass::ALL
+            .iter()
+            .map(|c| (c.as_str().to_string(), 0u64))
+            .collect();
+        let mut stmt = conn
+            .prepare("SELECT COALESCE(class,'audit') AS c, COUNT(*) FROM audit GROUP BY c")
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .map_err(map_err)?;
+        for row in rows {
+            let (class, count) = row.map_err(map_err)?;
+            out.insert(class, count.max(0) as u64);
+        }
+        Ok(out)
+    }
+
+    /// 最近 N 筆紀錄。既有欄位（`at`／`kind`／`actor`／`detail`）形狀不變；
+    /// v9 起多帶 `id`／`class`／`traceId`／`sessionId`／`outcome`／`code`，
+    /// 舊消費者忽略即可。
+    pub fn audit_tail(&self, limit: u32) -> DomainResult<Vec<serde_json::Value>> {
+        let conn = self.conn.lock().expect("store lock");
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT {TRACE_COLUMNS} FROM audit ORDER BY id DESC LIMIT ?1"
+            ))
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map(params![limit], trace_row_from)
+            .map_err(map_err)?;
+        let mut out = Vec::new();
+        for row in rows {
+            let row = row.map_err(map_err)?;
             out.push(serde_json::json!({
-                "at": at,
-                "kind": kind,
-                "actor": actor,
-                "detail": serde_json::from_str::<serde_json::Value>(&detail).unwrap_or(serde_json::Value::String(detail)),
+                "at": ts_to_str(row.at),
+                "kind": row.kind,
+                "actor": row.actor,
+                "detail": row.detail,
+                "id": row.id,
+                "class": row.class.as_str(),
+                "traceId": row.trace_id,
+                "sessionId": row.session_id,
+                "outcome": row.outcome.map(|o| o.as_str()),
+                "code": row.code,
             }));
         }
         Ok(out)
@@ -1576,10 +1879,24 @@ impl StoreTxn<'_> {
     /// Same append as [`Store::audit`], scoped to this transaction — the audit
     /// row commits with the change it describes or not at all.
     pub fn audit(&self, kind: &str, actor: &str, detail: &serde_json::Value) -> DomainResult<()> {
+        insert_audit(&self.tx, kind, actor, detail)
+    }
+
+    /// Same append as [`Store::record`], scoped to this transaction：關鍵轉移
+    /// （verify／close／resume 接受）的稽核列必須和它描述的狀態一起提交，
+    /// 否則整筆回滾、操作回 Err。
+    pub fn record(&self, record: &TraceRecord) -> DomainResult<i64> {
+        insert_record(&self.tx, record)
+    }
+
+    /// Same upsert as [`Store::save_agent_session`], scoped to this transaction
+    /// ——讓「狀態＋稽核」能在同一個 transaction 裡提交。
+    pub fn save_agent_session(&self, id: &str, body: &str) -> DomainResult<()> {
         self.tx
             .execute(
-                "INSERT INTO audit(at, kind, actor, detail) VALUES (?1,?2,?3,?4)",
-                params![ts_to_str(Utc::now()), kind, actor, detail.to_string()],
+                "INSERT INTO agent_sessions(id, body, updated_at) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(id) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at",
+                params![id, body, chrono::Utc::now().to_rfc3339()],
             )
             .map_err(map_err)?;
         Ok(())
