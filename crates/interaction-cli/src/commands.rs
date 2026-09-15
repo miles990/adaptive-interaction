@@ -909,6 +909,18 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
                     .await?
             }
             crate::AgentsAction::Sessions => client.get("/v1/agent-sessions").await?,
+            crate::AgentsAction::Activity { id, before, limit } => {
+                let mut parts = vec![format!("limit={limit}")];
+                if let Some(before) = before {
+                    parts.push(format!("before={before}"));
+                }
+                client
+                    .get(&format!(
+                        "/v1/agent-sessions/{id}/activity?{}",
+                        parts.join("&")
+                    ))
+                    .await?
+            }
             crate::AgentsAction::Show { id } => {
                 client.get(&format!("/v1/agent-sessions/{id}")).await?
             }
@@ -1399,6 +1411,40 @@ async fn dispatch(cli: &Cli) -> Result<i32> {
         }
         Command::Outbox { limit } => client.get(&format!("/v1/outbox?limit={limit}")).await?,
         Command::Audit { limit } => client.get(&format!("/v1/audit?limit={limit}")).await?,
+        Command::Trace {
+            session,
+            trace,
+            kind,
+            class,
+            actor,
+            outcome,
+            since,
+            until,
+            before,
+            limit,
+        } => {
+            // 每個篩選條件都是可選的 AND；沒給就不送（送空字串會被後端
+            // 當成「篩選 空字串」，那是另一件事）。
+            let mut parts = vec![format!("limit={limit}")];
+            for (key, value) in [
+                ("sessionId", session),
+                ("traceId", trace),
+                ("kind", kind),
+                ("class", class),
+                ("actor", actor),
+                ("outcome", outcome),
+                ("since", since),
+                ("until", until),
+            ] {
+                if let Some(value) = value {
+                    parts.push(format!("{key}={}", urlencode(value)));
+                }
+            }
+            if let Some(before) = before {
+                parts.push(format!("before={before}"));
+            }
+            client.get(&format!("/v1/trace?{}", parts.join("&"))).await?
+        }
         Command::Serve { .. }
         | Command::Ui
         | Command::Completion { .. }

@@ -205,6 +205,25 @@ if [ "$RC" != "0" ]; then ok "double verify refused"; else bad "double verify sh
 ST=$("$BIN" agents show "$SID" --json 2>/dev/null | J "d['state']")
 check "session closed" "$ST" "closed"
 
+echo "== Trace records (human-only query + plain-language activity) =="
+# 上面那一連串動作（建立、驗證、關閉）都必須留下紀錄，而且查得出來。
+N=$("$BIN" trace --session "$SID" --limit 100 --json 2>/dev/null | J "len(d['items'])")
+if [ "${N:-0}" -gt 0 ]; then ok "human can query this session's trace records ($N)"; else bad "trace query returned nothing for $SID"; fi
+# 關閉與人工驗證是授權變更：class=audit，一筆都不能漏。
+VERIFIED=$("$BIN" trace --session "$SID" --class audit --limit 100 --json 2>/dev/null | J "any(r['kind']=='agent-session.verified' for r in d['items'])")
+check "human verification is an audit record" "$VERIFIED" "True"
+# 追蹤紀錄＝完整的授權史（誰被擋在哪一項）。AI 讀得到它就讀得到一份規避指南。
+RC=$("$BIN" --agent-scope trace --limit 5 --json >/dev/null 2>&1; echo $?)
+if [ "$RC" != "0" ]; then ok "restricted agent token cannot read the trace trail"; else bad "agent token must not read /v1/trace"; fi
+RC=$("$BIN" --agent-scope agents activity "$SID" --json >/dev/null 2>&1; echo $?)
+if [ "$RC" != "0" ]; then ok "restricted agent token cannot read a session's activity"; else bad "agent token must not read activity"; fi
+# 「這件工作的經過」是人話：headline 不得是 kind 字串，狀態也不是 taxonomy。
+ACT=$("$BIN" agents activity "$SID" --json 2>/dev/null)
+HEAD=$(echo "$ACT" | J "d['headline']")
+if [ -n "$HEAD" ] && [[ "$HEAD" != *"agent-session."* ]]; then ok "activity headline is plain language ($HEAD)"; else bad "activity headline leaked a kind string ('$HEAD')"; fi
+NEXT=$(echo "$ACT" | J "d.get('nextStep','')")
+check "a closed session needs nothing from the human" "$NEXT" "無需處理"
+
 echo "== Sensors (default off, consent-gated) =="
 # Without enabling + consent, listening is refused (no capture).
 RC=$("$BIN" sensors listen --ms 2000 --json >/dev/null 2>&1; echo $?)
