@@ -16,7 +16,9 @@
 //! - `actor` 只寫**已驗證**的身分類別（`human`／`runtime`／`watchdog`／
 //!   `agent-session:<id>`／`device:<id>`／`api`）；絕不把呼叫端自報的 id 當成可信身分。
 //! - `detail` 是安全摘要：不得含 token／secret／原始 prompt 全文；路徑只放
-//!   `{"digest": sha256 前 12 hex, "basename": ...}`。
+//!   `{"digest": sha256 前 12 hex, "basename": ...}`，而且**有界**——超過
+//!   [`TRACE_DETAIL_MAX_BYTES`] 時儲存層把它換成自述的截斷標記（見該常數），
+//!   不丟掉整筆紀錄、也不假裝那就是全部。
 
 use crate::Timestamp;
 use serde::{Deserialize, Serialize};
@@ -25,6 +27,21 @@ use serde_json::Value;
 /// 追蹤紀錄的 schema 版本；本輪 = 1。舊列（migration 前寫入）為 NULL，
 /// 讀出時是 `None`，不補造。
 pub const TRACE_RECORD_SCHEMA: i64 = 1;
+
+/// 一筆紀錄 `detail` 序列化後的位元組上限（16 KiB）。
+///
+/// `detail` 是**不可信來源**（agent stderr、provider payload、CLI 參數）經過
+/// 摘要之後的產物，摘要有沒有做好不是儲存層說了算；沒有上限，一筆紀錄就能
+/// 把 DB 撐大、把查詢回應撐大，也能把同一次查詢裡其他行的可讀性吃掉。
+///
+/// 超過上限**不丟棄整筆**（丟掉的紀錄追不回來）：儲存層會改寫成
+/// `{"_truncated": true, "_originalBytes": n, "preview": "<前 N 個字>"}`，
+/// 有界、但仍看得出這筆紀錄原本在說什麼。
+pub const TRACE_DETAIL_MAX_BYTES: usize = 16 * 1024;
+
+/// 超過 [`TRACE_DETAIL_MAX_BYTES`] 時，`preview` 保留的字數（chars，不是
+/// bytes——不能砍在 UTF-8 字元中間）。
+pub const TRACE_DETAIL_PREVIEW_CHARS: usize = 2000;
 
 /// [`TraceQuery::limit`] 的預設值。
 pub const TRACE_QUERY_DEFAULT_LIMIT: u32 = 50;
@@ -196,7 +213,8 @@ pub struct TraceRecord {
     /// 來源自報的發生時間（不可信，只供參考）；核心接收時間由儲存層寫 `at`。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_at: Option<Timestamp>,
-    /// 安全摘要。不得含 token／secret／原始 prompt 全文。
+    /// 安全摘要。不得含 token／secret／原始 prompt 全文；序列化後超過
+    /// [`TRACE_DETAIL_MAX_BYTES`] 會被儲存層有界化（截斷標記＋preview）。
     pub detail: Value,
 }
 
@@ -574,6 +592,9 @@ mod tests {
             .effective_limit(),
             1
         );
+
+        assert_eq!(TRACE_DETAIL_MAX_BYTES, 16 * 1024);
+        assert_eq!(TRACE_DETAIL_PREVIEW_CHARS, 2_000);
 
         let retention = TraceRetention::default();
         assert_eq!(retention.limits(TraceClass::Audit), (90, 100_000));
